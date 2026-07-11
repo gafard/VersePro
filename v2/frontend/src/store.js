@@ -22,6 +22,9 @@ export const useStore = create((set, get) => ({
   activeBible: 'LSG',
   availableBibles: ['LSG'],
   
+  // Ce qui est actuellement projeté à l'écran (référence + texte), null = écran noir
+  onAir: null,
+
   // ProPresenter & Projection Queue
   propresenterConnected: false,
   autoSend: false,
@@ -225,6 +228,16 @@ export const useStore = create((set, get) => ({
         get().addDetectedReference(data.reference)
         // Ajoute automatiquement à la file de projection (avec statut pending ou projected)
         get().addToProjectionQueue(data.reference)
+        // Si le backend l'a projetée directement (autopilote), reflète l'état à l'antenne
+        if (data.reference?.auto_projected) {
+          set({
+            onAir: {
+              reference: data.reference.reference,
+              text: data.reference.text || '',
+              at: new Date().toISOString()
+            }
+          })
+        }
         get().fetchHistory()
       }
       
@@ -389,13 +402,32 @@ export const useStore = create((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference })
       })
-      
-      // Projete également de manière synchrone sur l'écran autonome local
       const data = await response.json()
+      if (data?.success) {
+        set({
+          onAir: { reference: data.reference, text: data.text || '', at: new Date().toISOString() },
+          propresenterConnected: Boolean(data.propresenter_sent)
+        })
+      }
       return data
     } catch (error) {
       console.error('Erreur send reference:', error)
       return null
+    }
+  },
+
+  clearProjectionScreen: async () => {
+    try {
+      // Efface l'écran autonome + ProPresenter (meilleur effort)
+      await fetch('/api/v1/project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '', reference: '' })
+      })
+      fetch('/api/v1/propresenter/clear', { method: 'POST' }).catch(() => {})
+      set({ onAir: null })
+    } catch (error) {
+      console.error('Erreur clear projection:', error)
     }
   },
   

@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
-import liveStageImage from '../assets/versepro-live-stage.png'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -11,161 +10,148 @@ const BIBLE_NAMES = {
   TOB: 'Traduction Œcuménique (TOB)'
 }
 
+const QUICK_REFS = [
+  { ref: 'Jean 3:16', label: 'Jn 3:16' },
+  { ref: 'Psaume 23:1', label: 'Ps 23:1' },
+  { ref: 'Romains 8:28', label: 'Rm 8:28' },
+  { ref: 'Éphésiens 2:8', label: 'Éph 2:8' }
+]
+
+/** Décale le numéro de verset d'une référence "Livre C:V" (navigation de lecture) */
+function shiftVerse(reference, delta) {
+  const match = /^(.+?)\s+(\d+):(\d+)/.exec(reference || '')
+  if (!match) return null
+  const verse = parseInt(match[3], 10) + delta
+  if (verse < 1) return null
+  return `${match[1]} ${match[2]}:${verse}`
+}
+
+function MicIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+      <line x1="12" y1="19" x2="12" y2="22" />
+    </svg>
+  )
+}
+
+function StopIcon({ size = 13 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="5" y="5" width="14" height="14" rx="2" />
+    </svg>
+  )
+}
+
 export default function LiveDetection() {
-  const { 
-    isListening, 
-    setIsListening, 
-    currentTranscript, 
+  const {
+    isListening, setIsListening,
+    currentTranscript,
     detectedReferences,
     propresenterConnected,
-    autoSend,
-    setAutoSend,
-    sendReference,
-    sendAudio,
-    asrMode,
-    selectedEngine,
-    setSelectedEngine,
-    activeBible,
-    availableBibles,
-    selectBible,
-    fetchBibles,
+    sendReference, sendAudio,
+    asrMode, selectedEngine, setSelectedEngine,
+    activeBible, availableBibles, selectBible, fetchBibles,
     aiActive,
-    translationLang,
-    currentTranslation,
-    setTranslationLang,
-    autopilotMode,
-    setAutopilotMode,
-    projectionQueue,
-    projectVerseFromQueue,
-    rejectVerseFromQueue,
-    clearProjectionQueue,
+    translationLang, currentTranslation, setTranslationLang,
+    autopilotMode, setAutopilotMode,
+    projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearProjectionQueue,
     connected,
-    settings,
-    fetchSettings,
-    updateSettings,
-    voskStatus,
-    fetchVoskStatus,
-    downloadVoskModel,
-    lastAiRejection
+    fetchSettings, updateSettings,
+    voskStatus, fetchVoskStatus, downloadVoskModel,
+    lastAiRejection,
+    onAir, clearProjectionScreen
   } = useStore()
-  
+
   const [manualReference, setManualReference] = useState('')
-  const [selectedRefIndex, setSelectedRefIndex] = useState(null)
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
   const [volume, setVolume] = useState(0)
-  const [waveformBars, setWaveformBars] = useState(() => Array.from({ length: 28 }, () => 6))
   const [visibleRejection, setVisibleRejection] = useState(null)
+  const [clock, setClock] = useState(() => new Date())
+  const [micError, setMicError] = useState(null)
 
-  // Découper la transcription en mots récents pour l'effet de fading cognitif
-  const displayTranscriptWords = useMemo(() => {
-    if (!currentTranscript) return null
-    const words = currentTranscript.trim().split(/\s+/).filter(Boolean)
-    return words.slice(-30) // Ne garder que les 30 derniers mots
-  }, [currentTranscript])
+  const manualInputRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const processorNodeRef = useRef(null)
+  const streamRef = useRef(null)
 
-  // Dessin de l'onde Siri organique réactive (Bézier curves asservies au volume)
+  // Horloge de régie
   useEffect(() => {
-    const canvas = document.getElementById('siri-wave')
-    if (!canvas) return
+    const timer = setInterval(() => setClock(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
+  // Onde audio réactive du ticker
+  useEffect(() => {
+    const canvas = document.getElementById('vp-wave')
+    if (!canvas) return
     const ctx = canvas.getContext('2d')
     let animationId
     let phase = 0
 
-    const resize = () => {
-      const dpr = window.devicePixelRatio || 1
-      canvas.width = canvas.getBoundingClientRect().width * dpr
-      canvas.height = canvas.getBoundingClientRect().height * dpr
-      ctx.scale(dpr, dpr)
-    }
-
-    resize()
-    window.addEventListener('resize', resize)
-
-    const width = canvas.width / (window.devicePixelRatio || 1)
-    const height = canvas.height / (window.devicePixelRatio || 1)
-
-    const drawWave = (color, amplitude, frequency, offset) => {
-      ctx.beginPath()
-      ctx.strokeStyle = color
-      ctx.lineWidth = 1.0
-
-      for (let x = 0; x < width; x++) {
-        // Enveloppe gaussienne pour écraser les extrémités de l'onde à gauche/droite
-        const envelope = Math.sin((x / width) * Math.PI)
-        const y = (height / 2) + Math.sin(x * frequency + phase + offset) * amplitude * envelope
-
-        if (x === 0) {
-          ctx.moveTo(x, y)
-        } else {
-          ctx.lineTo(x, y)
-        }
-      }
-      ctx.stroke()
-    }
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.scale(dpr, dpr)
+    const width = rect.width
+    const height = rect.height
 
     const animate = () => {
       ctx.clearRect(0, 0, width, height)
+      const amp = isListening ? Math.max(1.5, (volume / 100) * 12) : 0.6
+      phase += isListening ? 0.06 + (volume / 100) * 0.08 : 0.015
 
-      // Asservir l'amplitude de l'onde au volume sonore dynamique du micro
-      const baseAmp = isListening ? Math.max(1.5, (volume / 100) * 14) : 0.2
-      const speed = isListening ? 0.05 + (volume / 100) * 0.08 : 0.015
-      phase += speed
-
-      if (isListening && baseAmp > 1.5) {
-        // Tracé unique d'un pixel monochrome gris sombre (style Teenage Engineering / console audio pro)
-        drawWave('rgba(29, 29, 31, 0.75)', baseAmp, 0.06, 0)
-      } else {
-        // Ligne plate d'attente neutre
-        drawWave('rgba(142, 142, 147, 0.2)', 0.5, 0.02, 0)
+      ctx.beginPath()
+      ctx.strokeStyle = isListening ? 'rgba(91, 157, 255, 0.85)' : 'rgba(93, 101, 119, 0.4)'
+      ctx.lineWidth = 1.4
+      for (let x = 0; x < width; x++) {
+        const envelope = Math.sin((x / width) * Math.PI)
+        const y = height / 2 + Math.sin(x * 0.09 + phase) * amp * envelope
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
       }
-
+      ctx.stroke()
       animationId = requestAnimationFrame(animate)
     }
-
     animate()
-
-    return () => {
-      cancelAnimationFrame(animationId)
-      window.removeEventListener('resize', resize)
-    }
+    return () => cancelAnimationFrame(animationId)
   }, [isListening, volume])
 
-  // Effacer la notification de rejet après 6 secondes
+  // Notification de rejet IA (6 s)
   useEffect(() => {
     if (lastAiRejection) {
       setVisibleRejection(lastAiRejection)
-      const timer = setTimeout(() => {
-        setVisibleRejection(null)
-      }, 6000)
+      const timer = setTimeout(() => setVisibleRejection(null), 6000)
       return () => clearTimeout(timer)
     }
   }, [lastAiRejection])
 
-  // Filtrage des éléments en attente (pending) pour la navigation par clavier
-  const pendingItems = useMemo(() => {
-    return projectionQueue.filter((item) => item.status === 'pending')
-  }, [projectionQueue])
+  const pendingItems = useMemo(
+    () => projectionQueue.filter((item) => item.status === 'pending'),
+    [projectionQueue]
+  )
 
-  // Ajustement de l'index sélectionné si le nombre d'éléments diminue
   useEffect(() => {
     if (selectedQueueIndex >= pendingItems.length) {
       setSelectedQueueIndex(Math.max(0, pendingItems.length - 1))
     }
   }, [pendingItems, selectedQueueIndex])
 
-  // Écouteur pour les raccourcis claviers de la régie
+  // Raccourcis clavier de régie : ↑/↓ naviguer, Espace/Entrée projeter, Échap ignorer, "/" recherche
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignorer si l'utilisateur saisit du texte dans un input
-      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)
+
+      if (e.key === '/' && !typing) {
+        e.preventDefault()
+        manualInputRef.current?.focus()
         return
       }
-
+      if (typing) return
       if (pendingItems.length === 0) return
 
       const currentItem = pendingItems[selectedQueueIndex]
-
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setSelectedQueueIndex((prev) => Math.min(pendingItems.length - 1, prev + 1))
@@ -173,41 +159,27 @@ export default function LiveDetection() {
         e.preventDefault()
         setSelectedQueueIndex((prev) => Math.max(0, prev - 1))
       } else if (e.key === ' ' || e.key === 'Enter') {
-        // Espace ou Entrée pour projeter
         e.preventDefault()
-        if (currentItem) {
-          projectVerseFromQueue(currentItem.queueId, currentItem.reference, currentItem.text)
-        }
+        if (currentItem) projectVerseFromQueue(currentItem.queueId, currentItem.reference, currentItem.text)
       } else if (e.key === 'Escape' || e.key === 'Backspace') {
-        // Échap ou Retour arrière pour ignorer/rejeter
         e.preventDefault()
-        if (currentItem) {
-          rejectVerseFromQueue(currentItem.queueId)
-        }
+        if (currentItem) rejectVerseFromQueue(currentItem.queueId)
       }
     }
-
     window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [pendingItems, selectedQueueIndex, projectVerseFromQueue, rejectVerseFromQueue])
-  
-  // Onboarding local
+
+  // Onboarding (première ouverture sans clé configurée)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardDeepgram, setOnboardDeepgram] = useState('')
-  const [onboardOpenRouter, setOnboardOpenRouter] = useState('')
-  const [onboardGemini, setOnboardGemini] = useState('')
+  const [onboardAi, setOnboardAi] = useState('')
   const [submittingOnboard, setSubmittingOnboard] = useState(false)
-  
-  const audioContextRef = useRef(null)
-  const processorNodeRef = useRef(null)
-  const streamRef = useRef(null)
 
   useEffect(() => {
     fetchBibles()
     fetchVoskStatus()
-    
+
     const initSettings = async () => {
       const currentSettings = await fetchSettings()
       const ignored = localStorage.getItem('versepro_onboarding_ignored')
@@ -216,32 +188,24 @@ export default function LiveDetection() {
       }
     }
     initSettings()
-    
-    // Intervalle pour vérifier le téléchargement de Vosk s'il tourne
-    const interval = setInterval(async () => {
-      const status = await fetchVoskStatus()
-      if (status && !status.downloading) {
-        // Optionnel : on peut arrêter l'intervalle si le téléchargement est fini
-      }
-    }, 8000)
 
+    const interval = setInterval(() => { fetchVoskStatus() }, 8000)
     return () => {
       stopRecording()
       clearInterval(interval)
     }
   }, [])
 
+  // ── Capture micro ──────────────────────────────────────────────
   const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
-    if (inputSampleRate === outputSampleRate) {
-      return buffer
-    }
-    const sampleRateRatio = inputSampleRate / outputSampleRate
-    const newLength = Math.round(buffer.length / sampleRateRatio)
+    if (inputSampleRate === outputSampleRate) return buffer
+    const ratio = inputSampleRate / outputSampleRate
+    const newLength = Math.round(buffer.length / ratio)
     const result = new Float32Array(newLength)
     let offsetResult = 0
     let offsetBuffer = 0
     while (offsetResult < result.length) {
-      const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio)
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio)
       let accum = 0, count = 0
       for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
         accum += buffer[i]
@@ -254,85 +218,47 @@ export default function LiveDetection() {
     return result
   }
 
-  const buildWaveformBars = (buffer, count = 28) => {
-    const bucketSize = Math.max(1, Math.floor(buffer.length / count))
-    return Array.from({ length: count }, (_, bucket) => {
-      const start = bucket * bucketSize
-      const end = Math.min(buffer.length, start + bucketSize)
-      let sum = 0
-      let peak = 0
-
-      for (let i = start; i < end; i++) {
-        const value = Math.abs(buffer[i])
-        sum += value * value
-        peak = Math.max(peak, value)
-      }
-
-      const rms = Math.sqrt(sum / Math.max(1, end - start))
-      return Math.round(Math.min(96, Math.max(6, rms * 540 + peak * 100)))
-    })
-  }
-
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     streamRef.current = stream
-    
+
     const AudioContextClass = window.AudioContext || window.webkitAudioContext
     const audioContext = new AudioContextClass()
-    
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume()
-    }
-    
+    if (audioContext.state === 'suspended') await audioContext.resume()
     audioContextRef.current = audioContext
-    
+
     const sourceNode = audioContext.createMediaStreamSource(stream)
-    
-    // Filtre passe-haut à 250Hz pour couper les basses, percussions et bruits de pas (rythme musical)
+
+    // Bande passante voix : coupe les basses (percussions) et les aigus (cymbales)
     const highpassNode = audioContext.createBiquadFilter()
     highpassNode.type = 'highpass'
     highpassNode.frequency.value = 250
-    
-    // Filtre passe-bas à 3000Hz pour couper les harmoniques aiguës, sifflements et cymbales
     const lowpassNode = audioContext.createBiquadFilter()
     lowpassNode.type = 'lowpass'
     lowpassNode.frequency.value = 3000
-    
+
     const processorNode = audioContext.createScriptProcessor(4096, 1, 1)
     processorNodeRef.current = processorNode
-    
     const inputSampleRate = audioContext.sampleRate
-    const outputSampleRate = 16000
-    
+
     processorNode.onaudioprocess = (event) => {
       if (!streamRef.current) return
       const inputData = event.inputBuffer.getChannelData(0)
-      
+
       let sum = 0
-      for (let i = 0; i < inputData.length; i++) {
-        sum += inputData[i] * inputData[i]
-      }
+      for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i]
       const rms = Math.sqrt(sum / inputData.length)
-      const volumeLevel = Math.min(100, Math.round(rms * 100 * 6))
-      setVolume(volumeLevel)
-      const nextWaveform = buildWaveformBars(inputData)
-      setWaveformBars((previous) => nextWaveform.map((height, index) => {
-        const prev = previous[index] || 6
-        return Math.round(prev * 0.42 + height * 0.58)
-      }))
-      
-      const downsampled = downsampleBuffer(inputData, inputSampleRate, outputSampleRate)
-      
+      setVolume(Math.min(100, Math.round(rms * 600)))
+
+      const downsampled = downsampleBuffer(inputData, inputSampleRate, 16000)
       const pcmBuffer = new Int16Array(downsampled.length)
       for (let i = 0; i < downsampled.length; i++) {
         const s = Math.max(-1, Math.min(1, downsampled[i]))
         pcmBuffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
       }
-      
       sendAudio(pcmBuffer.buffer)
     }
-    
-    // Connexion de la chaîne audio avec réduction de bruit vocal
+
     sourceNode.connect(highpassNode)
     highpassNode.connect(lowpassNode)
     lowpassNode.connect(processorNode)
@@ -341,7 +267,6 @@ export default function LiveDetection() {
 
   const stopRecording = () => {
     setVolume(0)
-    setWaveformBars(Array.from({ length: 28 }, () => 6))
     if (processorNodeRef.current) {
       processorNodeRef.current.disconnect()
       processorNodeRef.current = null
@@ -351,48 +276,52 @@ export default function LiveDetection() {
       audioContextRef.current = null
     }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
   }
-  
+
   const toggleListening = async () => {
     if (isListening) {
       stopRecording()
       setIsListening(false)
     } else {
       try {
+        setMicError(null)
         await startRecording()
         setIsListening(true)
       } catch (err) {
         console.error("Erreur d'accès micro:", err)
-        alert("Impossible d'accéder au microphone : " + err.message)
+        setMicError(`Micro inaccessible : ${err.message}`)
       }
     }
   }
-  
+
+  // ── Actions ────────────────────────────────────────────────────
   const handleSendManual = async () => {
-    if (manualReference) {
-      await sendReference(manualReference)
-      setManualReference('')
-    }
+    const ref = manualReference.trim()
+    if (!ref) return
+    await sendReference(ref)
+    setManualReference('')
   }
-  
+
+  const handleShiftVerse = async (delta) => {
+    const next = shiftVerse(onAir?.reference, delta)
+    if (next) await sendReference(next)
+  }
+
   const handleOnboardSubmit = async (e) => {
     e.preventDefault()
     setSubmittingOnboard(true)
     try {
       const payload = {}
       if (onboardDeepgram.trim()) payload.deepgram_api_key = onboardDeepgram.trim()
-      if (onboardOpenRouter.trim()) payload.openrouter_api_key = onboardOpenRouter.trim()
-      if (onboardGemini.trim()) payload.gemini_api_key = onboardGemini.trim()
-      if (Object.keys(payload).length > 0) {
-        await updateSettings(payload)
+      if (onboardAi.trim()) {
+        if (onboardAi.trim().startsWith('AIza')) payload.gemini_api_key = onboardAi.trim()
+        else payload.openrouter_api_key = onboardAi.trim()
       }
+      if (Object.keys(payload).length > 0) await updateSettings(payload)
       setShowOnboarding(false)
-    } catch (err) {
-      console.error("Erreur configuration onboarding:", err)
-      alert("Impossible de sauvegarder la configuration : " + err.message)
     } finally {
       setSubmittingOnboard(false)
     }
@@ -402,538 +331,392 @@ export default function LiveDetection() {
     localStorage.setItem('versepro_onboarding_ignored', 'true')
     setShowOnboarding(false)
   }
-  
+
   const openProjectionWindow = () => {
     window.open('/projection', 'VerseProProjection', 'width=1024,height=768,menubar=no,toolbar=no')
   }
 
-  const prompterLines = useMemo(() => {
-    const source = currentTranscript || "En attente du signal micro. Les paroles reconnues defileront ici avec un fondu haut et bas pour garder le direct lisible."
-    const words = source.trim().split(/\s+/).filter(Boolean)
-    const lines = []
-    for (let i = 0; i < words.length; i += 9) {
-      lines.push(words.slice(i, i + 9).join(' '))
-    }
-    return lines.slice(-7)
+  // ── Données dérivées ───────────────────────────────────────────
+  const displayWords = useMemo(() => {
+    if (!currentTranscript) return null
+    return currentTranscript.trim().split(/\s+/).filter(Boolean).slice(-30)
   }, [currentTranscript])
 
-  const latestReference = detectedReferences[0] || projectionQueue.find((item) => item.status === 'projected') || projectionQueue[0]
-  const pendingCount = projectionQueue.filter((item) => item.status === 'pending').length
-  const safetyMode = autopilotMode ? 'Autopilote local' : 'Validation manuelle'
-  
+  const onAirDisplay = onAir || (() => {
+    const projected = projectionQueue.find((item) => item.status === 'projected')
+    return projected ? { reference: projected.reference, text: projected.text } : null
+  })()
+
+  const pendingLocal = pendingItems.filter((i) => i.source !== 'ai' && i.detectionMethod !== 'ai_semantic')
+  const pendingAi = pendingItems.filter((i) => i.source === 'ai' || i.detectionMethod === 'ai_semantic')
+  const recentDone = projectionQueue.filter((i) => i.status !== 'pending').slice(0, 3)
+  const canShift = Boolean(shiftVerse(onAirDisplay?.reference, 1))
+
+  const renderCard = (item, accent) => {
+    const pendingIdx = pendingItems.findIndex((p) => p.queueId === item.queueId)
+    const isKeyboardActive = pendingIdx === selectedQueueIndex
+    const confidencePct = item.confidence
+      ? Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)
+      : null
+
+    return (
+      <article
+        key={item.queueId}
+        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''}`}
+        onClick={() => setSelectedQueueIndex(pendingIdx)}
+      >
+        <div className="live-card-head">
+          <span className="live-card-ref">{item.reference}</span>
+          <span className={`live-card-badge ${accent === 'ai' ? 'is-ai' : 'is-local'}`}>
+            {accent === 'ai' ? `IA ${confidencePct ?? 95}%` : 'Local'}
+          </span>
+        </div>
+        <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
+        <div className="live-card-foot">
+          <span className="live-card-time">
+            {new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </span>
+          <div className="live-card-actions">
+            <button
+              className="vp-btn vp-btn--ghost vp-btn--sm"
+              onClick={(e) => { e.stopPropagation(); rejectVerseFromQueue(item.queueId) }}
+            >
+              Ignorer
+            </button>
+            <button
+              className={`vp-btn vp-btn--sm ${accent === 'ai' ? 'vp-btn--ai' : 'vp-btn--ok'}`}
+              onClick={(e) => { e.stopPropagation(); projectVerseFromQueue(item.queueId, item.reference, item.text) }}
+            >
+              Projeter
+            </button>
+          </div>
+        </div>
+      </article>
+    )
+  }
+
   return (
-    <div className="live-page-surface space-y-6">
+    <div className="live-shell">
+      {/* ═══════════ ONBOARDING ═══════════ */}
       {showOnboarding && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.75)', backdropFilter: 'blur(20px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-copilot" style={{ maxWidth: '600px', width: '100%', padding: '40px', borderRadius: '16px', border: '1px solid #e3e3e3', boxShadow: '0 10px 30px rgba(0,0,0,0.08)', background: '#ffffff', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <span style={{ fontSize: '48px' }}>🚀</span>
-              <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#1d1d1f', marginTop: '16px' }}>Bienvenue sur VersePro V2</h2>
-              <p style={{ color: '#86868b', fontSize: '13px', marginTop: '8px' }}>
-                Simplifiez la diffusion biblique de votre église. Découvrez l'interface régie instantanément grâce au mode local autonome, ou configurez vos clés cloud optionnelles.
-              </p>
-            </div>
-            
-            <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '6px' }}>
-                  <small style={{ color: '#0071e3', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10px' }}>Clé API Deepgram (Optionnel)</small>
-                  <input
-                    type="password"
-                    placeholder="dg_..."
-                    value={onboardDeepgram}
-                    onChange={(e) => setOnboardDeepgram(e.target.value)}
-                    style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e3e3e3', background: '#f5f5f7', color: '#1d1d1f', marginTop: '4px' }}
-                  />
-                </label>
-                <span style={{ fontSize: '11px', color: '#86868b' }}>Requis pour la transcription cloud. Si laissé vide, VersePro utilisera Vosk en local.</span>
-              </div>
+        <div className="vp-modal-backdrop">
+          <div className="vp-modal">
+            <h2>Bienvenue sur VersePro</h2>
+            <p style={{ marginTop: 8 }}>
+              Projetez les versets cités en direct pendant le culte. Fonctionne immédiatement en
+              mode local (Vosk) — les clés cloud sont optionnelles et améliorent la précision.
+            </p>
 
-              <div>
-                <label style={{ display: 'block', marginBottom: '6px' }}>
-                  <small style={{ color: '#b06000', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10px' }}>Clé API OpenRouter ou Gemini (IA Optionnelle)</small>
-                  <input
-                    type="password"
-                    placeholder="sk-or-... ou AIzaSy..."
-                    value={onboardOpenRouter}
-                    onChange={(e) => setOnboardOpenRouter(e.target.value)}
-                    style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e3e3e3', background: '#f5f5f7', color: '#1d1d1f', marginTop: '4px' }}
-                  />
-                </label>
-                <span style={{ fontSize: '11px', color: '#86868b' }}>Active l'analyse des paraphrases par le moteur semantique (reglages modifiables plus tard).</span>
-              </div>
+            <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 22 }}>
+              <label>
+                <span className="vp-label" style={{ display: 'block', marginBottom: 6 }}>Clé API Deepgram — transcription cloud (optionnel)</span>
+                <input
+                  className="vp-input"
+                  type="password"
+                  placeholder="dg_..."
+                  value={onboardDeepgram}
+                  onChange={(e) => setOnboardDeepgram(e.target.value)}
+                />
+              </label>
+              <label>
+                <span className="vp-label" style={{ display: 'block', marginBottom: 6 }}>Clé OpenRouter ou Gemini — détection IA (optionnel)</span>
+                <input
+                  className="vp-input"
+                  type="password"
+                  placeholder="sk-or-... ou AIzaSy..."
+                  value={onboardAi}
+                  onChange={(e) => setOnboardAi(e.target.value)}
+                />
+              </label>
 
-              {/* MOTEUR VOSK LOCAL (ONBOARDING DÉPENDANCES) */}
-              <div style={{ borderTop: '1px solid #e3e3e3', paddingTop: '16px', marginTop: '8px' }}>
-                <span style={{ color: '#137333', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '10px', display: 'block', marginBottom: '6px' }}>Reconnaissance vocale locale (Vosk)</span>
-                
+              <div style={{ borderTop: '1px solid var(--vp-border)', paddingTop: 16 }}>
+                <span className="vp-label" style={{ display: 'block', marginBottom: 8 }}>Moteur local Vosk (hors-ligne)</span>
                 {voskStatus.installed ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', borderRadius: '12px', background: '#e6f4ea', border: '1px solid #ceead6', color: '#137333', fontSize: '12px' }}>
-                    <span>✅</span>
-                    <strong>Moteur local Vosk installé et prêt ({voskStatus.model_type})</strong>
-                  </div>
+                  <span className="vp-chip is-ok"><span className="dot" />Modèle {voskStatus.model_type} installé et prêt</span>
                 ) : voskStatus.downloading ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', borderRadius: '12px', background: '#fef7e0', border: '1px solid #feebc8', color: '#b06000', fontSize: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className="animate-spin">📥</span>
-                      <strong>Téléchargement et configuration du modèle Vosk...</strong>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'rgba(176,96,0,0.8)' }}>Le modèle est récupéré en tâche de fond. Le système s'initialisera automatiquement.</span>
-                  </div>
+                  <span className="vp-chip is-warn"><span className="dot" />Téléchargement du modèle en cours…</span>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <p style={{ color: '#86868b', fontSize: '12px' }}>
-                      Pour faire fonctionner VersePro sans connexion Internet (mode local), vous devez installer le modèle linguistique français.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={downloadVoskModel}
-                      style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid #e3e3e3', background: '#ffffff', color: '#1d1d1f', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', width: 'fit-content', boxShadow: '0 1px 2px rgba(0,0,0,0.02)', transition: 'all 0.2s' }}
-                    >
-                      📥 Télécharger le modèle Vosk (Français)
-                    </button>
-                  </div>
+                  <button type="button" className="vp-btn vp-btn--sm" onClick={downloadVoskModel}>
+                    Télécharger le modèle français
+                  </button>
                 )}
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px', borderTop: '1px solid #e3e3e3', paddingTop: '16px' }}>
-                <button
-                  type="submit"
-                  disabled={submittingOnboard}
-                  style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0071e3', color: '#ffffff', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0, 113, 227, 0.2)' }}
-                >
-                  {submittingOnboard ? 'Configuration...' : 'Enregistrer et activer'}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid var(--vp-border)', paddingTop: 16 }}>
+                <button type="submit" className="vp-btn vp-btn--primary" disabled={submittingOnboard}>
+                  {submittingOnboard ? 'Configuration…' : 'Enregistrer et démarrer'}
                 </button>
-                
-                <button
-                  type="button"
-                  onClick={handleOnboardSkip}
-                  style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #e3e3e3', background: '#ffffff', color: '#1d1d1f', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' }}
-                >
-                  Démarrer l'expérience en mode local (sans clés)
+                <button type="button" className="vp-btn vp-btn--ghost" onClick={handleOnboardSkip}>
+                  Continuer en mode local, sans clés
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-      <div className="live-unified-console">
-        {/* En-tête de console unifiée */}
-        <div className="live-stage-topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <div>
-            <span className="live-eyebrow">Regie live</span>
-            <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1d1d1f' }}>Console de projection</h2>
-            {visibleRejection && (
-              <span className="live-ai-rejection-hint animate-fade-in" style={{ fontSize: '11px', color: '#b06000', fontStyle: 'italic', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '6px', background: '#fff7e0', border: '1px solid #feebc8', padding: '4px 10px', borderRadius: '8px', userSelect: 'none' }}>
-                🛡️ IA : suggestion "{visibleRejection.reference}" ignoree ({visibleRejection.confidence}% &lt; {visibleRejection.threshold}% requis)
-              </span>
-            )}
-          </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            {/* Indicateur micro miniaturisé */}
-            <div className="live-mini-mic" onClick={toggleListening} style={{ cursor: 'pointer' }}>
-              <span className={`live-mic-dot ${isListening ? 'is-active' : ''}`} />
-              <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#1d1d1f' }}>
-                {isListening ? 'Micro ouvert' : 'Micro en attente'}
-              </span>
-              <div className="live-mini-volume-bar">
-                <div style={{ width: isListening ? `${volume}%` : '0%' }} />
-              </div>
-              <strong style={{ fontSize: '11px', color: '#1d1d1f', minWidth: '24px' }}>
-                {isListening ? `${volume}%` : '0%'}
-              </strong>
-            </div>
-
-            {/* Statuts simples */}
-            <div className="live-status-row" style={{ display: 'flex', gap: '16px', alignItems: 'center', userSelect: 'none' }}>
-              <span style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', color: connected ? '#1e7e34' : '#d93025', fontWeight: '550' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: connected ? '#1e7e34' : '#d93025' }} />
-                Serveur {connected ? 'connecte' : 'hors ligne'}
-              </span>
-              <span style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', color: aiActive ? '#0071e3' : '#86868b', fontWeight: '550' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: aiActive ? '#0071e3' : '#86868b' }} />
-                Detection IA {aiActive ? 'active' : 'inactive'}
-              </span>
-              <span style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', color: propresenterConnected ? '#1e7e34' : '#86868b', fontWeight: '550' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: propresenterConnected ? '#1e7e34' : '#86868b' }} />
-                ProPresenter {propresenterConnected ? 'pret' : 'manuel'}
-              </span>
-            </div>
-          </div>
+      {/* ═══════════ TOPBAR ═══════════ */}
+      <header className="live-topbar">
+        <div>
+          <span className="vp-label">Régie live</span>
+          <h1>Console de projection</h1>
+          {visibleRejection && (
+            <span className="live-ai-note animate-fade-in">
+              IA : « {visibleRejection.reference} » écartée ({visibleRejection.confidence}% &lt; {visibleRejection.threshold}%)
+            </span>
+          )}
+          {micError && (
+            <span className="live-ai-note animate-fade-in" style={{ color: '#ffa39c', borderColor: 'rgba(255,69,58,0.3)', background: 'rgba(255,69,58,0.08)' }}>
+              {micError}
+            </span>
+          )}
         </div>
 
-        {/* Corps de la console unifiée */}
-        <div className="live-console-body">
-          {/* Colonne de gauche : Actions et Validation */}
-          <div className="live-console-left">
-            <div className="live-queue-modern" style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '24px', border: '1px solid #E5E7EB', borderRadius: '8px', background: '#ffffff' }}>
-              <div className="live-queue-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ color: '#1d1d1f', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>File de validation</span>
-                    <span className="live-shortcut-hint" style={{ fontSize: '11px', color: '#86868b', background: '#f5f5f7', border: '1px solid #e3e3e3', padding: '2px 8px', borderRadius: '6px', fontWeight: 'normal' }}>
-                      ⌨️ <code>↑/↓</code> naviguer • <code>Espace</code> projeter • <code>Échap</code> ignorer
-                    </span>
-                  </div>
-                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1d1d1f', marginTop: '4px' }}>{pendingCount} en attente</h3>
-                </div>
-                {projectionQueue.length > 0 && (
-                  <button onClick={clearProjectionQueue} style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #E5E7EB', background: '#ffffff', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>Vider la file</button>
-                )}
-              </div>
+        <div className="live-topbar-right">
+          <span className={`vp-chip ${connected ? 'is-ok' : 'is-bad'}`}>
+            <span className="dot" />{connected ? 'Serveur' : 'Hors ligne'}
+          </span>
+          <span className={`vp-chip ${asrMode === 'vosk' ? 'is-warn' : 'is-accent'}`}>
+            <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram'}
+          </span>
+          <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
+            <span className="dot" />IA {aiActive ? 'active' : 'off'}
+          </span>
+          <span className={`vp-chip ${propresenterConnected ? 'is-ok' : 'is-warn'}`}>
+            <span className="dot" />{propresenterConnected ? 'ProPresenter' : 'PP manuel'}
+          </span>
 
-              {!propresenterConnected && (
-                <div className="live-emergency-banner animate-fade-in" style={{ backgroundColor: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '16px', borderRadius: '8px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '20px' }}>⚠️</span>
-                    <div>
-                      <strong style={{ display: 'block', fontSize: '13px', color: '#856404' }}>Connexion ProPresenter inactive</strong>
-                      <span style={{ fontSize: '11px', color: '#856404' }}>La liaison avec le logiciel de projection principal est perdue. activez la projection de secours locale.</span>
-                    </div>
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={openProjectionWindow}
-                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: '#d39e00', color: '#ffffff', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
-                  >
-                    🖥️ Ouvrir l'Écran de Secours Local Autonome
-                  </button>
-                </div>
-              )}
+          <span className="live-clock">
+            {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </span>
 
-              {/* Conteneur de cartes avec hauteur fixe et défilement autonome */}
-              <div className="live-queue-scroll-container" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
-                {projectionQueue.length === 0 ? (
-                  <div className="live-empty-queue" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f5f5f7', border: '1px dashed #E5E7EB', borderRadius: '8px', padding: '24px' }}>
-                    <span style={{ fontSize: '32px' }}>📡</span>
-                    <strong style={{ display: 'block', marginTop: '12px', color: '#1d1d1f' }}>Aucun verset en attente</strong>
-                    <p style={{ color: '#86868b', fontSize: '12px', textAlign: 'center', marginTop: '4px', maxWidth: '320px' }}>Les suggestions IA et les détections non déterministes s'afficheront ici en direct pour validation.</p>
-                  </div>
-                ) : (
-                  <>
-                    {/* 1. Les détections locales en attente */}
-                    {pendingItems.filter(item => item.source !== 'ai' && item.detectionMethod !== 'ai_semantic').map((item) => {
-                      const pendingIdx = pendingItems.findIndex((p) => p.queueId === item.queueId);
-                      const isKeyboardActive = pendingIdx === selectedQueueIndex;
-                      
-                      return (
-                        <article 
-                          key={item.queueId} 
-                          className={`live-queue-card is-${item.status} ${isKeyboardActive ? 'is-keyboard-active' : ''}`}
-                          style={{ borderLeft: '4px solid #34c759', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #E5E7EB', borderLeftColor: '#34c759' }}
-                          onClick={() => setSelectedQueueIndex(pendingIdx)}
-                        >
-                          <div className="live-queue-card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <strong style={{ fontSize: '15px', color: '#1d1d1f' }}>{item.reference}</strong>
-                            <span className="live-local-badge" style={{ backgroundColor: 'rgba(52, 199, 89, 0.12)', color: '#137333', border: '1px solid rgba(52, 199, 89, 0.3)', padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }}>
-                              ⚡ LOCAL
-                            </span>
-                          </div>
-                          <p style={{ margin: '8px 0', fontSize: '13px', color: '#1d1d1f' }}>{item.text || 'Texte non chargé.'}</p>
-                          <div className="live-queue-meta" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#86868b' }}>
-                            <small>{new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small>
-                            <small>{item.detectionMethod || 'local'}</small>
-                          </div>
+          <button className={`live-mic-main ${isListening ? 'is-live' : ''}`} onClick={toggleListening}>
+            <span className="mic-dot" />
+            {isListening ? 'À l\'écoute' : 'Démarrer le micro'}
+            <span className="mic-vu"><div style={{ width: `${isListening ? volume : 0}%` }} /></span>
+          </button>
+        </div>
+      </header>
 
-                          {item.status === 'pending' && (
-                            <div className="live-queue-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); rejectVerseFromQueue(item.queueId); }}
-                                style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #E5E7EB', background: '#ffffff', color: '#1d1d1f', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-                              >
-                                Ignorer
-                              </button>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); projectVerseFromQueue(item.queueId, item.reference, item.text); }}
-                                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#34c759', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-                              >
-                                Projeter
-                              </button>
-                            </div>
-                          )}
-                        </article>
-                      );
-                    })}
-
-                    {/* Séparateur s'il y a des détections locales ET des déductions IA */}
-                    {pendingItems.filter(item => item.source !== 'ai' && item.detectionMethod !== 'ai_semantic').length > 0 && 
-                     pendingItems.filter(item => item.source === 'ai' || item.detectionMethod === 'ai_semantic').length > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '8px 0' }}>
-                        <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#86868b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Analyse contextuelle IA</span>
-                        <div style={{ flex: 1, height: '1px', background: '#E5E7EB' }} />
-                      </div>
-                    )}
-
-                    {/* 2. Les déductions IA en attente */}
-                    {pendingItems.filter(item => item.source === 'ai' || item.detectionMethod === 'ai_semantic').map((item) => {
-                      const confidencePercentage = item.confidence ? Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence) : 95;
-                      const pendingIdx = pendingItems.findIndex((p) => p.queueId === item.queueId);
-                      const isKeyboardActive = pendingIdx === selectedQueueIndex;
-                      
-                      return (
-                        <article 
-                          key={item.queueId} 
-                          className={`live-queue-card is-${item.status} ${isKeyboardActive ? 'is-keyboard-active' : ''}`}
-                          style={{ borderLeft: '4px solid #af52de', background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #E5E7EB', borderLeftColor: '#af52de' }}
-                          onClick={() => setSelectedQueueIndex(pendingIdx)}
-                        >
-                          <div className="live-queue-card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <strong style={{ fontSize: '16px', color: '#1d1d1f' }}>{item.reference}</strong>
-                            <span className="live-ai-badge" style={{ backgroundColor: 'rgba(175, 82, 222, 0.12)', color: '#8f39a7', border: '1px solid rgba(175, 82, 222, 0.3)', padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }}>
-                              🤖 IA ({confidencePercentage}%)
-                            </span>
-                          </div>
-                          <p style={{ margin: '8px 0', fontSize: '13px', color: '#1d1d1f' }}>{item.text || 'Texte non chargé.'}</p>
-                          <div className="live-queue-meta" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#86868b' }}>
-                            <small>{new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small>
-                            <small>{item.requiresReview ? 'Validation requise' : 'IA'}</small>
-                          </div>
-
-                          {item.status === 'pending' && (
-                            <div className="live-queue-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); rejectVerseFromQueue(item.queueId); }}
-                                style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #E5E7EB', background: '#ffffff', color: '#1d1d1f', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-                              >
-                                Ignorer
-                              </button>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); projectVerseFromQueue(item.queueId, item.reference, item.text); }}
-                                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#af52de', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-                              >
-                                Projeter
-                              </button>
-                            </div>
-                          )}
-                        </article>
-                      );
-                    })}
-                    
-                    {/* 3. Enfin les éléments projetés ou rejetés récents */}
-                    {projectionQueue.filter(item => item.status !== 'pending').slice(0, 3).map((item) => {
-                      return (
-                        <article 
-                          key={item.queueId} 
-                          className={`live-queue-card is-${item.status}`}
-                          style={{ borderLeft: item.status === 'projected' ? '4px solid #34c759' : '4px solid #8e8e93', opacity: 0.5, background: '#ffffff', padding: '16px', borderRadius: '8px', border: '1px solid #E5E7EB', borderLeftColor: item.status === 'projected' ? '#34c759' : '#8e8e93' }}
-                        >
-                          <div className="live-queue-card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <strong style={{ fontSize: '16px', color: '#1d1d1f' }}>{item.reference}</strong>
-                            <span style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: item.status === 'projected' ? '#34c759' : '#8e8e93' }}>
-                              {item.status === 'projected' ? 'PROJETE' : 'IGNORE'}
-                            </span>
-                          </div>
-                          <p style={{ margin: '8px 0', fontSize: '13px', color: '#1d1d1f' }}>{item.text || 'Texte non chargé.'}</p>
-                        </article>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
+      {/* ═══════════ GRILLE PRINCIPALE ═══════════ */}
+      <div className="live-main-grid">
+        {/* ── Colonne principale : ON AIR + file ── */}
+        <div className="live-col">
+          <section className="live-onair">
+            <div className="live-onair-head">
+              <span className={`live-onair-badge ${onAirDisplay ? 'is-live' : ''}`}>
+                <span className="dot" />{onAirDisplay ? 'À l\'antenne' : 'Écran noir'}
+              </span>
+              <span className="live-onair-meta">
+                {onAirDisplay?.at ? new Date(onAirDisplay.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
+              </span>
             </div>
-          </div>
-
-          {/* Colonne de droite : Réglages & Retour Écran */}
-          <div className="live-console-right">
-            {/* Moniteur Écran de Retour live */}
-            <div className="live-monitor-section" style={{ border: '1px solid #E5E7EB', borderRadius: '8px', overflow: 'hidden', background: '#000000', position: 'relative', height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div className="live-stage-backdrop" style={{ backgroundImage: `url(${liveStageImage})`, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.4 }} />
-              <div className="live-stage-sheen" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.8))' }} />
-              
-              <div className="live-detection-console" style={{ position: 'relative', zIndex: 5, padding: '16px', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', color: '#ffffff' }}>
-                <div>
-                  <span style={{ fontSize: '9px', fontWeight: 'bold', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ecran de projection (Retour)</span>
-                  <strong style={{ display: 'block', fontSize: '18px', color: '#ffffff', marginTop: '4px' }}>{latestReference?.reference || 'Noir'}</strong>
-                </div>
-                <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', margin: '4px 0 0' }}>
-                  {latestReference?.text || 'Aucune référence projetée en direct.'}
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
-                  <span>{latestReference?.confidence ? `${Math.round(latestReference.confidence * 100)}% confiance` : ''}</span>
-                  <span>{latestReference?.detection_method || 'pret'}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Panneau de contrôle et réglages */}
-            <div className="live-control-section" style={{ border: '1px solid #E5E7EB', borderRadius: '8px', padding: '24px', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <span style={{ color: '#86868b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reglages de session</span>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
-                <label className="live-control-card-compact" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <span style={{ fontSize: '11px', color: '#86868b', fontWeight: 'bold' }}>Moteur vocal</span>
-                  <select value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)} style={{ padding: '8px', border: '1px solid #E5E7EB', borderRadius: '8px', background: '#f5f5f7', fontSize: '13px' }}>
-                    <option value="auto">Auto (Vosk + Deepgram)</option>
-                    <option value="deepgram">Deepgram cloud</option>
-                    <option value="vosk">Vosk local</option>
-                  </select>
-                </label>
-
-                <label className="live-control-card-compact" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <span style={{ fontSize: '11px', color: '#86868b', fontWeight: 'bold' }}>Version biblique</span>
-                  <select value={activeBible} onChange={(e) => selectBible(e.target.value)} style={{ padding: '8px', border: '1px solid #E5E7EB', borderRadius: '8px', background: '#f5f5f7', fontSize: '13px' }}>
-                    {availableBibles.map((code) => (
-                      <option key={code} value={code}>
-                        {code} - {BIBLE_NAMES[code] || code}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="live-control-card-compact" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <span style={{ fontSize: '11px', color: '#86868b', fontWeight: 'bold' }}>Traduction live</span>
-                  <select value={translationLang} onChange={(e) => setTranslationLang(e.target.value)} disabled={!aiActive} style={{ padding: '8px', border: '1px solid #E5E7EB', borderRadius: '8px', background: '#f5f5f7', fontSize: '13px' }}>
-                    <option value="">Desactivee</option>
-                    <option value="en">Anglais</option>
-                    <option value="es">Espagnol</option>
-                    <option value="de">Allemand</option>
-                    <option value="pt">Portugais</option>
-                  </select>
-                </label>
-              </div>
-
-              {/* Mode de projection segmented */}
-              <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span style={{ fontSize: '11px', color: '#86868b', fontWeight: 'bold' }}>Mode de projection</span>
-                <div className="live-segmented" style={{ width: '100%' }}>
-                  <button onClick={() => setAutopilotMode(true)} className={autopilotMode ? 'is-active' : ''} style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
-                    Auto local
-                  </button>
-                  <button onClick={() => setAutopilotMode(false)} className={!autopilotMode ? 'is-active' : ''} style={{ flex: 1, padding: '8px', fontSize: '12px' }}>
-                    Validation
-                  </button>
-                </div>
-              </div>
-
-              {/* Bouton de secours ProPresenter */}
-              <button 
-                onClick={openProjectionWindow} 
-                className="live-ghost-button" 
-                style={{ width: '100%', padding: '10px', fontSize: '12px', border: '1px solid #E5E7EB', background: '#ffffff', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
-              >
-                🖥️ Ouvrir l'ecran de secours
+            <div className="live-onair-ref">{onAirDisplay?.reference || '—'}</div>
+            <p className="live-onair-text">
+              {onAirDisplay?.text || 'Aucun verset projeté. Validez une détection ou envoyez une référence manuelle.'}
+            </p>
+            <div className="live-onair-actions">
+              <button className="vp-btn vp-btn--sm" onClick={() => handleShiftVerse(-1)} disabled={!canShift} title="Verset précédent">
+                ← Verset préc.
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Section de saisie et de transcription en bas (Flux et Recherche manuelle side-by-side) */}
-        <div className="live-workbench-grid" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px', margin: '20px 28px 0' }}>
-          <section className="live-text-panel" style={{ height: '180px', display: 'flex', flexDirection: 'column', padding: '20px' }}>
-            <span style={{ color: '#86868b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Flux transcript écrit</span>
-            <div style={{ flex: 1, overflowY: 'auto', fontSize: '13px', color: '#1d1d1f', lineHeight: '1.5' }} className={currentTranscript ? '' : 'is-empty'}>
-              {currentTranscript || <span style={{ opacity: 0.4 }}>La transcription complete s'ecrit ici au fur et a mesure du culte...</span>}
+              <button className="vp-btn vp-btn--sm" onClick={() => handleShiftVerse(1)} disabled={!canShift} title="Verset suivant — pour suivre une lecture de passage">
+                Verset suiv. →
+              </button>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={clearProjectionScreen} disabled={!onAirDisplay}>
+                Effacer l'écran
+              </button>
             </div>
           </section>
 
-          <section className={`live-text-panel is-manual ${(!isListening || !connected) ? 'is-emergency-highlight' : ''}`} style={{ height: '180px', display: 'flex', flexDirection: 'column', padding: '20px' }}>
-            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ color: '#86868b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recherche manuelle</span>
-              {(!isListening || !connected) && (
-                <span style={{ color: '#0071e3', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  ⚠️ Secours actif
+          <section className="vp-panel live-queue">
+            <div className="live-queue-head">
+              <h2>File de validation <span className="count">{pendingItems.length}</span></h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span className="live-queue-hints">
+                  <span className="vp-kbd">↑↓</span> naviguer
+                  <span className="vp-kbd">Espace</span> projeter
+                  <span className="vp-kbd">Échap</span> ignorer
+                  <span className="vp-kbd">/</span> recherche
                 </span>
-              )}
-            </span>
-            
-            {(!isListening || !connected) && (
-              <span style={{ color: '#0071e3', fontSize: '10px', display: 'block', marginBottom: '6px', lineHeight: '1.3', fontWeight: '500' }}>
-                Micro inactif. Saisissez les references manuellement pour continuer.
-              </span>
+                {projectionQueue.length > 0 && (
+                  <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={clearProjectionQueue}>Vider</button>
+                )}
+              </div>
+            </div>
+
+            {!propresenterConnected && (
+              <div className="live-alert animate-fade-in">
+                <div style={{ flex: 1 }}>
+                  <strong>ProPresenter non connecté</strong>
+                  <span>La projection passe par l'écran de secours autonome — ouvrez-le sur le poste relié au vidéoprojecteur.</span>
+                </div>
+                <button className="vp-btn vp-btn--sm" onClick={openProjectionWindow}>Ouvrir l'écran</button>
+              </div>
             )}
-            
-            <div className="live-manual-row" style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+
+            <div className="live-queue-scroll">
+              {projectionQueue.length === 0 ? (
+                <div className="live-empty">
+                  <strong>Aucun verset en attente</strong>
+                  <p>Démarrez le micro : les références citées pendant la prédication apparaîtront ici pour validation.</p>
+                </div>
+              ) : (
+                <>
+                  {pendingLocal.map((item) => renderCard(item, 'local'))}
+
+                  {pendingLocal.length > 0 && pendingAi.length > 0 && (
+                    <div className="live-queue-divider"><span className="vp-label">Suggestions IA</span></div>
+                  )}
+                  {pendingAi.map((item) => renderCard(item, 'ai'))}
+
+                  {recentDone.length > 0 && pendingItems.length > 0 && (
+                    <div className="live-queue-divider"><span className="vp-label">Traités</span></div>
+                  )}
+                  {recentDone.map((item) => (
+                    <article key={item.queueId} className="live-card is-done">
+                      <div className="live-card-head">
+                        <span className="live-card-ref">{item.reference}</span>
+                        <span className="live-card-badge is-muted">{item.status === 'projected' ? 'Projeté' : 'Ignoré'}</span>
+                      </div>
+                    </article>
+                  ))}
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* ── Colonne secondaire : recherche manuelle + réglages ── */}
+        <div className="live-col">
+          <section className={`vp-panel live-manual ${(!isListening || !connected) ? 'is-focus-mode' : ''}`}>
+            <div className="live-manual-head">
+              <span className="vp-label">Recherche manuelle</span>
+              {(!isListening || !connected) && (
+                <span className="vp-label" style={{ color: 'var(--vp-accent)' }}>Mode principal</span>
+              )}
+            </div>
+            <div className="live-manual-row">
               <input
+                ref={manualInputRef}
+                className="vp-input"
                 type="text"
                 value={manualReference}
                 onChange={(e) => setManualReference(e.target.value)}
-                placeholder="Ex: Jn 3:16 ou Romains 8:28"
-                onKeyPress={(e) => e.key === 'Enter' && handleSendManual()}
-                style={{ flex: 1, padding: '8px 12px', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '13px' }}
+                placeholder="Jn 3:16, Romains 8:28…"
+                onKeyDown={(e) => e.key === 'Enter' && handleSendManual()}
               />
-              <button onClick={handleSendManual} style={{ padding: '8px 16px', background: '#1d1d1f', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>Envoyer</button>
+              <button className="vp-btn vp-btn--primary" onClick={handleSendManual}>Projeter</button>
             </div>
-            
-            <div className="live-quick-row" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {[
-                { ref: "Jean 3:16", label: "Jn 3:16" },
-                { ref: "Psaume 23:1", label: "Ps 23:1" },
-                { ref: "Romains 8:28", label: "Rom 8:28" },
-                { ref: "Éphésiens 2:8", label: "Eph 2:8" }
-              ].map((sug) => (
-                <button key={sug.ref} onClick={() => setManualReference(sug.ref)} style={{ padding: '6px 10px', background: '#f5f5f7', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '11px', cursor: 'pointer', transition: 'all 0.1s' }}>
+            <div className="live-quick-row">
+              {QUICK_REFS.map((sug) => (
+                <button key={sug.ref} className="live-quick-chip" onClick={() => sendReference(sug.ref)} title={`Projeter ${sug.ref} immédiatement`}>
                   {sug.label}
                 </button>
               ))}
             </div>
           </section>
-        </div>
 
-        {/* Ticker Prompteur Horizontal en bas */}
-        <div className="live-prompter-ticker" style={{ margin: '20px 28px 28px' }}>
-          <div className="live-ticker-label">
-            <span>DIRECT TRANSCRIPT</span>
-            <small>{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram cloud'}</small>
-          </div>
-          
-          <div style={{ width: '80px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', userSelect: 'none' }}>
-            <canvas id="siri-wave" style={{ width: '100%', height: '100%', display: 'block' }} />
-          </div>
+          <section className="vp-panel live-settings">
+            <span className="vp-label">Réglages de session</span>
 
-          <div className="live-ticker-content">
-            <div className="live-ticker-text">
-              {displayTranscriptWords ? (
-                displayTranscriptWords.map((word, idx) => {
-                  const distance = displayTranscriptWords.length - 1 - idx
-                  let opacity = 1.0
-                  if (distance > 4) {
-                    opacity = Math.max(0.22, 1.0 - (distance - 4) * 0.08)
-                  }
-                  const isRecent = distance <= 2
-                  return (
-                    <span 
-                      key={`${word}-${idx}`} 
-                      style={{ 
-                        opacity, 
-                        fontWeight: isRecent ? '750' : '550',
-                        marginRight: '6px',
-                        transition: 'all 0.3s ease',
-                        display: 'inline-block',
-                        color: isRecent ? '#1d1d1f' : '#86868b'
-                      }}
-                    >
-                      {word}
-                    </span>
-                  )
-                })
-              ) : (
-                <span style={{ opacity: 0.4 }}>En attente du signal micro. Le texte de la prédication s'affichera ici en direct.</span>
-              )}
+            <label>
+              <span className="vp-label">Moteur vocal</span>
+              <select className="vp-select" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
+                <option value="auto">Auto (Deepgram + secours Vosk)</option>
+                <option value="deepgram">Deepgram cloud</option>
+                <option value="vosk">Vosk local (hors-ligne)</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="vp-label">Version biblique</span>
+              <select className="vp-select" value={activeBible} onChange={(e) => selectBible(e.target.value)}>
+                {availableBibles.map((code) => (
+                  <option key={code} value={code}>{code} — {BIBLE_NAMES[code] || code}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span className="vp-label">Traduction simultanée</span>
+              <select className="vp-select" value={translationLang} onChange={(e) => setTranslationLang(e.target.value)} disabled={!aiActive}>
+                <option value="">Désactivée</option>
+                <option value="en">Anglais</option>
+                <option value="es">Espagnol</option>
+                <option value="de">Allemand</option>
+                <option value="pt">Portugais</option>
+              </select>
+            </label>
+
+            <div className="live-settings-divider" />
+
+            <div>
+              <span className="vp-label" style={{ display: 'block', marginBottom: 6 }}>Mode de projection</span>
+              <div className="vp-segmented">
+                <button className={autopilotMode ? 'is-active' : ''} onClick={() => setAutopilotMode(true)}>
+                  Autopilote
+                </button>
+                <button className={!autopilotMode ? 'is-active' : ''} onClick={() => setAutopilotMode(false)}>
+                  Validation
+                </button>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--vp-text-faint)', marginTop: 7, lineHeight: 1.45 }}>
+                {autopilotMode
+                  ? 'Les références explicites très fiables sont projetées directement. L\'IA reste en validation.'
+                  : 'Toutes les détections passent par la file de validation.'}
+              </p>
             </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={toggleListening}
-            className={`live-ticker-mic-btn ${isListening ? 'is-active' : ''}`}
-            aria-label={isListening ? 'Arreter le micro' : 'Demarrer le micro'}
-            style={{ borderRadius: '8px', width: '38px', height: '38px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0, backgroundColor: isListening ? '#ff3b30' : '#ffffff', color: isListening ? '#ffffff' : '#1d1d1f' }}
-          >
-            {isListening ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-                <line x1="12" y1="19" x2="12" y2="22" />
-              </svg>
-            )}
-          </button>
+            <div className="live-settings-divider" />
+
+            <button className="vp-btn" onClick={openProjectionWindow}>
+              Ouvrir l'écran de projection autonome
+            </button>
+          </section>
         </div>
       </div>
+
+      {/* ═══════════ TICKER TRANSCRIPT ═══════════ */}
+      <footer className="vp-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+        {translationLang && currentTranslation && (
+          <div className="live-translation" style={{ paddingTop: 10 }}>{currentTranslation}</div>
+        )}
+        <div className="live-ticker">
+          <div className="live-ticker-label">
+            <span className="vp-label">Transcript direct</span>
+            <small>{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram cloud'}</small>
+          </div>
+          <canvas id="vp-wave" className="live-ticker-wave" />
+          <div className="live-ticker-flow">
+            {displayWords ? (
+              displayWords.map((word, idx) => {
+                const distance = displayWords.length - 1 - idx
+                const opacity = distance > 4 ? Math.max(0.25, 1 - (distance - 4) * 0.08) : 1
+                const isRecent = distance <= 2
+                return (
+                  <span
+                    key={`${word}-${idx}`}
+                    className="w"
+                    style={{ opacity, fontWeight: isRecent ? 700 : 450, color: isRecent ? 'var(--vp-text)' : 'var(--vp-text-dim)' }}
+                  >
+                    {word}
+                  </span>
+                )
+              })
+            ) : (
+              <span className="placeholder">En attente du signal micro — la prédication s'affichera ici en direct.</span>
+            )}
+          </div>
+          <button
+            type="button"
+            className={`live-ticker-mic ${isListening ? 'is-active' : ''}`}
+            onClick={toggleListening}
+            aria-label={isListening ? 'Arrêter le micro' : 'Démarrer le micro'}
+          >
+            {isListening ? <StopIcon /> : <MicIcon />}
+          </button>
+        </div>
+      </footer>
     </div>
   )
 }

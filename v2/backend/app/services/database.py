@@ -30,7 +30,7 @@ class DatabaseService:
         self.db_path = Path(db_path) if db_path else self.DEFAULT_DB_PATH
         self.db: Optional[aiosqlite.Connection] = None
         
-        logger.info(f"📊 DatabaseService initialisé: {db_path}")
+        logger.info(f"📊 DatabaseService initialisé: {self.db_path}")
     
     async def connect(self):
         """Ouvre la connexion à la base de données"""

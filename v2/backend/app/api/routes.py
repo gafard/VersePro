@@ -100,40 +100,45 @@ async def health_check():
     }
 
 
-@router.post("/references/send", response_model=ReferenceResponse)
+@router.post("/references/send")
 async def send_reference(request: ReferenceRequest):
     """
-    Envoie manuellement une référence à ProPresenter
-    
+    Envoie manuellement une référence vers TOUS les canaux de projection :
+    l'écran autonome local (broadcast WebSocket) et ProPresenter si connecté.
+
     Utile pour:
     - Validation manuelle avant envoi
     - Correction de référence détectée
     - Envoi direct sans détection audio
     """
-    from ..main import propresenter_service
-    
-    if not propresenter_service:
-        raise HTTPException(status_code=503, detail="Service ProPresenter non disponible")
-    
-    reference = {
+    from ..main import propresenter_service, verse_parser, broadcast_projection
+
+    # Résout la référence pour récupérer le texte du verset
+    parsed = None
+    if verse_parser:
+        parsed = await verse_parser.parse(request.reference, skip_text_search=True)
+
+    reference = parsed or {
         "reference": request.reference,
-        "text": request.text,
-        "version": request.version
+        "text": request.text or "",
+        "version": request.version,
     }
-    
-    sent = await propresenter_service.show_verse(reference)
-    
-    if sent:
-        return {
-            "success": True,
-            "reference": request.reference,
-            "message": "Verset envoyé à ProPresenter"
-        }
-    else:
-        raise HTTPException(
-            status_code=500,
-            detail="Échec de l'envoi à ProPresenter"
-        )
+
+    # 1. Écran de projection autonome (toujours disponible)
+    await broadcast_projection(reference.get("text") or request.text or "", reference.get("reference", request.reference))
+
+    # 2. ProPresenter (meilleur effort)
+    sent_propresenter = False
+    if propresenter_service:
+        sent_propresenter = await propresenter_service.show_verse(reference)
+
+    return {
+        "success": True,
+        "reference": reference.get("reference", request.reference),
+        "text": reference.get("text") or request.text or "",
+        "propresenter_sent": sent_propresenter,
+        "message": "Verset projeté" + (" (+ ProPresenter)" if sent_propresenter else " (écran autonome)"),
+    }
 
 
 @router.post("/references/parse")

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "versepro-frontend",
+      "cwd": "v2/frontend",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["VITE_BACKEND_PORT=8002", "npm", "run", "dev", "--", "--port", "3010", "--strictPort"],
+      "port": 3010
+    }
+  ]
+}

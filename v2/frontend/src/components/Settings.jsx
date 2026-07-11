@@ -223,7 +223,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setHelpModal('deepgram')}
-                  style={{ background: 'none', border: 'none', color: '#0071e3', cursor: 'pointer', fontSize: '11px', padding: 0, fontWeight: 'normal' }}
+                  style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '11px', padding: 0, fontWeight: 'normal' }}
                 >
                   ❓ Comment obtenir cette clé gratuitement ?
                 </button>
@@ -267,7 +267,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setHelpModal('openrouter')}
-                  style={{ background: 'none', border: 'none', color: '#0071e3', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
+                  style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
                 >
                   ❓ Clé gratuite ?
                 </button>
@@ -285,7 +285,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setHelpModal('gemini')}
-                  style={{ background: 'none', border: 'none', color: '#0071e3', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
+                  style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
                 >
                   ❓ Clé gratuite ?
                 </button>
@@ -299,7 +299,7 @@ export default function Settings() {
             </label>
           </div>
 
-          <div style={{ marginTop: '16px', borderTop: '1px solid #e3e3e3', paddingTop: '16px' }}>
+          <div style={{ marginTop: '16px', borderTop: '1px solid var(--vp-border)', paddingTop: '16px' }}>
             <label style={{ display: 'block' }}>
               <small>Tamis sémantique (Sensibilité d'écoute IA)</small>
               <div className="live-segmented" style={{ width: 'fit-content', marginTop: '8px' }}>
@@ -320,18 +320,18 @@ export default function Settings() {
                   🌐 Mode Ouvert (Détection maximale)
                 </button>
               </div>
-              <span style={{ fontSize: '11px', color: '#86868b', display: 'block', marginTop: '6px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--vp-text-dim)', display: 'block', marginTop: '6px' }}>
                 Le <strong>Mode Strict</strong> filtre les phrases d'après une liste de mots-clés théologiques pour économiser les performances. Le <strong>Mode Ouvert</strong> analyse tout (recommandé pour capturer des récits ou des phrases implicites comme "il a marché sur l'eau").
               </span>
             </label>
           </div>
 
-          <div style={{ marginTop: '16px', borderTop: '1px solid #e3e3e3', paddingTop: '16px' }}>
+          <div style={{ marginTop: '16px', borderTop: '1px solid var(--vp-border)', paddingTop: '16px' }}>
             <label>
               <small>
                 Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
                 {form.ai_confidence_threshold >= 90 && (
-                  <span style={{ color: '#b06000', fontSize: '11px', display: 'block', marginTop: '2px', fontWeight: 'normal' }}>
+                  <span style={{ color: 'var(--vp-warn)', fontSize: '11px', display: 'block', marginTop: '2px', fontWeight: 'normal' }}>
                     ⚠️ Seuil eleve : l'IA rejettera silencieusement de nombreuses suggestions pour proteger le direct.
                   </span>
                 )}
@@ -344,7 +344,7 @@ export default function Settings() {
                 onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
                 style={{ width: '100%', marginTop: '8px' }}
               />
-              <span style={{ fontSize: '11px', color: '#86868b', display: 'block', marginTop: '4px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--vp-text-dim)', display: 'block', marginTop: '4px' }}>
                 Toute suggestion IA sous ce seuil sera automatiquement rejetee pour eviter les hallucinations.
               </span>
             </label>
@@ -363,18 +363,18 @@ export default function Settings() {
       </div>
 
       {helpModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.75)', backdropFilter: 'blur(20px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="glass-copilot" style={{ maxWidth: '500px', width: '100%', padding: '32px', borderRadius: '16px', border: '1px solid #e3e3e3', boxShadow: '0 10px 30px rgba(0,0,0,0.08)', background: '#ffffff' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1d1d1f', marginBottom: '12px' }}>
+        <div className="vp-modal-backdrop">
+          <div className="vp-modal" style={{ maxWidth: '500px' }}>
+            <h3 style={{ marginBottom: '12px' }}>
               {helpModal === 'deepgram' && 'Obtenir une clé API Deepgram'}
               {helpModal === 'openrouter' && 'Obtenir une clé API OpenRouter'}
               {helpModal === 'gemini' && 'Obtenir une clé API Gemini Direct'}
             </h3>
             
-            <div style={{ fontSize: '13px', color: '#1d1d1f', lineHeight: '1.6' }}>
+            <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
               {helpModal === 'deepgram' && (
                 <ol style={{ paddingLeft: '16px', listStyleType: 'decimal' }}>
-                  <li style={{ marginBottom: '6px' }}>Allez sur le site <strong><a href="https://console.deepgram.com" target="_blank" rel="noreferrer" style={{ color: '#0071e3', textDecoration: 'underline' }}>console.deepgram.com</a></strong> et créez un compte gratuit.</li>
+                  <li style={{ marginBottom: '6px' }}>Allez sur le site <strong><a href="https://console.deepgram.com" target="_blank" rel="noreferrer" >console.deepgram.com</a></strong> et créez un compte gratuit.</li>
                   <li style={{ marginBottom: '6px' }}>Deepgram vous offre <strong>200 $ de crédits gratuits</strong> au démarrage (ce qui équivaut à plus de 10 000 heures de transcription).</li>
                   <li style={{ marginBottom: '6px' }}>Cliquez sur <strong>"API Keys"</strong> dans la barre latérale gauche, puis sur <strong>"Create New API Key"</strong>.</li>
                   <li style={{ marginBottom: '6px' }}>Sélectionnez le rôle d'administrateur ou d'écriture, nommez la clé "VersePro", puis cliquez sur créer.</li>
@@ -383,7 +383,7 @@ export default function Settings() {
               )}
               {helpModal === 'openrouter' && (
                 <ol style={{ paddingLeft: '16px', listStyleType: 'decimal' }}>
-                  <li style={{ marginBottom: '6px' }}>Allez sur <strong><a href="https://openrouter.ai" target="_blank" rel="noreferrer" style={{ color: '#0071e3', textDecoration: 'underline' }}>openrouter.ai</a></strong> et inscrivez-vous.</li>
+                  <li style={{ marginBottom: '6px' }}>Allez sur <strong><a href="https://openrouter.ai" target="_blank" rel="noreferrer" >openrouter.ai</a></strong> et inscrivez-vous.</li>
                   <li style={{ marginBottom: '6px' }}>Dans votre compte, allez dans la section <strong>"Keys"</strong> (ou Clés API).</li>
                   <li style={{ marginBottom: '6px' }}>Créez une nouvelle clé API et nommez-la "VersePro".</li>
                   <li style={{ marginBottom: '6px' }}>Copiez la clé (elle commence par <code>sk-or-v1-</code>). Elle vous donne accès à de nombreux modèles d'IA, y compris certains gratuits (comme Gemini Flash).</li>
@@ -391,7 +391,7 @@ export default function Settings() {
               )}
               {helpModal === 'gemini' && (
                 <ol style={{ paddingLeft: '16px', listStyleType: 'decimal' }}>
-                  <li style={{ marginBottom: '6px' }}>Allez sur <strong><a href="https://aistudio.google.com" target="_blank" rel="noreferrer" style={{ color: '#0071e3', textDecoration: 'underline' }}>aistudio.google.com</a></strong> avec votre compte Google.</li>
+                  <li style={{ marginBottom: '6px' }}>Allez sur <strong><a href="https://aistudio.google.com" target="_blank" rel="noreferrer" >aistudio.google.com</a></strong> avec votre compte Google.</li>
                   <li style={{ marginBottom: '6px' }}>Cliquez sur <strong>"Get API Key"</strong> en haut à gauche.</li>
                   <li style={{ marginBottom: '6px' }}>Créez une clé dans un nouveau projet ou un projet existant.</li>
                   <li style={{ marginBottom: '6px' }}>Copiez la clé générée (elle commence par <code>AIzaSy</code>) et collez-la dans VersePro. C'est 100% gratuit dans la limite des quotas standards d'AI Studio.</li>
@@ -401,7 +401,8 @@ export default function Settings() {
             
             <button
               onClick={() => setHelpModal(null)}
-              style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '10px', border: 'none', background: '#0071e3', color: '#ffffff', fontWeight: 'bold', cursor: 'pointer' }}
+              className="vp-btn vp-btn--primary"
+              style={{ marginTop: '20px', width: '100%' }}
             >
               Compris, fermer
             </button>
