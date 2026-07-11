@@ -5,6 +5,7 @@ import History from './components/History.jsx'
 import Statistics from './components/Statistics.jsx'
 import LandingPage from './components/LandingPage.jsx'
 import Settings from './components/Settings.jsx'
+import { ToastHost } from './components/ui.jsx'
 
 const NAV_ITEMS = [
   {
@@ -51,7 +52,12 @@ const NAV_ITEMS = [
 ]
 
 function App() {
-  const [activeTab, setActiveTab] = useState('home')
+  // Reprend l'onglet de la dernière session : l'opérateur retrouve sa régie, pas la page d'accueil
+  const [activeTab, setActiveTabState] = useState(() => localStorage.getItem('versepro_last_tab') || 'home')
+  const setActiveTab = (tab) => {
+    localStorage.setItem('versepro_last_tab', tab)
+    setActiveTabState(tab)
+  }
   const { fetchHistory, fetchStatistics, connectWebSocket, disconnectWebSocket, connected } = useStore()
 
   useEffect(() => {
@@ -95,10 +101,7 @@ function App() {
             <div className="app-nav-wrap">
               <div
                 className="w-2.5 h-2.5 rounded-full transition-all"
-                style={{
-                  background: connected ? 'var(--vp-ok)' : 'var(--vp-live)',
-                  boxShadow: connected ? '0 0 8px rgba(52, 211, 153, 0.7)' : '0 0 8px rgba(255, 69, 58, 0.7)'
-                }}
+                style={{ background: connected ? 'var(--vp-ok)' : 'var(--vp-live)' }}
               />
               <span className="app-nav-tooltip">{connected ? 'Serveur connecté' : 'Serveur déconnecté'}</span>
             </div>
@@ -130,6 +133,8 @@ function App() {
           </div>
         )}
       </main>
+
+      <ToastHost />
     </div>
   )
 }

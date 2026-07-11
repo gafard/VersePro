@@ -1,17 +1,22 @@
 import React, { useEffect } from 'react'
 import { useStore } from '../store.js'
+import { SkeletonRows, Skeleton } from './ui.jsx'
 
 export default function Statistics() {
-  const { statistics, fetchStatistics } = useStore()
+  const { statistics, fetchStatistics, statsLoading } = useStore()
   
   useEffect(() => {
     fetchStatistics(30)
   }, [])
   
-  if (!statistics) {
+  if (statsLoading || !statistics) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-zinc-500 animate-pulse text-xs font-mono">Chargement des statistiques…</div>
+      <div className="space-y-6">
+        <div className="glass-copilot p-6"><Skeleton width={220} height={20} /><Skeleton width={330} height={12} style={{ marginTop: 10 }} /></div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="glass-copilot p-5"><Skeleton width={64} height={30} /><Skeleton width={110} height={10} style={{ marginTop: 10 }} /></div>)}
+        </div>
+        <div className="glass-copilot p-6"><SkeletonRows rows={5} height={30} /></div>
       </div>
     )
   }
@@ -53,7 +58,7 @@ export default function Statistics() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Top Livres */}
         <div className="glass-copilot p-6">
-          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-5">📖 Livres les plus cités</h3>
+          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-5">Livres les plus cités</h3>
           
           {statistics.top_books && statistics.top_books.length > 0 ? (
             <div className="space-y-4">
@@ -82,7 +87,7 @@ export default function Statistics() {
         
         {/* Top Versets */}
         <div className="glass-copilot p-6">
-          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-5">⭐ Versets les plus cités</h3>
+          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-5">Versets les plus cités</h3>
           
           {statistics.top_verses && statistics.top_verses.length > 0 ? (
             <div className="space-y-2.5">
@@ -111,7 +116,7 @@ export default function Statistics() {
       
       {/* Versets par jour */}
       <div className="glass-copilot p-6">
-        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-6">📈 Activité quotidienne</h3>
+        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-6">Activité quotidienne</h3>
         
         {statistics.verses_per_day && statistics.verses_per_day.length > 0 ? (
           <div className="h-44 flex items-end space-x-2 pt-6 px-2 border-b border-white/5">

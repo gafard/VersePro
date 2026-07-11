@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useStore } from '../store.js'
+import { Icon, SkeletonRows, EmptyState } from './ui.jsx'
 
 export default function History() {
   const { 
@@ -10,7 +11,10 @@ export default function History() {
     fetchSessions,
     fetchSessionDetails,
     generateSessionSummary,
-    aiActive
+    aiActive,
+    historyLoading,
+    sessionsLoading,
+    addToast
   } = useStore()
   
   const [activeTab, setActiveTab] = useState('verses') // 'verses' ou 'sessions'
@@ -40,6 +44,8 @@ export default function History() {
       const result = await generateSessionSummary(sessionId)
       if (result?.error) {
         setSummaryError(result.error)
+      } else {
+        addToast({ message: 'Résumé du sermon généré', kind: 'success' })
       }
     } finally {
       setLoadingSummary(false)
@@ -92,7 +98,7 @@ export default function History() {
                     : 'text-zinc-400 hover:text-zinc-100'
                 }`}
               >
-                📖 Versets
+                Versets
               </button>
               <button
                 onClick={() => setActiveTab('sessions')}
@@ -102,7 +108,7 @@ export default function History() {
                     : 'text-zinc-400 hover:text-zinc-100'
                 }`}
               >
-                📁 Sessions
+                Sessions
               </button>
             </div>
  
@@ -113,7 +119,7 @@ export default function History() {
               }}
               className="px-4 py-1.5 bg-white/[0.06] border border-white/10 text-zinc-200 rounded-xl hover:bg-white/10 font-bold text-xs transition-all"
             >
-              🔄 Actualiser
+              Actualiser
             </button>
           </div>
         </div>
@@ -122,10 +128,13 @@ export default function History() {
       {/* SECTION ONGLETS : VERSETS */}
       {activeTab === 'verses' && (
         <div className="glass-copilot overflow-hidden">
-          {history.length === 0 ? (
-            <div className="text-center py-12 text-zinc-600">
-              <div className="text-5xl mb-4">📚</div>
-              <p className="text-xs">Aucun verset dans l'historique pour le moment</p>
+          {historyLoading ? (
+            <div className="p-4"><SkeletonRows rows={5} height={72} /></div>
+          ) : history.length === 0 ? (
+            <div className="p-6">
+              <EmptyState icon="book" title="Aucun verset détecté pour le moment">
+                Les versets reconnus pendant les cultes apparaîtront ici avec leur contexte.
+              </EmptyState>
             </div>
           ) : (
             <div className="divide-y divide-white/5">
@@ -142,12 +151,12 @@ export default function History() {
                         </span>
                         {Boolean(verse.validated_manually) && (
                           <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded text-[9px] font-semibold">
-                            ✓ Validé
+                            Validé
                           </span>
                         )}
                         {Boolean(verse.sent_to_propresenter) && (
                           <span className="px-2 py-0.5 bg-sky-500/10 text-sky-300 border border-sky-500/30 rounded text-[9px] font-semibold">
-                            📺 Projeté
+                            Projeté
                           </span>
                         )}
                       </div>
@@ -179,10 +188,13 @@ export default function History() {
       {/* SECTION ONGLETS : SESSIONS */}
       {activeTab === 'sessions' && (
         <div className="space-y-4">
-          {sessionsList.length === 0 ? (
-            <div className="glass-copilot text-center py-12 text-zinc-600">
-              <div className="text-5xl mb-4">📁</div>
-              <p className="text-xs">Aucune session enregistrée</p>
+          {sessionsLoading ? (
+            <SkeletonRows rows={3} height={76} />
+          ) : sessionsList.length === 0 ? (
+            <div className="glass-copilot p-6">
+              <EmptyState icon="folder" title="Aucune session enregistrée">
+                Chaque culte capté crée une session avec sa transcription et son résumé.
+              </EmptyState>
             </div>
           ) : (
             sessionsList.map((session) => {
@@ -217,12 +229,12 @@ export default function History() {
                     
                     <div className="flex items-center gap-3">
                       <span className="px-2.5 py-1 bg-white/[0.06] text-zinc-200 border border-white/10 rounded-lg text-[10px] font-semibold font-sans">
-                        📖 {session.verse_count || 0} verset(s)
+                        {session.verse_count || 0} verset(s)
                       </span>
                       
                       {hasSummary ? (
                         <span className="px-2.5 py-1 bg-purple-500/10 text-purple-300 border border-purple-500/30 rounded-lg text-[10px] font-semibold font-sans flex items-center gap-1">
-                          🤖 Résumé IA prêt
+                          Résumé IA prêt
                         </span>
                       ) : (
                         aiActive && hasTranscript && (
@@ -231,7 +243,7 @@ export default function History() {
                             disabled={loadingSummary}
                             className="px-3 py-1 bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 hover:text-purple-100 border border-purple-500/30 rounded-lg text-[10px] font-bold transition-all shadow-sm flex items-center gap-1 disabled:opacity-50"
                           >
-                            {loadingSummary ? '⏳ Génération…' : '🤖 Générer le résumé'}
+                            {loadingSummary ? 'Génération…' : 'Générer le résumé'}
                           </button>
                         )
                       )}
@@ -249,7 +261,7 @@ export default function History() {
                         {/* Colonne Transcription cumulée */}
                         <div className="lg:col-span-7 space-y-3">
                           <h4 className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 font-mono">
-                            🎙️ Transcription cumulée du sermon
+                            Transcription cumulée du sermon
                           </h4>
                           <div className="p-4 bg-black/20 border border-white/10 rounded-2xl text-xs text-zinc-200 font-mono leading-relaxed max-h-[380px] overflow-y-auto">
                             {activeSessionDetails.transcript ? (
@@ -263,11 +275,11 @@ export default function History() {
                         {/* Colonne Résumé IA */}
                         <div className="lg:col-span-5 space-y-3">
                           <h4 className="text-[9px] font-bold uppercase tracking-widest text-purple-300 font-mono flex items-center gap-1">
-                            🤖 Résumé IA
+                            Résumé IA
                           </h4>
                           {summaryError && (
                             <p className="text-[10px] text-red-400 font-sans bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
-                              ⚠️ {summaryError}
+                              {summaryError}
                             </p>
                           )}
                           <div className="p-5 bg-purple-500/100/[0.06] border border-purple-500/30 rounded-2xl max-h-[380px] overflow-y-auto">
@@ -284,7 +296,7 @@ export default function History() {
                                     disabled={loadingSummary}
                                     className="mt-3 px-4 py-2 bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 border border-purple-500/30 rounded-xl text-[10px] font-bold transition-all shadow-sm inline-flex items-center gap-1 disabled:opacity-50"
                                   >
-                                    {loadingSummary ? '⏳ Génération…' : '🤖 Générer maintenant'}
+                                    {loadingSummary ? 'Génération…' : 'Générer maintenant'}
                                   </button>
                                 ) : (
                                   <p className="text-[10px] mt-1.5 text-red-400 font-sans">

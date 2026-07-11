@@ -19,7 +19,8 @@ export default function Settings() {
     fetchBibles,
     activeBible,
     aiActive,
-    propresenterConnected
+    propresenterConnected,
+    addToast
   } = useStore()
 
   const [form, setForm] = useState({
@@ -105,6 +106,7 @@ export default function Settings() {
       const result = await updateSettings(payload)
       if (result) {
         setSavedAt(new Date())
+        addToast({ message: 'Paramètres sauvegardés', kind: 'success' })
         setSecretForm({
           deepgram_api_key: '',
           openrouter_api_key: '',
@@ -225,7 +227,7 @@ export default function Settings() {
                   onClick={() => setHelpModal('deepgram')}
                   style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '11px', padding: 0, fontWeight: 'normal' }}
                 >
-                  ❓ Comment obtenir cette clé gratuitement ?
+                  Obtenir une clé gratuite
                 </button>
               </small>
               <input
@@ -269,7 +271,7 @@ export default function Settings() {
                   onClick={() => setHelpModal('openrouter')}
                   style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
                 >
-                  ❓ Clé gratuite ?
+                  Obtenir une clé
                 </button>
               </small>
               <input
@@ -287,7 +289,7 @@ export default function Settings() {
                   onClick={() => setHelpModal('gemini')}
                   style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
                 >
-                  ❓ Clé gratuite ?
+                  Obtenir une clé
                 </button>
               </small>
               <input
@@ -309,7 +311,7 @@ export default function Settings() {
                   onClick={() => updateField('ai_filtering_mode', 'strict')}
                   style={{ border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}
                 >
-                  🔒 Mode Strict (Filtre CPU léger)
+                  Strict — filtre par mots-clés
                 </button>
                 <button
                   type="button"
@@ -317,7 +319,7 @@ export default function Settings() {
                   onClick={() => updateField('ai_filtering_mode', 'open')}
                   style={{ border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}
                 >
-                  🌐 Mode Ouvert (Détection maximale)
+                  Ouvert — analyse tout
                 </button>
               </div>
               <span style={{ fontSize: '11px', color: 'var(--vp-text-dim)', display: 'block', marginTop: '6px' }}>
@@ -332,7 +334,7 @@ export default function Settings() {
                 Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
                 {form.ai_confidence_threshold >= 90 && (
                   <span style={{ color: 'var(--vp-warn)', fontSize: '11px', display: 'block', marginTop: '2px', fontWeight: 'normal' }}>
-                    ⚠️ Seuil eleve : l'IA rejettera silencieusement de nombreuses suggestions pour proteger le direct.
+                    Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour proteger le direct.
                   </span>
                 )}
               </small>

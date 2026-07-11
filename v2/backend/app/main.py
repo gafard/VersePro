@@ -332,6 +332,12 @@ async def websocket_projection(websocket: WebSocket):
         projector_connections.discard(websocket)
 
 
+@app.get("/api/v1/projection/current")
+async def get_current_projection():
+    """État de projection courant — permet à la console de le restaurer après un rechargement"""
+    return current_projection_slide
+
+
 @app.post("/api/v1/project")
 async def project_slide(slide: dict):
     """Envoie manuellement un contenu à projeter"""

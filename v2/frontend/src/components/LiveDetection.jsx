@@ -61,7 +61,8 @@ export default function LiveDetection() {
     fetchSettings, updateSettings,
     voskStatus, fetchVoskStatus, downloadVoskModel,
     lastAiRejection,
-    onAir, clearProjectionScreen
+    onAir, clearProjectionScreen,
+    backendUnreachable
   } = useStore()
 
   const [manualReference, setManualReference] = useState('')
@@ -104,7 +105,7 @@ export default function LiveDetection() {
       phase += isListening ? 0.06 + (volume / 100) * 0.08 : 0.015
 
       ctx.beginPath()
-      ctx.strokeStyle = isListening ? 'rgba(91, 157, 255, 0.85)' : 'rgba(93, 101, 119, 0.4)'
+      ctx.strokeStyle = isListening ? 'rgba(123, 131, 235, 0.9)' : 'rgba(99, 102, 109, 0.4)'
       ctx.lineWidth = 1.4
       for (let x = 0; x < width; x++) {
         const envelope = Math.sin((x / width) * Math.PI)
@@ -499,6 +500,12 @@ export default function LiveDetection() {
       </header>
 
       {/* ═══════════ GRILLE PRINCIPALE ═══════════ */}
+      {backendUnreachable && !connected && (
+        <div className="vp-banner" role="alert">
+          <strong>Serveur VersePro injoignable.</strong>
+          <span>Vérifiez que le backend est démarré — reconnexion automatique en cours…</span>
+        </div>
+      )}
       <div className="live-main-grid">
         {/* ── Colonne principale : ON AIR + file ── */}
         <div className="live-col">
@@ -605,7 +612,7 @@ export default function LiveDetection() {
                 placeholder="Jn 3:16, Romains 8:28…"
                 onKeyDown={(e) => e.key === 'Enter' && handleSendManual()}
               />
-              <button className="vp-btn vp-btn--primary" onClick={handleSendManual}>Projeter</button>
+              <button className="vp-btn vp-btn--primary" onClick={handleSendManual} disabled={!manualReference.trim()}>Projeter</button>
             </div>
             <div className="live-quick-row">
               {QUICK_REFS.map((sug) => (

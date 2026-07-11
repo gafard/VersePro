@@ -25,6 +25,39 @@ export const useStore = create((set, get) => ({
   // Ce qui est actuellement projeté à l'écran (référence + texte), null = écran noir
   onAir: null,
 
+  // Toasts de confirmation d'action
+  toasts: [],
+  addToast: ({ message, kind = 'success', action = null, duration = 3500 }) => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    set((state) => ({ toasts: [...state.toasts.slice(-2), { id, message, kind, action }] }))
+    setTimeout(() => get().dismissToast(id), action ? 6000 : duration)
+    return id
+  },
+  dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+
+  // Indicateurs de chargement des listes
+  historyLoading: false,
+  sessionsLoading: false,
+  statsLoading: false,
+  // Backend injoignable au chargement initial
+  backendUnreachable: false,
+
+  // Récupère l'état de projection courant (survit au rechargement de la page)
+  fetchProjectionState: async () => {
+    try {
+      const response = await fetch('/api/v1/projection/current')
+      if (!response.ok) return
+      const data = await response.json()
+      // Une référence vide = écran noir ou message d'attente : rien à restaurer
+      if (data.reference) {
+        set({ onAir: { reference: data.reference, text: data.text || '', at: null } })
+      }
+      set({ backendUnreachable: false })
+    } catch {
+      set({ backendUnreachable: true })
+    }
+  },
+
   // ProPresenter & Projection Queue
   propresenterConnected: false,
   autoSend: false,
@@ -107,7 +140,16 @@ export const useStore = create((set, get) => ({
     )
   })),
   
-  clearProjectionQueue: () => set({ projectionQueue: [] }),
+  clearProjectionQueue: () => {
+    const previous = get().projectionQueue
+    if (previous.length === 0) return
+    set({ projectionQueue: [] })
+    get().addToast({
+      message: `File vidée (${previous.length} élément${previous.length > 1 ? 's' : ''})`,
+      kind: 'success',
+      action: { label: 'Annuler', onClick: () => set({ projectionQueue: previous }) }
+    })
+  },
   
   setAutoSend: async (autoSend) => {
     set({ autoSend, autopilotMode: autoSend })
@@ -188,10 +230,11 @@ export const useStore = create((set, get) => ({
     
     ws.onopen = () => {
       console.log('WebSocket connecté')
-      set({ connected: true })
-      // Récupère les traductions de bibles disponibles au démarrage de la connexion
+      set({ connected: true, backendUnreachable: false })
+      // Récupère les traductions, réglages et l'état de projection courant
       get().fetchBibles()
       get().fetchSettings()
+      get().fetchProjectionState()
     }
     
     ws.onmessage = (event) => {
@@ -376,22 +419,30 @@ export const useStore = create((set, get) => ({
   },
   
   fetchHistory: async () => {
+    if (get().history.length === 0) set({ historyLoading: true })
     try {
       const response = await fetch('/api/v1/history/verses?limit=50')
       const data = await response.json()
-      set({ history: data.verses || [] })
+      set({ history: data.verses || [], backendUnreachable: false })
     } catch (error) {
       console.error('Erreur fetch history:', error)
+      set({ backendUnreachable: true })
+    } finally {
+      set({ historyLoading: false })
     }
   },
   
   fetchStatistics: async (days = 30) => {
+    if (!get().statistics) set({ statsLoading: true })
     try {
       const response = await fetch(`/api/v1/statistics?days=${days}`)
       const data = await response.json()
-      set({ statistics: data })
+      set({ statistics: data, backendUnreachable: false })
     } catch (error) {
       console.error('Erreur fetch statistics:', error)
+      set({ backendUnreachable: true })
+    } finally {
+      set({ statsLoading: false })
     }
   },
   
@@ -408,10 +459,14 @@ export const useStore = create((set, get) => ({
           onAir: { reference: data.reference, text: data.text || '', at: new Date().toISOString() },
           propresenterConnected: Boolean(data.propresenter_sent)
         })
+        get().addToast({ message: `Projeté : ${data.reference}`, kind: 'success' })
+      } else {
+        get().addToast({ message: data?.detail || `Échec de projection : ${reference}`, kind: 'error' })
       }
       return data
     } catch (error) {
       console.error('Erreur send reference:', error)
+      get().addToast({ message: 'Serveur injoignable — projection impossible', kind: 'error' })
       return null
     }
   },
@@ -426,6 +481,7 @@ export const useStore = create((set, get) => ({
       })
       fetch('/api/v1/propresenter/clear', { method: 'POST' }).catch(() => {})
       set({ onAir: null })
+      get().addToast({ message: 'Écran effacé', kind: 'success' })
     } catch (error) {
       console.error('Erreur clear projection:', error)
     }
@@ -458,12 +514,15 @@ export const useStore = create((set, get) => ({
   },
   
   fetchSessions: async (limit = 15) => {
+    if (get().sessionsList.length === 0) set({ sessionsLoading: true })
     try {
       const response = await fetch(`/api/v1/history/sessions?limit=${limit}`)
       const data = await response.json()
       set({ sessionsList: data.sessions || [] })
     } catch (error) {
       console.error('Erreur fetch sessions:', error)
+    } finally {
+      set({ sessionsLoading: false })
     }
   },
   
