@@ -106,6 +106,7 @@ class BibleLoader:
     _shared_versions = None
     _shared_index = None
     _shared_phrase_hits = None
+    _shared_fuzzy = None
     
     def __init__(self, json_path: Optional[str] = None):
         import os
@@ -115,10 +116,13 @@ class BibleLoader:
         self.verse_index = {}  # Index inversé global
         self.curated_phrase_hits = {}
 
+        self.fuzzy_index = None
+
         if BibleLoader._shared_versions is not None:
             self.versions = BibleLoader._shared_versions
             self.verse_index = BibleLoader._shared_index or {}
             self.curated_phrase_hits = BibleLoader._shared_phrase_hits or {}
+            self.fuzzy_index = BibleLoader._shared_fuzzy
             logger.info(f"📚 BibleLoader réutilisé en mémoire: {len(self.versions)} versions, {len(self.verse_index)} clés")
             return
         
@@ -179,6 +183,23 @@ class BibleLoader:
         BibleLoader._shared_versions = self.versions
         BibleLoader._shared_index = self.verse_index
         BibleLoader._shared_phrase_hits = self.curated_phrase_hits
+
+        # 4. Index flou local (citations approximatives / erreurs ASR) — en arrière-plan
+        #    pour ne pas retarder le démarrage, sur la version de référence LSG.
+        import threading
+        threading.Thread(target=self._build_fuzzy_index, daemon=True).start()
+
+    def _build_fuzzy_index(self):
+        try:
+            from .fuzzy_search import FuzzyVerseIndex
+            base = self.versions.get("LSG") or (next(iter(self.versions.values())) if self.versions else None)
+            if not base:
+                return
+            index = FuzzyVerseIndex(base)
+            self.fuzzy_index = index
+            BibleLoader._shared_fuzzy = index
+        except Exception as e:
+            logger.error(f"❌ Construction de l'index flou impossible: {e}")
 
     def _load_version(self, v_id: str, path: str) -> dict:
         """Charge une version et la normalise en book_abbr -> { chapter -> { verse -> text } }"""
@@ -457,8 +478,51 @@ class BibleLoader:
                                     "detection_method": "text_substring",
                                     "confidence": 0.84,
                                 }
-                                
+
+        # 3. Recherche floue locale : citations approximatives, mots déformés par l'ASR.
+        #    Confiance plafonnée sous le seuil d'autopilotage -> toujours en validation manuelle.
+        if self.fuzzy_index:
+            matches = self.fuzzy_index.search(norm_query, top_k=1, min_score=0.55)
+            if matches:
+                m = matches[0]
+                result = self._make_reference_result(m["book_abbr"], m["chapter"], m["verse"], query_text)
+                result["detection_method"] = "text_fuzzy"
+                result["confidence"] = round(min(0.9, 0.55 + m["score"] * 0.35), 2)
+                return result
+
         return None
+
+    def search_candidates(self, query_text: str, limit: int = 6) -> list:
+        """Candidats multiples pour la palette de recherche (aperçu + score)."""
+        results = []
+        seen = set()
+
+        def push(book_abbr, chapter, verse, method, score):
+            key = f"{book_abbr}|{chapter}|{verse}"
+            if key in seen:
+                return
+            seen.add(key)
+            res = self._make_reference_result(book_abbr, chapter, verse, query_text)
+            res["detection_method"] = method
+            res["confidence"] = score
+            results.append(res)
+
+        norm_query = self._normalize_text(query_text)
+
+        # Accroches connues et index exact
+        for phrase, (b, c, v) in self.curated_phrase_hits.items():
+            if phrase in norm_query:
+                push(b, c, v, "text_phrase", 0.96)
+        exact = self.search_by_text(query_text)
+        if exact and exact.get("verse_start") is not None:
+            push(exact["book_abbr"], exact["chapter"], exact["verse_start"], exact["detection_method"], exact["confidence"])
+
+        # Voisins flous
+        if self.fuzzy_index and len(results) < limit:
+            for m in self.fuzzy_index.search(norm_query, top_k=limit, min_score=0.45):
+                push(m["book_abbr"], m["chapter"], m["verse"], "text_fuzzy", round(min(0.9, 0.55 + m["score"] * 0.35), 2))
+
+        return results[:limit]
 
 
 class VerseParserService:

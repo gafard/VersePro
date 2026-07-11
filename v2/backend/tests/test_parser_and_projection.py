@@ -43,6 +43,24 @@ def test_loose_pattern_confidence_below_autopilot_threshold():
     assert explicit["confidence"] >= 0.95
 
 
+def test_fuzzy_index_finds_approximate_quotes_and_rejects_noise():
+    """L'index flou local doit retrouver une citation approximative (mots changés
+    par le prédicateur ou l'ASR) et ignorer une phrase sans rapport."""
+    from app.services.fuzzy_search import FuzzyVerseIndex
+
+    parser = VerseParserService()
+    index = FuzzyVerseIndex(parser.bible_loader.versions["LSG"])
+
+    # Citation approximative de Jean 3:16 (formulation différente de la LSG)
+    matches = index.search("dieu a tellement aimé le monde qu'il a donné son fils unique", min_score=0.55)
+    assert matches, "La citation approximative devrait être retrouvée"
+    top = matches[0]
+    assert top["book_abbr"].lower() == "jn" and top["chapter"] == 3 and top["verse"] == 16
+
+    # Phrase du quotidien : aucun verset ne doit sortir
+    assert index.search("la réunion de lundi soir est reportée à mardi prochain", min_score=0.55) == []
+
+
 def test_propresenter_reference_normalization_accepts_string_and_dict():
     service = ProPresenterService()
 

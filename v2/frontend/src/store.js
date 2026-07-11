@@ -42,6 +42,42 @@ export const useStore = create((set, get) => ({
   // Backend injoignable au chargement initial
   backendUnreachable: false,
 
+  // Restaure la file de validation depuis la session en cours (10 dernières minutes)
+  // après un rechargement accidentel de la console en plein culte.
+  hydrateQueueFromSession: async () => {
+    if (get().projectionQueue.length > 0) return
+    try {
+      const sessionRes = await fetch('/api/v1/session/current')
+      const { session_id } = await sessionRes.json()
+      if (!session_id) return
+      const versesRes = await fetch(`/api/v1/history/verses?limit=10&session_id=${session_id}`)
+      const { verses } = await versesRes.json()
+      const cutoff = Date.now() - 10 * 60 * 1000
+      const recent = (verses || []).filter((v) => {
+        const at = new Date(String(v.detected_at).replace(' ', 'T') + 'Z').getTime()
+        return at > cutoff
+      })
+      if (recent.length === 0) return
+      set({
+        projectionQueue: recent.map((v) => ({
+          queueId: `db_${v.id}`,
+          reference: v.reference,
+          text: v.text,
+          version: v.version,
+          detectedAt: new Date(String(v.detected_at).replace(' ', 'T') + 'Z').toISOString(),
+          confidence: (v.confidence || 100) / 100,
+          source: v.source || 'local',
+          detectionMethod: v.source === 'ai' ? 'ai_semantic' : 'restored',
+          requiresReview: true,
+          status: 'pending'
+        }))
+      })
+      get().addToast({ message: `${recent.length} détection(s) récente(s) restaurée(s)`, kind: 'success' })
+    } catch {
+      /* silencieux : la restauration est un bonus, pas une fonction critique */
+    }
+  },
+
   // Récupère l'état de projection courant (survit au rechargement de la page)
   fetchProjectionState: async () => {
     try {
@@ -235,6 +271,7 @@ export const useStore = create((set, get) => ({
       get().fetchBibles()
       get().fetchSettings()
       get().fetchProjectionState()
+      get().hydrateQueueFromSession()
     }
     
     ws.onmessage = (event) => {

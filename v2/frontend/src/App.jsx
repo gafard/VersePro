@@ -6,6 +6,7 @@ import Statistics from './components/Statistics.jsx'
 import LandingPage from './components/LandingPage.jsx'
 import Settings from './components/Settings.jsx'
 import { ToastHost } from './components/ui.jsx'
+import CommandPalette from './components/CommandPalette.jsx'
 
 const NAV_ITEMS = [
   {
@@ -59,12 +60,25 @@ function App() {
     setActiveTabState(tab)
   }
   const { fetchHistory, fetchStatistics, connectWebSocket, disconnectWebSocket, connected } = useStore()
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   useEffect(() => {
     connectWebSocket()
     fetchHistory()
     fetchStatistics()
     return () => { disconnectWebSocket() }
+  }, [])
+
+  // ⌘K / Ctrl+K : palette de recherche biblique, disponible partout
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   return (
@@ -135,6 +149,7 @@ function App() {
       </main>
 
       <ToastHost />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   )
 }

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    name: Tests backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/backend/requirements.txt
+
+      - name: Dépendances système (PyAudio)
+        run: sudo apt-get update && sudo apt-get install -y portaudio19-dev
+
+      - name: Dépendances Python
+        run: pip install -r requirements.txt
+
+      - name: Tests
+        run: python -m pytest tests/ test_parser.py -q
+
+  frontend:
+    name: Build frontend (vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: v2/frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run build

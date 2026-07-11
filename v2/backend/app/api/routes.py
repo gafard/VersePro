@@ -125,7 +125,11 @@ async def send_reference(request: ReferenceRequest):
     }
 
     # 1. Écran de projection autonome (toujours disponible)
-    await broadcast_projection(reference.get("text") or request.text or "", reference.get("reference", request.reference))
+    await broadcast_projection(
+        reference.get("text") or request.text or "",
+        reference.get("reference", request.reference),
+        translations=reference.get("translations") if isinstance(reference, dict) else None,
+    )
 
     # 2. ProPresenter (meilleur effort)
     sent_propresenter = False
@@ -168,6 +172,97 @@ async def parse_reference(request: ParseRequest):
             "input_text": request.text,
             "message": "Aucune référence détectée"
         }
+
+
+@router.get("/bible/search")
+async def bible_search(q: str, limit: int = 6):
+    """
+    Recherche unifiée pour la palette de commande :
+    référence explicite (Jn 3:16, "rom 8 28"), début de texte, citation approximative.
+    Renvoie plusieurs candidats avec texte et score, sans rien projeter.
+    """
+    from ..main import verse_parser
+
+    if not verse_parser or not q or not q.strip():
+        return {"results": []}
+
+    query = q.strip()
+    results = []
+    seen = set()
+
+    # 1. Référence explicite (avec texte du verset)
+    explicit = await verse_parser.parse(query, skip_text_search=True)
+    if explicit:
+        key = explicit["reference"]
+        seen.add(key)
+        results.append(explicit)
+        # Propose aussi les 2 versets suivants (lecture de passage)
+        if explicit.get("verse_start") is not None:
+            for offset in (1, 2):
+                v = explicit["verse_start"] + offset
+                text = verse_parser.bible_loader.get_verse_text(explicit["book_abbr"], explicit["chapter"], v)
+                if text:
+                    results.append({
+                        "reference": f"{explicit['book_abbr']} {explicit['chapter']}:{v}",
+                        "book_abbr": explicit["book_abbr"],
+                        "chapter": explicit["chapter"],
+                        "verse_start": v,
+                        "text": text,
+                        "detection_method": "adjacent",
+                        "confidence": 0.5,
+                    })
+
+    # 2. Recherche textuelle (exacte puis floue)
+    if len(query) >= 8:
+        for cand in verse_parser.bible_loader.search_candidates(query, limit=limit):
+            if cand["reference"] not in seen:
+                seen.add(cand["reference"])
+                results.append(cand)
+
+    return {"results": results[:limit]}
+
+
+@router.get("/session/current")
+async def get_current_session():
+    """ID de la session de culte en cours (pour restaurer la file après un rechargement)"""
+    from .. import main as main_module
+    return {"session_id": main_module.current_session_id}
+
+
+class RehearseRequest(BaseModel):
+    transcript: str
+
+
+@router.post("/rehearse")
+async def rehearse(request: RehearseRequest):
+    """
+    Mode répétition : rejoue un transcript complet dans la chaîne de détection
+    (fenêtres glissantes de mots, comme en direct) SANS rien projeter.
+    Permet de valider la reconnaissance avant le culte.
+    """
+    from ..main import verse_parser
+
+    if not verse_parser:
+        raise HTTPException(status_code=503, detail="Parser non disponible")
+
+    words = request.transcript.split()
+    detections = []
+    seen = set()
+
+    for end in range(6, len(words) + 1, 3):
+        window = " ".join(words[max(0, end - 40):end])
+        ref = await verse_parser.parse(window)
+        if ref and ref["reference"] not in seen:
+            seen.add(ref["reference"])
+            detections.append({
+                "reference": ref["reference"],
+                "text": ref.get("text", ""),
+                "detection_method": ref.get("detection_method"),
+                "confidence": ref.get("confidence"),
+                "window": window[-90:],
+            })
+
+    return {"detections": detections, "total": len(detections)}
 
 
 @router.get("/propresenter/status")

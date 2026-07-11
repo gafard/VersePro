@@ -62,7 +62,8 @@ export default function LiveDetection() {
     voskStatus, fetchVoskStatus, downloadVoskModel,
     lastAiRejection,
     onAir, clearProjectionScreen,
-    backendUnreachable
+    backendUnreachable,
+    statistics
   } = useStore()
 
   const [manualReference, setManualReference] = useState('')
@@ -343,6 +344,35 @@ export default function LiveDetection() {
     return currentTranscript.trim().split(/\s+/).filter(Boolean).slice(-30)
   }, [currentTranscript])
 
+  // Pastilles rapides : les versets les plus cités de cette église (stats),
+  // avec repli sur les classiques tant qu'il n'y a pas d'historique.
+  const quickRefs = useMemo(() => {
+    const top = (statistics?.top_verses || [])
+      .slice(0, 4)
+      .map((v) => ({ ref: v.reference, label: v.reference }))
+    return top.length >= 2 ? top : QUICK_REFS
+  }, [statistics])
+
+  // Plan de culte : lectures préparées à l'avance (persisté localement)
+  const [plan, setPlan] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('versepro_plan') || '[]') } catch { return [] }
+  })
+  const [planInput, setPlanInput] = useState('')
+  const savePlan = (next) => {
+    setPlan(next)
+    localStorage.setItem('versepro_plan', JSON.stringify(next))
+  }
+  const addToPlan = () => {
+    const ref = planInput.trim()
+    if (!ref) return
+    savePlan([...plan, { id: `${Date.now()}`, ref, done: false }])
+    setPlanInput('')
+  }
+  const projectPlanItem = async (item) => {
+    await sendReference(item.ref)
+    savePlan(plan.map((p) => (p.id === item.id ? { ...p, done: true } : p)))
+  }
+
   const onAirDisplay = onAir || (() => {
     const projected = projectionQueue.find((item) => item.status === 'projected')
     return projected ? { reference: projected.reference, text: projected.text } : null
@@ -598,8 +628,10 @@ export default function LiveDetection() {
           <section className={`vp-panel live-manual ${(!isListening || !connected) ? 'is-focus-mode' : ''}`}>
             <div className="live-manual-head">
               <span className="vp-label">Recherche manuelle</span>
-              {(!isListening || !connected) && (
+              {(!isListening || !connected) ? (
                 <span className="vp-label" style={{ color: 'var(--vp-accent)' }}>Mode principal</span>
+              ) : (
+                <span className="live-queue-hints"><span className="vp-kbd">⌘K</span> recherche avancée</span>
               )}
             </div>
             <div className="live-manual-row">
@@ -615,12 +647,53 @@ export default function LiveDetection() {
               <button className="vp-btn vp-btn--primary" onClick={handleSendManual} disabled={!manualReference.trim()}>Projeter</button>
             </div>
             <div className="live-quick-row">
-              {QUICK_REFS.map((sug) => (
+              {quickRefs.map((sug) => (
                 <button key={sug.ref} className="live-quick-chip" onClick={() => sendReference(sug.ref)} title={`Projeter ${sug.ref} immédiatement`}>
                   {sug.label}
                 </button>
               ))}
             </div>
+          </section>
+
+          <section className="vp-panel live-plan">
+            <div className="live-manual-head">
+              <span className="vp-label">Plan de culte</span>
+              {plan.length > 0 && (
+                <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={() => savePlan([])}>Effacer</button>
+              )}
+            </div>
+            <div className="live-manual-row" style={{ marginBottom: 0 }}>
+              <input
+                className="vp-input"
+                type="text"
+                value={planInput}
+                onChange={(e) => setPlanInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addToPlan()}
+                placeholder="Ajouter une lecture (Ps 23, Jn 14:1-6…)"
+              />
+              <button className="vp-btn" onClick={addToPlan} disabled={!planInput.trim()}>Ajouter</button>
+            </div>
+            {plan.length === 0 ? (
+              <p className="live-plan-empty">Préparez ici les lectures du culte : elles se projettent ensuite dans l'ordre, d'un clic.</p>
+            ) : (
+              <div className="live-plan-list">
+                {plan.map((item) => (
+                  <div key={item.id} className={`live-plan-row ${item.done ? 'is-done' : ''}`}>
+                    <strong>{item.ref}</strong>
+                    <button className="vp-btn vp-btn--sm vp-btn--primary" onClick={() => projectPlanItem(item)}>
+                      Projeter
+                    </button>
+                    <button
+                      className="vp-btn vp-btn--ghost vp-btn--sm"
+                      aria-label={`Retirer ${item.ref} du plan`}
+                      onClick={() => savePlan(plan.filter((p) => p.id !== item.id))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="vp-panel live-settings">

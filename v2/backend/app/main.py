@@ -44,13 +44,14 @@ current_projection_slide = {
     "background": "black"
 }
 
-async def broadcast_projection(text: str, reference: str, background: str | None = None):
-    """Diffuse le slide à tous les projecteurs connectés"""
+async def broadcast_projection(text: str, reference: str, background: str | None = None, translations: dict | None = None):
+    """Diffuse le slide à tous les projecteurs et suiveurs connectés"""
     global current_projection_slide
     current_projection_slide = {
         "text": text,
         "reference": reference,
-        "background": background or current_projection_slide.get("background", "black")
+        "background": background or current_projection_slide.get("background", "black"),
+        "translations": translations or {}
     }
     for conn in list(projector_connections):
         try:
@@ -267,7 +268,16 @@ async def get_projection_page():
             const container = document.getElementById('container');
             const textEl = document.getElementById('text');
             const refEl = document.getElementById('reference');
-            
+
+            // Paramètres d'URL : ?bg=green|blue (chroma key OBS), ?scale=1.4 (taille du texte)
+            const params = new URLSearchParams(window.location.search);
+            const forcedBg = params.get('bg');
+            const scale = parseFloat(params.get('scale') || '1');
+            if (scale && scale !== 1) {
+                textEl.style.fontSize = (3.5 * scale) + 'rem';
+                refEl.style.fontSize = (2.2 * scale) + 'rem';
+            }
+
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -282,11 +292,12 @@ async def get_projection_page():
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     
-                    // Gestion de la couleur d'arrière-plan (Chroma Key)
+                    // Gestion de la couleur d'arrière-plan (Chroma Key), forçable via ?bg=
+                    const bg = forcedBg || data.background;
                     document.body.className = '';
-                    if (data.background === 'green') {
+                    if (bg === 'green') {
                         document.body.classList.add('chroma-green');
-                    } else if (data.background === 'blue') {
+                    } else if (bg === 'blue') {
                         document.body.classList.add('chroma-blue');
                     }
                     
@@ -313,6 +324,149 @@ async def get_projection_page():
     </body>
     </html>
     """
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/follow", response_class=HTMLResponse)
+async def get_follow_page():
+    """
+    Page « assemblée » : suit en direct les versets projetés, sur mobile,
+    dans la traduction choisie par chacun. Publique et en lecture seule.
+    """
+    versions = []
+    if verse_parser and verse_parser.bible_loader:
+        versions = list(verse_parser.bible_loader.versions.keys())
+    options = "".join(f'<option value="{v}">{v}</option>' for v in versions) or '<option value="">Par défaut</option>'
+
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="theme-color" content="#0a0b0d">
+        <title>VersePro — Suivre le culte</title>
+        <style>
+            :root { color-scheme: dark; }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0;
+                min-height: 100vh;
+                background: #0a0b0d;
+                color: #f0f1f3;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                display: flex;
+                flex-direction: column;
+            }
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 14px 18px;
+                border-bottom: 1px solid #25262b;
+            }
+            header .brand { font-size: 14px; font-weight: 700; }
+            header .brand span { color: #7b83eb; }
+            select {
+                background: #16171b;
+                color: #f0f1f3;
+                border: 1px solid #35363d;
+                border-radius: 8px;
+                padding: 7px 10px;
+                font-size: 14px;
+            }
+            main {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding: 28px 22px 40px;
+                max-width: 640px;
+                margin: 0 auto;
+                width: 100%;
+            }
+            #reference {
+                font-size: 15px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #7b83eb;
+                margin-bottom: 14px;
+            }
+            #text {
+                font-size: 26px;
+                line-height: 1.5;
+                font-weight: 450;
+                transition: opacity 0.25s ease;
+            }
+            #status {
+                font-size: 12px;
+                color: #63666d;
+                padding: 12px 18px;
+                border-top: 1px solid #25262b;
+                display: flex;
+                justify-content: space-between;
+            }
+            .waiting { color: #63666d; font-size: 18px; }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="brand">Verse<span>Pro</span> · Suivre le culte</div>
+            <select id="version" aria-label="Choisir la traduction">__OPTIONS__</select>
+        </header>
+        <main>
+            <div id="reference"></div>
+            <div id="text" class="waiting">En attente du prochain verset projeté…</div>
+        </main>
+        <div id="status"><span id="conn">Connexion…</span><span id="count"></span></div>
+        <script>
+            const refEl = document.getElementById('reference');
+            const textEl = document.getElementById('text');
+            const connEl = document.getElementById('conn');
+            const versionEl = document.getElementById('version');
+
+            const saved = localStorage.getItem('versepro_follow_version');
+            if (saved) versionEl.value = saved;
+            versionEl.addEventListener('change', () => {
+                localStorage.setItem('versepro_follow_version', versionEl.value);
+                render(lastSlide);
+            });
+
+            let lastSlide = null;
+            function render(data) {
+                if (!data) return;
+                lastSlide = data;
+                const wanted = versionEl.value;
+                const translations = data.translations || {};
+                const text = (wanted && translations[wanted]) || data.text || '';
+                refEl.textContent = data.reference || '';
+                if (data.reference || text) {
+                    textEl.classList.remove('waiting');
+                    textEl.textContent = text;
+                } else {
+                    textEl.classList.add('waiting');
+                    textEl.textContent = 'En attente du prochain verset projeté…';
+                }
+            }
+
+            let ws;
+            function connect() {
+                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/projection`);
+                ws.onopen = () => { connEl.textContent = 'En direct'; };
+                ws.onmessage = (event) => render(JSON.parse(event.data));
+                ws.onclose = () => {
+                    connEl.textContent = 'Reconnexion…';
+                    setTimeout(connect, 2500);
+                };
+            }
+            connect();
+        </script>
+    </body>
+    </html>
+    """.replace("__OPTIONS__", options)
     return HTMLResponse(content=html_content)
 
 
@@ -678,7 +832,7 @@ async def websocket_audio(websocket: WebSocket):
                         # Projection directe uniquement pour les references explicites et fiables.
                         # Les deductions IA ou correspondances floues restent en validation manuelle.
                         if ref["auto_projected"]:
-                            await broadcast_projection(ref.get("text", ""), ref["reference"])
+                            await broadcast_projection(ref.get("text", ""), ref["reference"], translations=ref.get("translations"))
                             sent = await propresenter_service.show_verse(ref)
                             try:
                                 await websocket.send_json({
@@ -848,7 +1002,7 @@ async def websocket_propresenter(websocket: WebSocket):
                     
                     # Récupère le texte de la bible pour le projeter sur l'écran autonome
                     if parsed:
-                        await broadcast_projection(parsed.get("text", ""), parsed["reference"])
+                        await broadcast_projection(parsed.get("text", ""), parsed["reference"], translations=parsed.get("translations"))
                             
                     await websocket.send_json({
                         "type": "send_result",
