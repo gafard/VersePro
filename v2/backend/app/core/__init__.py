@@ -1,0 +1,1 @@
+# VersePro Core package
