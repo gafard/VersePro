@@ -1,3 +1,4 @@
+import asyncio
 from typing import Dict, Any, Optional
 from loguru import logger
 from .base import BaseOutput
@@ -47,22 +48,32 @@ class OutputManager:
         logger.info("🔌 Toutes les sorties ont été déconnectées")
 
     async def project(self, text: str, reference: str, background: Optional[str] = None, translations: Optional[dict] = None, theme: Optional[str] = None):
-        """Diffuse la scène construite à tous les drivers enregistrés et actifs"""
-        scene = {
+        """Compatibilité : construit la scène puis délègue à project_scene"""
+        await self.project_scene({
             "type": "scripture",
             "text": text,
             "reference": reference,
             "background": background or "black",
             "theme": theme or "presentation",
             "translations": translations or {}
-        }
-        
-        for name, output in self.outputs.items():
-            if output.enabled:
-                try:
-                    await output.send_scene(scene)
-                except Exception as e:
-                    logger.error(f"Erreur d'envoi vers la sortie {name}: {e}")
+        })
+
+    async def project_scene(self, scene: Dict[str, Any]):
+        """Diffuse une scène complète (avec verset suivant, thème…) à tous les drivers actifs"""
+        scene = {"type": "scripture", **scene}
+
+        # Envoi PARALLÈLE : un driver lent ou déconnecté (ProPresenter absent,
+        # vMix qui timeout) ne retarde plus l'affichage sur les autres sorties.
+        async def _safe_send(name: str, output: BaseOutput):
+            try:
+                await output.send_scene(scene)
+            except Exception as e:
+                logger.error(f"Erreur d'envoi vers la sortie {name}: {e}")
+
+        await asyncio.gather(*(
+            _safe_send(name, output)
+            for name, output in self.outputs.items() if output.enabled
+        ))
 
     async def clear(self):
         """Efface toutes les sorties actives"""

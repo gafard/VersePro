@@ -34,13 +34,16 @@ class BrowserOutput(BaseOutput):
 
     async def send_scene(self, scene: Dict[str, Any]) -> bool:
         """Diffuse la scène à tous les navigateurs connectés"""
+        # Conserve la scène COMPLÈTE (y compris next_reference/next_text pour le
+        # moniteur prédicateur) en garantissant les clés minimales.
         self.current_scene = {
-            "type": scene.get("type", "scripture"),
-            "text": scene.get("text", ""),
-            "reference": scene.get("reference", ""),
-            "background": scene.get("background", "black"),
-            "theme": scene.get("theme", "presentation"),
-            "translations": scene.get("translations") or {}
+            "type": "scripture",
+            "text": "",
+            "reference": "",
+            "background": "black",
+            "theme": "presentation",
+            "translations": {},
+            **{k: v for k, v in scene.items() if v is not None}
         }
         
         if not self.connections:
@@ -59,6 +62,16 @@ class BrowserOutput(BaseOutput):
         except Exception as e:
             logger.debug(f"Erreur diffusion client navigateur: {e}")
             self.connections.discard(conn)
+
+    async def broadcast_event(self, payload: Dict[str, Any]):
+        """Diffuse un événement léger (progression de lecture, traduction live)
+        sans écraser la scène courante — les pages ignorent les types inconnus."""
+        if not self.connections:
+            return
+        await asyncio.gather(
+            *(self._send_to_conn(conn, payload) for conn in list(self.connections)),
+            return_exceptions=True,
+        )
 
     async def clear(self) -> bool:
         """Efface l'écran"""

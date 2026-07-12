@@ -23,6 +23,7 @@ from .services.verse_parser import VerseParserService
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
 from .services.ai_service import AIService
+from .services.reading_tracker import ReadingTracker
 from .outputs import OutputManager
 from .api.routes import router as api_router
 
@@ -38,6 +39,16 @@ current_session_id: int | None = None
 
 # Connexions et état de projection
 projector_connections = set()
+
+# Lecture vivante : position de la voix du prédicateur dans le verset projeté
+reading_tracker = ReadingTracker()
+
+async def broadcast_output_event(payload: dict):
+    """Événement léger vers les écrans (progression de lecture, traduction live)"""
+    if output_manager:
+        browser = output_manager.outputs.get("browser")
+        if browser:
+            await browser.broadcast_event(payload)
 current_projection_slide = {
     "text": "En attente d'affichage...",
     "reference": "",
@@ -46,25 +57,43 @@ current_projection_slide = {
     "translations": {}
 }
 
+async def _lookup_next_verse(reference: str) -> tuple[str, str]:
+    """Texte du verset suivant (pré-affiché sur le moniteur prédicateur)"""
+    try:
+        if not verse_parser or not reference:
+            return "", ""
+        parsed = await verse_parser.parse(reference, skip_text_search=True)
+        if not parsed or parsed.get("verse_start") is None:
+            return "", ""
+        next_v = (parsed.get("verse_end") or parsed["verse_start"]) + 1
+        text = verse_parser.bible_loader.get_verse_text(parsed["book_abbr"], parsed["chapter"], next_v)
+        if not text:
+            return "", ""
+        return f"{parsed['book_abbr']} {parsed['chapter']}:{next_v}", text
+    except Exception:
+        return "", ""
+
+
 async def broadcast_projection(text: str, reference: str, background: str | None = None, translations: dict | None = None, theme: str | None = None):
     """Diffuse le slide à tous les projecteurs et suiveurs connectés via OutputManager"""
     global current_projection_slide
+
+    next_ref, next_text = await _lookup_next_verse(reference)
     current_projection_slide = {
         "text": text,
         "reference": reference,
         "background": background or current_projection_slide.get("background", "black"),
         "theme": theme or current_projection_slide.get("theme", "presentation"),
-        "translations": translations or {}
+        "translations": translations or {},
+        "next_reference": next_ref,
+        "next_text": next_text
     }
-    
+
+    # Nouveau verset à l'écran : la lecture vivante repart de zéro
+    reading_tracker.set_verse(text if reference else "")
+
     if output_manager:
-        await output_manager.project(
-            text=text,
-            reference=reference,
-            background=background,
-            translations=translations,
-            theme=theme
-        )
+        await output_manager.project_scene(current_projection_slide)
 
 
 @asynccontextmanager
@@ -202,7 +231,13 @@ async def health_check():
 # Endpoints de Rendu d'Affichage Web Autonome (Outputs)
 @app.get("/output", response_class=HTMLResponse)
 async def get_output_page():
-    """Sert l'écran d'affichage HTML5 universel (Render Engine)"""
+    """
+    Écran d'affichage universel v2 — « Lecture vivante ».
+    Le texte est rendu mot à mot : pendant que le prédicateur lit, chaque mot
+    s'illumine au rythme de sa voix (événements reading_progress). La traduction
+    simultanée IA s'affiche en sous-titre live. Thèmes : presentation (défaut),
+    broadcast (lower-third), confidence, dual. Params : ?theme= ?bg= ?scale= ?subtitle=off
+    """
     html_content = """
     <!DOCTYPE html>
     <html lang="fr">
@@ -210,307 +245,353 @@ async def get_output_page():
         <meta charset="utf-8">
         <title>Rendu d'Affichage - VersePro</title>
         <style>
+            :root { --accent: #3b82f6; --read: #ffffff; --unread: rgba(255,255,255,0.34); }
+            html { font-size: 16px; }
             body {
-                margin: 0;
-                padding: 0;
-                background-color: #000;
-                color: #fff;
+                margin: 0; padding: 0;
+                background-color: #000; color: #fff;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
                 overflow: hidden;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 100vh;
-                text-align: center;
+                display: flex; align-items: center; justify-content: center;
+                height: 100vh; text-align: center;
                 transition: background 0.3s ease, background-color 0.3s ease;
             }
-            
-            /* Support transparent */
-            .bg-transparent {
-                background: transparent !important;
-                background-color: transparent !important;
-            }
-            .chroma-green {
-                background: #00ff00 !important;
-                background-color: #00ff00 !important;
-            }
-            .chroma-blue {
-                background: #0000ff !important;
-                background-color: #0000ff !important;
-            }
+            .bg-transparent { background: transparent !important; background-color: transparent !important; }
+            .chroma-green { background: #00ff00 !important; background-color: #00ff00 !important; }
+            .chroma-blue { background: #0000ff !important; background-color: #0000ff !important; }
 
-            /* Animations Apple-Style ultra-sobres */
             @keyframes fadeInUp {
-                from {
-                    opacity: 0;
-                    transform: translateY(8px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
+                from { opacity: 0; transform: translateY(8px); }
+                to { opacity: 1; transform: translateY(0); }
             }
 
-            #container {
-                width: 85%;
-                max-width: 1200px;
-            }
-
+            #container { width: 88%; max-width: 1200px; }
             #text {
-                font-size: 3.5rem;
-                line-height: 1.4;
-                font-weight: 500;
+                font-size: 3.5rem; line-height: 1.45; font-weight: 500;
                 margin-bottom: 2rem;
                 text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
                 opacity: 0;
             }
             #reference {
-                font-size: 2.2rem;
-                font-weight: 700;
-                color: #3b82f6; /* Bleu moderne */
-                text-transform: uppercase;
-                letter-spacing: 2px;
+                font-size: 2.2rem; font-weight: 700;
+                color: var(--accent);
+                text-transform: uppercase; letter-spacing: 2px;
                 text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
                 opacity: 0;
             }
+            #container.visible #text { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+            #container.visible #reference { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards; }
 
-            /* Déclenchement séquentiel des animations */
-            #container.visible #text {
-                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            /* ── Lecture vivante : chaque mot s'illumine quand il est prononcé ── */
+            #text.karaoke .w { color: var(--unread); transition: color 0.35s ease, text-shadow 0.35s ease; }
+            #text.karaoke .w.read { color: var(--read); }
+            #text.karaoke .w.cur { text-shadow: 0 0 18px rgba(255, 255, 255, 0.55); }
+
+            /* ── Sous-titre : traduction simultanée IA ── */
+            #subtitle {
+                position: fixed; left: 50%; bottom: 4vh; transform: translateX(-50%);
+                max-width: 82%;
+                background: rgba(8, 9, 12, 0.82);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 10px;
+                padding: 12px 26px;
+                font-size: 1.5rem; line-height: 1.4; font-weight: 500;
+                opacity: 0; transition: opacity 0.3s ease;
+                pointer-events: none;
             }
-            #container.visible #reference {
-                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
+            #subtitle.on { opacity: 1; }
+            #subtitle .lang {
+                display: block; font-size: 0.7rem; font-weight: 700;
+                letter-spacing: 0.14em; text-transform: uppercase;
+                color: var(--accent); margin-bottom: 4px;
             }
 
-            /* --- TYPE: PRESENTATION (Cinématique épuré) --- */
+            /* Témoin de signal (backend injoignable) */
+            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px;
+                      border-radius: 50%; background: #d93025; opacity: 0; transition: opacity 0.4s; }
+            #signal.lost { opacity: 0.85; }
+
+            /* --- THEME: PRESENTATION --- */
             body.theme-presentation {
                 background: radial-gradient(circle, #101114 0%, #030304 100%);
-                font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+                font-family: Georgia, "Times New Roman", serif;
             }
-            body.theme-presentation #text {
-                font-weight: 400;
-                font-style: italic;
-                letter-spacing: 0.5px;
-            }
-            body.theme-presentation #reference {
-                color: #e2b865; /* Ambre */
-                font-weight: 600;
-                font-size: 1.8rem;
-            }
+            body.theme-presentation #text { font-weight: 400; font-style: italic; letter-spacing: 0.5px; }
+            body.theme-presentation #reference { color: #e2b865; font-weight: 600; font-size: 1.8rem; }
 
-            /* --- TYPE: BROADCAST (Lower Thirds) --- */
-            body.theme-broadcast {
-                justify-content: center;
-                align-items: flex-end;
-            }
+            /* --- THEME: BROADCAST (lower third) --- */
+            body.theme-broadcast { justify-content: center; align-items: flex-end; }
             body.theme-broadcast #container {
-                width: 90%;
-                max-width: 1400px;
+                width: 90%; max-width: 1400px;
                 background: rgba(10, 11, 15, 0.85);
                 border: 1px solid rgba(255, 255, 255, 0.08);
-                border-left: 6px solid #3b82f6;
-                border-radius: 8px;
-                padding: 24px 40px;
-                margin-bottom: 5vh;
+                border-left: 6px solid var(--accent);
+                border-radius: 8px; padding: 24px 40px; margin-bottom: 5vh;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 40px;
-                text-align: left;
-                box-sizing: border-box;
+                display: flex; justify-content: space-between; align-items: center;
+                gap: 40px; text-align: left; box-sizing: border-box;
             }
-            body.theme-broadcast #text {
-                font-size: 1.8rem;
-                line-height: 1.4;
-                margin-bottom: 0;
-                font-weight: 450;
-                text-shadow: none;
-                flex: 1;
-            }
+            body.theme-broadcast #text { font-size: 1.8rem; line-height: 1.4; margin-bottom: 0; font-weight: 450; text-shadow: none; flex: 1; }
             body.theme-broadcast #reference {
-                font-size: 1.4rem;
-                font-weight: 800;
-                letter-spacing: 1px;
-                text-shadow: none;
-                flex-shrink: 0;
-                background: rgba(59, 130, 246, 0.12);
-                border: 1px solid rgba(59, 130, 246, 0.2);
-                padding: 6px 16px;
-                border-radius: 6px;
+                font-size: 1.4rem; font-weight: 800; letter-spacing: 1px; text-shadow: none; flex-shrink: 0;
+                background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2);
+                padding: 6px 16px; border-radius: 6px;
             }
+            body.theme-broadcast #subtitle { display: none; }
 
-            /* --- TYPE: CONFIDENCE (Moniteur de scène) --- */
-            body.theme-confidence {
-                background: #000 !important;
-                color: #ff0 !important; /* Jaune très lisible */
-                justify-content: flex-start;
-                align-items: flex-start;
-                text-align: left;
-            }
-            body.theme-confidence #container {
-                width: 95%;
-                margin: 40px;
-            }
-            body.theme-confidence #text {
-                font-size: 4rem;
-                font-weight: bold;
-                color: #fff;
-                margin-bottom: 30px;
-                text-shadow: none;
-            }
-            body.theme-confidence #reference {
-                font-size: 3rem;
-                color: #ff0;
-                text-shadow: none;
-            }
+            /* --- THEME: CONFIDENCE (moniteur simple) --- */
+            body.theme-confidence { background: #000 !important; justify-content: flex-start; align-items: flex-start; text-align: left; }
+            body.theme-confidence #container { width: 95%; margin: 40px; }
+            body.theme-confidence #text { font-size: 4rem; font-weight: bold; margin-bottom: 30px; text-shadow: none; }
+            body.theme-confidence #reference { font-size: 3rem; color: #ff0; text-shadow: none; }
 
-            /* --- TYPE: DUAL (Multi-Langues) --- */
-            body.theme-dual #container {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 50px;
-                text-align: left;
-                width: 90%;
-                max-width: 1300px;
-            }
-            body.theme-dual #text {
-                font-size: 2.2rem;
-                line-height: 1.5;
-                grid-column: span 2;
-                margin-bottom: 1rem;
-            }
-            body.theme-dual .split-columns {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 40px;
-                grid-column: span 2;
-            }
-            body.theme-dual .split-col {
-                border-left: 3px solid rgba(255,255,255,0.15);
-                padding-left: 20px;
-            }
-            body.theme-dual .split-ver {
-                font-size: 1.8rem;
-                line-height: 1.5;
-                color: #f3f4f6;
-                margin-bottom: 12px;
-                opacity: 0;
-            }
-            body.theme-dual .split-label {
-                font-size: 11px;
-                font-weight: bold;
-                color: #9ca3af;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-                opacity: 0;
-            }
-
-            body.theme-dual #container.visible .split-ver {
-                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            }
-            body.theme-dual #container.visible .split-label {
-                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
-            }
+            /* --- THEME: DUAL (multi-versions) --- */
+            body.theme-dual #container { width: 90%; max-width: 1300px; text-align: left; }
+            body.theme-dual .split-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+            body.theme-dual .split-col { border-left: 3px solid rgba(255,255,255,0.15); padding-left: 20px; }
+            body.theme-dual .split-ver { font-size: 1.8rem; line-height: 1.5; color: #f3f4f6; margin-bottom: 12px; opacity: 0; }
+            body.theme-dual .split-label { font-size: 11px; font-weight: bold; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; opacity: 0; }
+            body.theme-dual #container.visible .split-ver { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+            body.theme-dual #container.visible .split-label { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards; }
         </style>
     </head>
     <body>
         <div id="container">
             <div id="text">En attente d'affichage...</div>
             <div id="reference"></div>
-            <!-- Zone pour l'affichage double version split -->
             <div id="split-container" style="display: none;">
-                <div class="split-columns" id="split-cols">
-                    <!-- Généré en JS -->
-                </div>
+                <div class="split-columns" id="split-cols"></div>
             </div>
         </div>
-        
+        <div id="subtitle"><span class="lang"></span><span class="txt"></span></div>
+        <div id="signal"></div>
+
         <script>
             const container = document.getElementById('container');
             const textEl = document.getElementById('text');
             const refEl = document.getElementById('reference');
             const splitContainer = document.getElementById('split-container');
             const splitCols = document.getElementById('split-cols');
+            const subtitleEl = document.getElementById('subtitle');
+            const signalEl = document.getElementById('signal');
 
             const params = new URLSearchParams(window.location.search);
             const forcedBg = params.get('bg');
             const forcedTheme = params.get('theme');
             const scale = parseFloat(params.get('scale') || '1');
+            const subtitlesEnabled = params.get('subtitle') !== 'off';
+            // Le zoom s'applique à TOUS les thèmes (tout est dimensionné en rem)
+            if (scale && scale !== 1) document.documentElement.style.fontSize = (16 * scale) + 'px';
 
-            if (scale && scale !== 1) {
-                textEl.style.fontSize = (3.5 * scale) + 'rem';
-                refEl.style.fontSize = (2.2 * scale) + 'rem';
+            let currentKey = null;
+            let subtitleTimer = null;
+
+            // Rendu du texte en mots individuels (Lecture vivante) — DOM sûr, pas d'innerHTML
+            function renderWords(text) {
+                textEl.textContent = '';
+                textEl.classList.add('karaoke');
+                (text || '').split(/\s+/).filter(Boolean).forEach((word) => {
+                    const span = document.createElement('span');
+                    span.className = 'w';
+                    span.textContent = word;
+                    textEl.appendChild(span);
+                    textEl.appendChild(document.createTextNode(' '));
+                });
+            }
+
+            function applyProgress(matched) {
+                const spans = textEl.querySelectorAll('.w');
+                spans.forEach((span, i) => {
+                    span.classList.toggle('read', i < matched);
+                    span.classList.toggle('cur', i === matched - 1);
+                });
+            }
+
+            function renderScene(data) {
+                const bg = forcedBg || data.background;
+                document.body.className = '';
+                if (bg === 'transparent') document.body.classList.add('bg-transparent');
+                else if (bg === 'green') document.body.classList.add('chroma-green');
+                else if (bg === 'blue') document.body.classList.add('chroma-blue');
+
+                const theme = forcedTheme || data.theme || 'presentation';
+                document.body.classList.add('theme-' + theme);
+
+                // Même verset (changement de thème/fond seulement) : pas de re-animation
+                const key = (data.reference || '') + '|' + (data.text || '');
+                if (key === currentKey) return;
+                currentKey = key;
+
+                container.classList.remove('visible');
+                setTimeout(() => {
+                    splitContainer.style.display = 'none';
+                    textEl.style.display = 'block';
+                    refEl.style.display = 'block';
+
+                    const translations = data.translations || {};
+                    if (theme === 'dual' && Object.keys(translations).length > 1) {
+                        textEl.style.display = 'none';
+                        refEl.style.display = 'none';
+                        splitContainer.style.display = 'block';
+                        splitCols.textContent = '';
+                        Object.entries(translations).slice(0, 2).forEach(([version, txt]) => {
+                            const col = document.createElement('div');
+                            col.className = 'split-col';
+                            const ver = document.createElement('div');
+                            ver.className = 'split-ver';
+                            ver.textContent = txt;
+                            const label = document.createElement('div');
+                            label.className = 'split-label';
+                            label.textContent = version + ' — ' + (data.reference || '');
+                            col.appendChild(ver);
+                            col.appendChild(label);
+                            splitCols.appendChild(col);
+                        });
+                    } else {
+                        renderWords(data.text);
+                        refEl.textContent = data.reference || '';
+                    }
+
+                    if (data.text || data.reference) container.classList.add('visible');
+                }, 150);
+            }
+
+            function showSubtitle(data) {
+                if (!subtitlesEnabled) return;
+                subtitleEl.querySelector('.lang').textContent = (data.lang || '').toUpperCase();
+                subtitleEl.querySelector('.txt').textContent = data.text || '';
+                subtitleEl.classList.add('on');
+                clearTimeout(subtitleTimer);
+                subtitleTimer = setTimeout(() => subtitleEl.classList.remove('on'), 7000);
             }
 
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${proto}//${window.location.host}/ws/output`;
-                ws = new WebSocket(wsUrl);
-                
-                ws.onopen = () => {
-                    console.log('🔗 Connecté au moteur de rendu');
-                    container.classList.add('visible');
-                };
-                
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
+                ws.onopen = () => { signalEl.classList.remove('lost'); container.classList.add('visible'); };
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
-                    
-                    // Couleur d'arrière-plan
-                    const bg = forcedBg || data.background;
-                    document.body.className = '';
-                    if (bg === 'transparent') {
-                        document.body.classList.add('bg-transparent');
-                    } else if (bg === 'green') {
-                        document.body.classList.add('chroma-green');
-                    } else if (bg === 'blue') {
-                        document.body.classList.add('chroma-blue');
-                    }
-
-                    // Thème dynamique
-                    const theme = forcedTheme || data.theme || 'presentation';
-                    document.body.classList.add('theme-' + theme);
-                    
-                    // Réinitialisation des animations en enlevant la classe visible
-                    container.classList.remove('visible');
-                    
-                    setTimeout(() => {
-                        // Nettoyage dual/split
-                        splitContainer.style.display = 'none';
-                        textEl.style.display = 'block';
-                        refEl.style.display = 'block';
-
-                        if (theme === 'dual' && data.translations && Object.keys(data.translations).length > 0) {
-                            textEl.style.display = 'none';
-                            refEl.style.display = 'none';
-                            splitContainer.style.display = 'block';
-                            
-                            splitCols.innerHTML = '';
-                            Object.entries(data.translations).slice(0, 2).forEach(([version, txt]) => {
-                                const col = document.createElement('div');
-                                col.className = 'split-col';
-                                col.innerHTML = `
-                                    <div class="split-ver">"${txt}"</div>
-                                    <div class="split-label">${version} — ${data.reference || ''}</div>
-                                `;
-                                splitCols.appendChild(col);
-                            });
-                        } else {
-                            textEl.textContent = data.text || '';
-                            refEl.textContent = data.reference || '';
-                        }
-                        
-                        if (data.text || data.reference) {
-                            container.classList.add('visible');
-                        }
-                    }, 150); // Petit délai de ré-apparition
+                    if (data.type === 'reading_progress') { applyProgress(data.matched); return; }
+                    if (data.type === 'live_translation') { showSubtitle(data); return; }
+                    if (data.type && data.type !== 'scripture') return;
+                    renderScene(data);
                 };
-                
-                ws.onclose = () => {
-                    console.log('🔌 Déconnecté, reconnexion...');
-                    setTimeout(connect, 2000);
+                ws.onclose = () => { signalEl.classList.add('lost'); setTimeout(connect, 2000); };
+            }
+            connect();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/stage", response_class=HTMLResponse)
+async def get_stage_display():
+    """
+    Moniteur prédicateur (« stage display ») : verset courant avec lecture
+    vivante, horloge, et verset SUIVANT pré-affiché. Ce que ProPresenter vend
+    en option, en mieux : l'écran sait où en est la lecture.
+    """
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>VersePro — Moniteur prédicateur</title>
+        <style>
+            :root { color-scheme: dark; }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0; height: 100vh; overflow: hidden;
+                background: #000; color: #fff;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+                display: flex; flex-direction: column;
+                padding: 3.5vh 4vw;
+            }
+            header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3vh; }
+            #reference { font-size: 3.2vw; font-weight: 800; color: #ffd60a; letter-spacing: 0.04em; text-transform: uppercase; }
+            #clock { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 3.2vw; font-weight: 700; color: #fff; }
+            main { flex: 1; display: flex; align-items: center; }
+            #text { font-size: 4.2vw; line-height: 1.4; font-weight: 600; }
+            #text .w { color: rgba(255, 255, 255, 0.36); transition: color 0.3s ease; }
+            #text .w.read { color: #fff; }
+            #text .w.cur { color: #ffd60a; }
+            footer { border-top: 2px solid rgba(255, 255, 255, 0.14); padding-top: 2.2vh; min-height: 16vh; }
+            footer .label { font-size: 1.2vw; font-weight: 800; letter-spacing: 0.16em; color: #30d158; text-transform: uppercase; }
+            #next-text {
+                margin-top: 0.8vh; font-size: 2.1vw; line-height: 1.4; color: rgba(255, 255, 255, 0.6);
+                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+            }
+            .waiting { color: rgba(255,255,255,0.35); }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div id="reference">—</div>
+            <div id="clock">--:--:--</div>
+        </header>
+        <main><div id="text" class="waiting">En attente du prochain verset…</div></main>
+        <footer>
+            <span class="label" id="next-label">Suivant</span>
+            <div id="next-text">—</div>
+        </footer>
+        <script>
+            const refEl = document.getElementById('reference');
+            const textEl = document.getElementById('text');
+            const clockEl = document.getElementById('clock');
+            const nextLabel = document.getElementById('next-label');
+            const nextText = document.getElementById('next-text');
+
+            setInterval(() => {
+                clockEl.textContent = new Date().toLocaleTimeString('fr-FR');
+            }, 1000);
+
+            function renderWords(text) {
+                textEl.textContent = '';
+                textEl.classList.remove('waiting');
+                (text || '').split(/\s+/).filter(Boolean).forEach((word) => {
+                    const span = document.createElement('span');
+                    span.className = 'w';
+                    span.textContent = word;
+                    textEl.appendChild(span);
+                    textEl.appendChild(document.createTextNode(' '));
+                });
+            }
+
+            function applyProgress(matched) {
+                const spans = textEl.querySelectorAll('.w');
+                spans.forEach((span, i) => {
+                    span.classList.toggle('read', i < matched);
+                    span.classList.toggle('cur', i === matched - 1);
+                });
+            }
+
+            function renderScene(data) {
+                refEl.textContent = data.reference || '—';
+                if (data.text) {
+                    renderWords(data.text);
+                } else {
+                    textEl.classList.add('waiting');
+                    textEl.textContent = 'En attente du prochain verset…';
+                }
+                nextLabel.textContent = data.next_reference ? ('Suivant · ' + data.next_reference) : 'Suivant';
+                nextText.textContent = data.next_text || '—';
+            }
+
+            let ws;
+            function connect() {
+                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'reading_progress') { applyProgress(data.matched); return; }
+                    if (data.type && data.type !== 'scripture') return;
+                    renderScene(data);
                 };
+                ws.onclose = () => setTimeout(connect, 2000);
             }
             connect();
         </script>
@@ -661,7 +742,12 @@ async def get_follow_page():
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
                 ws.onopen = () => { connEl.textContent = 'En direct'; };
-                ws.onmessage = (event) => render(JSON.parse(event.data));
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    // Les événements de progression/traduction ne remplacent pas le verset
+                    if (data.type && data.type !== 'scripture') return;
+                    render(data);
+                };
                 ws.onclose = () => {
                     connEl.textContent = 'Reconnexion…';
                     setTimeout(connect, 2500);
@@ -924,6 +1010,7 @@ async def websocket_audio(websocket: WebSocket):
         try:
             while True:
                 data = await websocket.receive_bytes()
+                logger.debug(f"🎙️ Chunk audio reçu: {len(data)} bytes")
 
                 # Porte vocale : les chunks sans parole (musique, silence) sont ignorés
                 if voice_gate is not None:
@@ -1015,7 +1102,9 @@ async def websocket_audio(websocket: WebSocket):
         last_projected_ref = None # Pour éviter de projeter/enregistrer plusieurs fois le même verset d'affilée
         last_deterministic_at = 0.0
         active_ai_tasks = set()
-        
+        # Lecture vivante : mots déjà transmis de l'énoncé en cours (les partiels se répètent)
+        last_partial_words = []
+
         try:
             while True:
                 item = await transcript_queue.get()
@@ -1031,6 +1120,26 @@ async def websocket_audio(websocket: WebSocket):
                     "is_final": is_final,
                     "buffer": buffer_text
                 })
+
+                # 1.5. Lecture vivante : n'alimente le traqueur qu'avec les MOTS NOUVEAUX
+                # de l'énoncé (les transcriptions partielles répètent le début à chaque fois)
+                if reading_tracker.active:
+                    cur_words = transcript.split()
+                    common = 0
+                    while (common < len(last_partial_words) and common < len(cur_words)
+                           and last_partial_words[common] == cur_words[common]):
+                        common += 1
+                    new_words = " ".join(cur_words[common:])
+                    last_partial_words = [] if is_final else cur_words
+                    if new_words and reading_tracker.feed(new_words):
+                        asyncio.create_task(broadcast_output_event({
+                            "type": "reading_progress",
+                            "reference": current_projection_slide.get("reference", ""),
+                            "matched": reading_tracker.position,
+                            "total": reading_tracker.total
+                        }))
+                elif is_final:
+                    last_partial_words = []
                 
                 # Le texte complet à analyser
                 current_analysis_text = (buffer_text + " " + transcript).strip()
@@ -1233,6 +1342,12 @@ async def websocket_audio(websocket: WebSocket):
                                     })
                                 except Exception as err:
                                     logger.error(f"❌ Impossible d'envoyer la traduction: {err}")
+                                # Sous-titre live sur les écrans de projection/assemblée
+                                await broadcast_output_event({
+                                    "type": "live_translation",
+                                    "text": translated,
+                                    "lang": target_lang
+                                })
                         
                         asyncio.create_task(perform_translation(transcript, translation_lang))
         except Exception as e:

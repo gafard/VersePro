@@ -19,7 +19,7 @@ from .config import settings
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 # Chemins accessibles sans authentification (lecture d'affichage uniquement)
-PUBLIC_PATHS = {"/", "/health", "/projection", "/output", "/obs", "/follow", "/ws/projection", "/ws/output"}
+PUBLIC_PATHS = {"/", "/health", "/projection", "/output", "/obs", "/follow", "/stage", "/ws/projection", "/ws/output"}
 
 
 def _is_local(host: str | None) -> bool:

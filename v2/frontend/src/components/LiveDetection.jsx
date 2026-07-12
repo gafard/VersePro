@@ -434,6 +434,10 @@ export default function LiveDetection({ setActiveTab }) {
     window.open('/obs?theme=lower-third&bg=transparent', 'VerseProOBS', 'width=1280,height=720,menubar=no,toolbar=no')
   }
 
+  const openStageWindow = () => {
+    window.open('/stage', 'VerseProStage', 'width=1280,height=720,menubar=no,toolbar=no')
+  }
+
   // ── Données dérivées ───────────────────────────────────────────
   const displayWords = useMemo(() => {
     if (!currentTranscript) return null
@@ -994,6 +998,9 @@ export default function LiveDetection({ setActiveTab }) {
 
             <button className="vp-btn" onClick={openProjectionWindow}>
               Ouvrir l'écran de projection autonome
+            </button>
+            <button className="vp-btn vp-btn--ghost" onClick={openStageWindow}>
+              Moniteur prédicateur (retour scène)
             </button>
             <button className="vp-btn vp-btn--ghost" onClick={openObsWindow}>
               Ouvrir la source OBS / vMix Web Browser

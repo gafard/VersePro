@@ -17,6 +17,9 @@ class ProPresenterOutput(BaseOutput):
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self.connected = False
+        # Cooldown : après un échec, on ne retente pas la connexion avant 20 s
+        # pour ne pas payer un timeout TCP à chaque verset projeté.
+        self._retry_after = 0.0
         
         self.stats = {
             "commands_sent": 0,
@@ -57,7 +60,13 @@ class ProPresenterOutput(BaseOutput):
 
     async def _ensure_connected(self) -> bool:
         if not self.connected:
-            return await self.connect()
+            now = asyncio.get_event_loop().time()
+            if now < self._retry_after:
+                return False
+            ok = await self.connect()
+            if not ok:
+                self._retry_after = now + 20.0
+            return ok
         return True
 
     async def _send_command(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -15,6 +15,7 @@ export default defineConfig({
       '/output': backendHttp,
       '/obs': backendHttp,
       '/follow': backendHttp,
+      '/stage': backendHttp,
       '/ws': {
         target: backendWs,
         ws: true
