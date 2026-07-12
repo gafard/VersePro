@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
+import TranscriptTicker from './TranscriptTicker.jsx'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -439,10 +440,38 @@ export default function LiveDetection({ setActiveTab }) {
   }
 
   // ── Données dérivées ───────────────────────────────────────────
-  const displayWords = useMemo(() => {
-    if (!currentTranscript) return null
-    return currentTranscript.trim().split(/\s+/).filter(Boolean).slice(-30)
-  }, [currentTranscript])
+  // ── Lecture vivante côté console : progression AUTORITAIRE du serveur
+  // (flux /ws/output, le même que les écrans) avec repli sur l'heuristique locale
+  const [serverReading, setServerReading] = useState(null)
+  const serverWsUp = useRef(false)
+  useEffect(() => {
+    let socket = null
+    let retryTimer = null
+    let closed = false
+    const connectOutput = () => {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      socket = new WebSocket(`${proto}//${window.location.host}/ws/output`)
+      socket.onopen = () => { serverWsUp.current = true }
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        if (data.type === 'reading_progress') {
+          setServerReading({ reference: data.reference, matched: data.matched, total: data.total })
+        } else if (!data.type || data.type === 'scripture') {
+          setServerReading(null) // nouveau verset : progression remise à zéro
+        }
+      }
+      socket.onclose = () => {
+        serverWsUp.current = false
+        if (!closed) retryTimer = setTimeout(connectOutput, 3000)
+      }
+    }
+    connectOutput()
+    return () => {
+      closed = true
+      clearTimeout(retryTimer)
+      if (socket) socket.close()
+    }
+  }, [])
 
   // Pastilles rapides : les versets les plus cités de cette église (stats),
   // avec repli sur les classiques tant qu'il n'y a pas d'historique.
@@ -487,7 +516,16 @@ export default function LiveDetection({ setActiveTab }) {
   })()
 
   const followProgress = useMemo(() => {
-    if (!followMode || !onAirDisplay?.text || !currentTranscript) return null
+    if (!followMode || !onAirDisplay?.text) return null
+    // 1. Signal serveur (traqueur de lecture, aligné sur les écrans)
+    if (serverReading && serverReading.total > 3) {
+      return {
+        ratio: serverReading.matched / serverReading.total,
+        tailReached: serverReading.matched >= serverReading.total - 1
+      }
+    }
+    // 2. Repli local si le flux serveur est indisponible
+    if (serverWsUp.current || !currentTranscript) return null
     const verseWords = normalizeWords(onAirDisplay.text)
     if (verseWords.length < 4) return null
     const spoken = new Set(normalizeWords(currentTranscript).slice(-60))
@@ -496,10 +534,9 @@ export default function LiveDetection({ setActiveTab }) {
     const tailCovered = tail.filter((w) => spoken.has(w)).length
     return {
       ratio: covered / verseWords.length,
-      // fin du verset atteinte : 4 des 5 derniers mots significatifs prononcés
       tailReached: tailCovered >= Math.min(4, tail.length)
     }
-  }, [followMode, onAirDisplay, currentTranscript])
+  }, [followMode, onAirDisplay, currentTranscript, serverReading])
 
   // Auto-avance : quand la fin du verset est lue, projette le suivant (une seule fois par verset)
   useEffect(() => {
@@ -945,6 +982,8 @@ export default function LiveDetection({ setActiveTab }) {
                     <option value="broadcast">Broadcast (Incrustations Lower Thirds)</option>
                     <option value="confidence">Stage/Confidence (Moniteur de scène)</option>
                     <option value="dual">Dual Language (Multi-traduction côte-à-côte)</option>
+                    <option value="elegant">Élégant (Serif doré, cérémonie)</option>
+                    <option value="minimal">Minimal (Typographie géante)</option>
                   </select>
                 </label>
               </div>
@@ -1010,9 +1049,9 @@ export default function LiveDetection({ setActiveTab }) {
       </div>
 
       {/* ═══════════ TICKER TRANSCRIPT ═══════════ */}
-      <footer className="vp-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+      <footer className={`vp-panel live-footer ${translationLang && currentTranslation ? 'has-translation' : ''}`}>
         {translationLang && currentTranslation && (
-          <div className="live-translation" style={{ paddingTop: 10 }}>{currentTranslation}</div>
+          <div className="live-translation">{currentTranslation}</div>
         )}
         <div className="live-ticker">
           <div className="live-ticker-label">
@@ -1020,26 +1059,10 @@ export default function LiveDetection({ setActiveTab }) {
             <small>{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram cloud'}</small>
           </div>
           <canvas id="vp-wave" className="live-ticker-wave" />
-          <div className="live-ticker-flow">
-            {displayWords ? (
-              displayWords.map((word, idx) => {
-                const distance = displayWords.length - 1 - idx
-                const opacity = distance > 4 ? Math.max(0.25, 1 - (distance - 4) * 0.08) : 1
-                const isRecent = distance <= 2
-                return (
-                  <span
-                    key={`${word}-${idx}`}
-                    className="w"
-                    style={{ opacity, fontWeight: isRecent ? 700 : 450, color: isRecent ? 'var(--vp-text)' : 'var(--vp-text-dim)' }}
-                  >
-                    {word}
-                  </span>
-                )
-              })
-            ) : (
-              <span className="placeholder">En attente du signal micro — la prédication s'affichera ici en direct.</span>
-            )}
-          </div>
+          <TranscriptTicker
+            text={currentTranscript}
+            placeholder="En attente du signal micro — la prédication s'affichera ici en direct."
+          />
           <button
             type="button"
             className={`live-ticker-mic ${isListening ? 'is-active' : ''}`}

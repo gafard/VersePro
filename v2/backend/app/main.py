@@ -228,6 +228,12 @@ async def health_check():
     }
 
 
+@app.get("/projection")
+async def get_projection_page_legacy():
+    """Redirige les anciennes requêtes d'affichage vers le nouvel endpoint Output unifié"""
+    return RedirectResponse(url="/output")
+
+
 # Endpoints de Rendu d'Affichage Web Autonome (Outputs)
 @app.get("/output", response_class=HTMLResponse)
 async def get_output_page():
@@ -344,6 +350,40 @@ async def get_output_page():
             body.theme-confidence #container { width: 95%; margin: 40px; }
             body.theme-confidence #text { font-size: 4rem; font-weight: bold; margin-bottom: 30px; text-shadow: none; }
             body.theme-confidence #reference { font-size: 3rem; color: #ff0; text-shadow: none; }
+
+            /* --- THEME: ELEGANT (cérémonie, serif doré) --- */
+            body.theme-elegant {
+                background: radial-gradient(ellipse 90% 80% at 50% 30%, #14100a 0%, #050403 70%);
+                font-family: Georgia, "Times New Roman", serif;
+            }
+            body.theme-elegant #text {
+                font-size: 3.8rem; font-weight: 400; line-height: 1.5;
+                color: #f5efe2; letter-spacing: 0.3px; text-shadow: none;
+            }
+            body.theme-elegant #text.karaoke .w { color: rgba(245, 239, 226, 0.3); }
+            body.theme-elegant #text.karaoke .w.read { color: #f5efe2; }
+            body.theme-elegant #text.karaoke .w.cur { text-shadow: 0 0 22px rgba(226, 184, 101, 0.6); }
+            body.theme-elegant #reference {
+                color: #e2b865; font-size: 1.6rem; font-weight: 600;
+                letter-spacing: 0.35em; text-shadow: none;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
+            body.theme-elegant #reference::before,
+            body.theme-elegant #reference::after { content: "—"; margin: 0 18px; color: rgba(226, 184, 101, 0.4); }
+
+            /* --- THEME: MINIMAL (typographie géante) --- */
+            body.theme-minimal { background: #000; }
+            body.theme-minimal #container { width: 92%; max-width: 1500px; text-align: left; }
+            body.theme-minimal #text {
+                font-size: 4.6rem; font-weight: 750; line-height: 1.22;
+                letter-spacing: -0.015em; text-shadow: none; margin-bottom: 2.5rem;
+            }
+            body.theme-minimal #text.karaoke .w { color: rgba(255, 255, 255, 0.22); }
+            body.theme-minimal #text.karaoke .w.read { color: #ffffff; }
+            body.theme-minimal #reference {
+                font-size: 1.3rem; font-weight: 600; color: #8e8e93;
+                letter-spacing: 0.2em; text-shadow: none;
+            }
 
             /* --- THEME: DUAL (multi-versions) --- */
             body.theme-dual #container { width: 90%; max-width: 1300px; text-align: left; }
@@ -526,6 +566,9 @@ async def get_stage_display():
                 display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
             }
             .waiting { color: rgba(255,255,255,0.35); }
+            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px;
+                      border-radius: 50%; background: #d93025; opacity: 0; transition: opacity 0.4s; }
+            #signal.lost { opacity: 0.85; }
         </style>
     </head>
     <body>
@@ -538,6 +581,7 @@ async def get_stage_display():
             <span class="label" id="next-label">Suivant</span>
             <div id="next-text">—</div>
         </footer>
+        <div id="signal"></div>
         <script>
             const refEl = document.getElementById('reference');
             const textEl = document.getElementById('text');
@@ -581,17 +625,32 @@ async def get_stage_display():
                 nextText.textContent = data.next_text || '—';
             }
 
+            const signalEl = document.getElementById('signal');
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
+                const url = `${proto}//${window.location.host}/ws/output`;
+                console.log('⏳ [Moniteur] Tentative de connexion WebSocket sur', url);
+                ws = new WebSocket(url);
+                ws.onopen = () => {
+                    console.log('✅ [Moniteur] WebSocket connecté !');
+                    signalEl.classList.remove('lost');
+                };
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
-                    if (data.type === 'reading_progress') { applyProgress(data.matched); return; }
+                    console.log('📥 [Moniteur] Message reçu :', data);
+                    if (data.type === 'reading_progress') { 
+                        applyProgress(data.matched); 
+                        return; 
+                    }
                     if (data.type && data.type !== 'scripture') return;
                     renderScene(data);
                 };
-                ws.onclose = () => setTimeout(connect, 2000);
+                ws.onclose = () => {
+                    console.warn('❌ [Moniteur] WebSocket déconnecté. Reconnexion dans 2s...');
+                    signalEl.classList.add('lost');
+                    setTimeout(connect, 2000);
+                };
             }
             connect();
         </script>
@@ -777,6 +836,12 @@ async def websocket_output(websocket: WebSocket):
             browser_driver.unregister_connection(websocket)
     else:
         await websocket.close(code=1011, reason="Moteur d'affichage non initialisé")
+
+
+@app.websocket("/ws/projection")
+async def websocket_projection_legacy(websocket: WebSocket):
+    """Alias rétrocompatible pour les anciens clients d'affichage"""
+    await websocket_output(websocket)
 
 
 @app.get("/api/v1/projection/current")
