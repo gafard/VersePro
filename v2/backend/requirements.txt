@@ -9,7 +9,7 @@ websockets>=12.0
 deepgram-sdk>=3.1.0
 pyaudio>=0.2.14
 numpy>=1.24.0
-vosk>=0.3.45
+vosk>=0.3.44
 faster-whisper>=1.0.0
 
 # HTTP client (Agent IA : OpenRouter / Gemini / Ollama)

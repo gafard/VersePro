@@ -81,6 +81,8 @@ export default function LiveDetection({ setActiveTab }) {
   const [clock, setClock] = useState(() => new Date())
   const [micError, setMicError] = useState(null)
   const [followMode, setFollowMode] = useState(false)
+  const [projectingIds, setProjectingIds] = useState(new Set())
+  const [failedIds, setFailedIds] = useState(new Set())
   const lastAdvancedRef = useRef(null)
 
   const manualInputRef = useRef(null)
