@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     
     # Vosk
     VOSK_MODEL_TYPE: str = "small"  # 'small' ou 'large' pour le modèle français plus précis de 1.4 Go
+
+    # Barrière vocale (Silero VAD local) : filtre musique/silences avant transcription
+    VOICE_GATE_ENABLED: bool = False
+
+    # vMix
+    VMIX_ENABLED: bool = False
+    VMIX_HOST: str = "127.0.0.1"
+    VMIX_PORT: int = 8088
+    VMIX_INPUT_ID: str = "VerseProTitle"
     
     @property
     def cors_origins(self) -> List[str]:

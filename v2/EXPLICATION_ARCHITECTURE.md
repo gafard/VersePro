@@ -23,6 +23,7 @@ flowchart TB
     Live["Console live: micro, onde réelle, prompteur, queue"]
     Settings["Page Paramètres"]
     Projector["Écran projection web /projection"]
+    OBS["Source navigateur OBS /obs"]
     Store["Store Zustand"]
   end
 
@@ -47,6 +48,7 @@ flowchart TB
   Policy --> Store
   Policy --> PP
   Policy --> Projector
+  Policy --> OBS
   DB --> Settings
 ```
 
@@ -97,6 +99,7 @@ Le backend FastAPI expose :
 - `/api/v1/references/send` pour envoyer manuellement ;
 - `/api/v1/history/*` pour sessions et historique ;
 - `/projection` et `/ws/projection` pour l'écran de projection autonome ;
+- `/obs` pour une source navigateur OBS transparente ou chroma key ;
 - `/ws/audio` pour le flux micro.
 
 SQLite conserve les réglages, sessions, transcriptions, références, source de détection et score de confiance.
@@ -196,6 +199,8 @@ L'onde n'est donc plus décorative : elle reflète le signal reçu.
 
 VersePro peut envoyer un verset à ProPresenter via le service backend. En parallèle, l'écran `/projection` fournit une projection web autonome, utile pour tester ou pour les installations sans ProPresenter.
 
+La route `/obs` est le pont OBS direct. Elle rend une page HTML transparente, pensée pour une **Source navigateur** OBS, et écoute le même WebSocket `/ws/projection`. Elle accepte les paramètres `theme=lower-third|full|minimal`, `bg=transparent|green|blue|black`, `scale=...` et `show_ref=0|1`.
+
 Le bouton manuel et les actions de queue restent disponibles même si ProPresenter est déconnecté. Le régisseur peut donc préparer, vérifier et corriger sans perdre le fil.
 
 ## Démarrage et exploitation
@@ -223,6 +228,16 @@ Les événements importants sont stockés :
 - validation manuelle.
 
 Les logs de configuration masquent les clés API pour éviter de laisser des secrets dans les fichiers de diagnostic.
+
+## Tests temps réel
+
+La suite `pytest` couvre désormais le flux de projection WebSocket :
+
+- connexion initiale à `/ws/projection` ;
+- broadcast d'un slide via `/api/v1/project` vers les clients connectés ;
+- transmission des traductions dans le payload WebSocket ;
+- disponibilité publique de `/obs` pour les clients distants ;
+- refus des flux distants sensibles sans jeton API.
 
 ## Limites actuelles et prochaines innovations
 

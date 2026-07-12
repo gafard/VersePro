@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react'
 import { useStore } from '../store.js'
-import landingPack from '../assets/versepro-landing-pack.png'
 
 export default function LandingPage({ setActiveTab }) {
   const { history, connected, propresenterConnected } = useStore()
@@ -9,19 +8,24 @@ export default function LandingPage({ setActiveTab }) {
 
   const proofCards = [
     {
-      title: 'Demarrage calme',
-      value: '1 clic',
-      text: 'La regie s ouvre sans terminal et sans chasse aux ports.'
+      title: 'Mode',
+      value: 'Direct sécurisé',
+      text: 'Les références explicites passent en priorité, l IA reste prudente.'
     },
     {
-      title: 'Analyse prudente',
-      value: '95%',
-      text: 'Les deductions IA restent a valider avant diffusion.'
+      title: 'Fonctionnement',
+      value: 'Hors ligne',
+      text: 'Vosk permet de tester et d utiliser la régie sans clé cloud.'
     },
     {
-      title: 'Direct protege',
+      title: 'Projection',
       value: '< 5 ms',
-      text: 'Les references explicites gardent la priorite.'
+      text: 'Le parser local répond avant que l opérateur perde le fil.'
+    },
+    {
+      title: 'Analyse',
+      value: 'Validation humaine',
+      text: 'Les suggestions sémantiques arrivent dans À valider, jamais en direct.'
     }
   ]
 
@@ -29,7 +33,7 @@ export default function LandingPage({ setActiveTab }) {
     <div className="landing-shell">
       <nav className="landing-nav">
         <button className="landing-brand" onClick={() => setActiveTab('home')} aria-label="VersePro accueil">
-          <span className="landing-brand-mark">VP</span>
+          <span className="landing-brand-mark">V</span>
           <span>VersePro</span>
         </button>
 
@@ -48,11 +52,11 @@ export default function LandingPage({ setActiveTab }) {
         <div className="landing-sky-particles" aria-hidden="true" />
 
         <section className="landing-copy" aria-labelledby="landing-title">
-          <p className="landing-kicker">Assistant de projection biblique</p>
+          <p className="landing-kicker">Semantic projection engine</p>
           <h1 id="landing-title">VersePro</h1>
           <p className="landing-subtitle">
-            L'assistant discret des cultes en direct. Il ecoute, reconnait les references,
-            prepare la projection et laisse toujours le regisseur garder la main.
+            The operating system for church media teams. VersePro écoute la prédication,
+            prépare les Écritures en temps réel et garde la décision humaine au centre.
           </p>
           <div className="landing-actions">
             <button className="landing-primary" onClick={() => setActiveTab('live')}>
@@ -65,16 +69,62 @@ export default function LandingPage({ setActiveTab }) {
         </section>
 
         <section className="landing-pack-stage" aria-label="Apercu VersePro">
-          <img src={landingPack} alt="" className="landing-pack-image" />
+          <div className="landing-product-window">
+            <div className="landing-window-bar">
+              <div className="landing-window-dots" aria-hidden="true">
+                <span /><span /><span />
+              </div>
+              <strong>Live</strong>
+              <small>127.0.0.1:3001</small>
+            </div>
 
-          <div className="landing-note landing-note-left">
-            <span>Avant</span>
-            <p>Terminal, cles API, ports, stress.</p>
-          </div>
+            <div className="landing-window-body">
+              <aside className="landing-window-sidebar" aria-hidden="true">
+                <span className="landing-mini-logo">V</span>
+                <i className="is-active" />
+                <i />
+                <i />
+              </aside>
 
-          <div className="landing-note landing-note-right">
-            <span>Apres</span>
-            <p>Une regie prete, lisible, prudente.</p>
+              <div className="landing-window-main">
+                <div className="landing-window-status">
+                  <span><i />Serveur</span>
+                  <span><i />Deepgram</span>
+                  <span><i />IA active</span>
+                </div>
+
+                <div className="landing-window-grid">
+                  <div className="landing-window-queue">
+                    <div className="landing-window-section-title">
+                      <span>À valider</span>
+                      <strong>3</strong>
+                    </div>
+                    <div className="landing-window-card is-local">
+                      <div><strong>Jean 3:16</strong><small>Direct</small></div>
+                      <p>Car Dieu a tant aimé le monde...</p>
+                      <button>Projeter</button>
+                    </div>
+                    <div className="landing-window-card is-ai">
+                      <div><strong>Romains 8:28</strong><small>Copilote 96%</small></div>
+                      <p>Suggestion sémantique, validation requise.</p>
+                      <button>Valider</button>
+                    </div>
+                  </div>
+
+                  <div className="landing-window-air">
+                    <span>À l'antenne</span>
+                    <strong>Psaume 23:1</strong>
+                    <p>L'Éternel est mon berger...</p>
+                  </div>
+                </div>
+
+                <div className="landing-window-ticker">
+                  <canvas aria-hidden="true" />
+                  <span>... lisons ensemble dans l'évangile de Jean chapitre trois ...</span>
+                  <button>LIVE</button>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </main>

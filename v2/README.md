@@ -15,6 +15,7 @@ La V2 actuelle a été durcie pour un usage réel par des bénévoles : démarra
 - Projection directe uniquement pour les références locales explicites et très fiables.
 - Page Paramètres pour gérer Bible, ProPresenter, Deepgram, IA et seuil de confiance.
 - Écran de projection autonome sur `/projection`.
+- Source navigateur OBS native sur `/obs`, indépendante de ProPresenter.
 - Historique SQLite des sessions, références, sources et scores.
 
 ## Philosophie : Vers une Régie Sereine
@@ -50,6 +51,7 @@ Adresses par défaut :
 - Interface régie : [http://127.0.0.1:3001](http://127.0.0.1:3001)
 - Backend santé : [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health)
 - Écran projection : [http://127.0.0.1:3001/projection](http://127.0.0.1:3001/projection)
+- Source OBS : [http://127.0.0.1:3001/obs](http://127.0.0.1:3001/obs)
 
 Si le port frontend `3001` est déjà occupé, le lanceur essaie automatiquement `3002`, puis les ports suivants jusqu'à `3010`.
 
@@ -89,6 +91,26 @@ La page Paramètres permet de modifier sans terminal :
 
 Les clés déjà configurées apparaissent avec un indice masqué, par exemple `sk-o...abcd`. Elles ne sont jamais exposées en clair par l'API `/settings`.
 
+## Sortie OBS native
+
+VersePro ne dépend pas uniquement de ProPresenter. Pour OBS Studio, ajoutez une **Source navigateur** et utilisez :
+
+```text
+http://127.0.0.1:8001/obs?theme=lower-third&bg=transparent
+```
+
+Variantes utiles :
+
+- `theme=lower-third` : bandeau bas d'écran, recommandé pour le streaming.
+- `theme=full` : verset plein écran.
+- `theme=minimal` : texte très léger, sans panneau.
+- `bg=transparent` : incrustation native OBS.
+- `bg=green` ou `bg=blue` : chroma key.
+- `scale=1.2` : augmente la taille du texte.
+- `show_ref=0` : masque la référence.
+
+La source OBS écoute `/ws/projection`, le même flux temps réel que l'écran autonome. Toute validation dans la régie apparaît donc dans OBS sans passer par l'API TCP ProPresenter.
+
 ## Règles de projection
 
 VersePro sépare strictement détection et projection :
@@ -114,7 +136,7 @@ flowchart LR
   Parser -->|référence explicite| Policy["Politique de projection"]
   Parser -->|aucune référence| AI["Agent IA sémantique"]
   AI -->|score >= seuil| Queue["File de validation"]
-  Policy -->|direct autorisé| Projector["ProPresenter / projection web"]
+  Policy -->|direct autorisé| Projector["ProPresenter / projection web / OBS"]
   Policy -->|prudence| Queue
 ```
 

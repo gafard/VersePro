@@ -6,7 +6,7 @@ Modèle de sécurité :
   tourne sur la même machine que le backend (proxy Vite).
 - Les clients distants (LAN) doivent fournir le jeton API_TOKEN (.env),
   via l'en-tête "Authorization: Bearer <token>" ou le paramètre "?token=".
-- L'écran de projection (/projection, /ws/projection) reste public :
+- L'écran de projection (/projection, /obs, /ws/projection) reste public :
   il n'expose que le contenu déjà affiché sur l'écran de l'église.
 """
 
@@ -19,7 +19,7 @@ from .config import settings
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 # Chemins accessibles sans authentification (lecture d'affichage uniquement)
-PUBLIC_PATHS = {"/", "/health", "/projection", "/follow", "/ws/projection"}
+PUBLIC_PATHS = {"/", "/health", "/projection", "/output", "/obs", "/follow", "/ws/projection", "/ws/output"}
 
 
 def _is_local(host: str | None) -> bool:

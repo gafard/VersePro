@@ -88,7 +88,10 @@ export const useStore = create((set, get) => ({
       if (data.reference) {
         set({ onAir: { reference: data.reference, text: data.text || '', at: null } })
       }
-      set({ backendUnreachable: false })
+      set({ 
+        outputTheme: data.theme || 'presentation',
+        backendUnreachable: false 
+      })
     } catch {
       set({ backendUnreachable: true })
     }
@@ -102,6 +105,13 @@ export const useStore = create((set, get) => ({
   settings: null,
   aiFilteringMode: 'strict', // 'strict' ou 'open'
   lastAiRejection: null,
+
+  // vMix & Thème d'affichage (Outputs)
+  outputTheme: 'presentation',
+  vmixEnabled: false,
+  vmixHost: '127.0.0.1',
+  vmixPort: 8088,
+  vmixInputId: 'VerseProTitle',
   
   // Session
   sessionId: null,
@@ -401,7 +411,11 @@ export const useStore = create((set, get) => ({
         activeBible: data.bible_version || get().activeBible,
         propresenterConnected: Boolean(data.propresenter_connected),
         aiActive: Boolean(data.ai_available),
-        aiFilteringMode: data.ai_filtering_mode || 'strict'
+        aiFilteringMode: data.ai_filtering_mode || 'strict',
+        vmixHost: data.vmix_host || '127.0.0.1',
+        vmixPort: Number(data.vmix_port || 8088),
+        vmixEnabled: String(data.vmix_enabled).toLowerCase() === 'true',
+        vmixInputId: data.vmix_input_id || 'VerseProTitle'
       })
       return data
     } catch (error) {
@@ -425,7 +439,11 @@ export const useStore = create((set, get) => ({
         activeBible: data.bible_version || get().activeBible,
         propresenterConnected: Boolean(data.propresenter_connected),
         aiActive: Boolean(data.ai_available),
-        aiFilteringMode: data.ai_filtering_mode || 'strict'
+        aiFilteringMode: data.ai_filtering_mode || 'strict',
+        vmixHost: data.vmix_host || get().vmixHost,
+        vmixPort: Number(data.vmix_port || get().vmixPort),
+        vmixEnabled: String(data.vmix_enabled).toLowerCase() === 'true',
+        vmixInputId: data.vmix_input_id || get().vmixInputId
       })
       return data
     } catch (error) {
@@ -624,6 +642,42 @@ export const useStore = create((set, get) => ({
     } catch (error) {
       console.error('Erreur download vosk model:', error)
       return null
+    }
+  },
+  
+  setOutputTheme: async (theme) => {
+    try {
+      const response = await fetch('/api/v1/projection/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme })
+      })
+      if (response.ok) {
+        set({ outputTheme: theme })
+      }
+    } catch (e) {
+      console.error('Erreur theme:', e)
+    }
+  },
+
+  updateVMixConfig: async (config) => {
+    try {
+      const response = await fetch('/api/v1/projection/vmix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      })
+      if (response.ok) {
+        set({
+          vmixHost: config.host || '127.0.0.1',
+          vmixPort: config.port || 8088,
+          vmixEnabled: config.enabled || false,
+          vmixInputId: config.input_id || 'VerseProTitle'
+        })
+        get().addToast({ message: 'Configuration vMix mise à jour', kind: 'success' })
+      }
+    } catch (e) {
+      get().addToast({ message: 'Échec de configuration vMix', kind: 'error' })
     }
   }
 }))

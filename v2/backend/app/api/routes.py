@@ -13,6 +13,14 @@ router = APIRouter()
 SECRET_SETTING_KEYS = {"deepgram_api_key", "openrouter_api_key", "gemini_api_key"}
 
 
+def _vad_available() -> bool:
+    try:
+        from ..services.vad_service import vad_available
+        return vad_available()
+    except Exception:
+        return False
+
+
 def _mask_secret(value: str) -> str:
     """Expose only a short hint so API keys never leave the backend in clear text."""
     if not value:
@@ -57,6 +65,7 @@ class SettingsUpdate(BaseModel):
     gemini_api_key: Optional[str] = None
     ai_confidence_threshold: Optional[int] = None
     ai_filtering_mode: Optional[str] = None
+    voice_gate_enabled: Optional[bool] = None
 
 
 class ReferenceResponse(BaseModel):
@@ -83,11 +92,11 @@ class HealthResponse(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Endpoint de santé"""
-    from ..main import propresenter_service, deepgram_service, verse_parser
+    from ..main import output_manager, deepgram_service, verse_parser
     
     propresenter_connected = False
-    if propresenter_service:
-        propresenter_connected = await propresenter_service.is_connected()
+    if output_manager and "propresenter" in output_manager.outputs:
+        propresenter_connected = await output_manager.outputs["propresenter"].is_connected()
     
     return {
         "status": "healthy",
@@ -111,7 +120,7 @@ async def send_reference(request: ReferenceRequest):
     - Correction de référence détectée
     - Envoi direct sans détection audio
     """
-    from ..main import propresenter_service, verse_parser, broadcast_projection
+    from ..main import output_manager, verse_parser, broadcast_projection
 
     # Résout la référence pour récupérer le texte du verset
     parsed = None
@@ -131,10 +140,15 @@ async def send_reference(request: ReferenceRequest):
         translations=reference.get("translations") if isinstance(reference, dict) else None,
     )
 
-    # 2. ProPresenter (meilleur effort)
+    # 2. ProPresenter (meilleur effort via OutputManager)
     sent_propresenter = False
-    if propresenter_service:
-        sent_propresenter = await propresenter_service.show_verse(reference)
+    if output_manager and "propresenter" in output_manager.outputs:
+        pp_driver = output_manager.outputs["propresenter"]
+        if pp_driver.enabled:
+            sent_propresenter = await pp_driver.send_scene({
+                "reference": reference.get("reference", request.reference),
+                "text": reference.get("text") or request.text or ""
+            })
 
     return {
         "success": True,
@@ -268,30 +282,30 @@ async def rehearse(request: RehearseRequest):
 @router.get("/propresenter/status")
 async def propresenter_status():
     """Récupère le statut de ProPresenter"""
-    from ..main import propresenter_service
+    from ..main import output_manager
     
-    if not propresenter_service:
+    if not output_manager or "propresenter" not in output_manager.outputs:
         raise HTTPException(status_code=503, detail="Service non disponible")
-    
-    status = await propresenter_service.get_status()
-    stats = propresenter_service.get_stats()
+        
+    pp_driver = output_manager.outputs["propresenter"]
     
     return {
-        "connected": await propresenter_service.is_connected(),
-        "status": status,
-        "stats": stats
+        "connected": await pp_driver.is_connected(),
+        "status": {"enabled": pp_driver.enabled},
+        "stats": getattr(pp_driver, "stats", {})
     }
 
 
 @router.post("/propresenter/clear")
 async def clear_display():
     """Efface l'affichage ProPresenter"""
-    from ..main import propresenter_service
+    from ..main import output_manager
     
-    if not propresenter_service:
+    if not output_manager or "propresenter" not in output_manager.outputs:
         raise HTTPException(status_code=503, detail="Service non disponible")
-    
-    cleared = await propresenter_service.clear_display()
+        
+    pp_driver = output_manager.outputs["propresenter"]
+    cleared = await pp_driver.clear()
     
     return {
         "success": cleared,
@@ -342,8 +356,12 @@ async def download_vosk_model():
 async def get_settings():
     """Récupère la configuration"""
     from ..core.config import settings
-    from ..main import ai_service, propresenter_service
+    from ..main import ai_service, output_manager
     
+    propresenter_connected = False
+    if output_manager and "propresenter" in output_manager.outputs:
+        propresenter_connected = await output_manager.outputs["propresenter"].is_connected()
+        
     return {
         "deepgram_model": settings.DEEPGRAM_MODEL,
         "deepgram_language": settings.DEEPGRAM_LANGUAGE,
@@ -353,7 +371,7 @@ async def get_settings():
         "bible_version": settings.BIBLE_VERSION,
         "ai_agent_enabled": settings.AI_AGENT_ENABLED,
         "ai_available": bool(ai_service and ai_service.enabled),
-        "propresenter_connected": await propresenter_service.is_connected() if propresenter_service else False,
+        "propresenter_connected": propresenter_connected,
         "deepgram_api_key_configured": bool(settings.DEEPGRAM_API_KEY),
         "openrouter_api_key_configured": bool(settings.OPENROUTER_API_KEY),
         "gemini_api_key_configured": bool(settings.GEMINI_API_KEY),
@@ -362,6 +380,8 @@ async def get_settings():
         "gemini_api_key_hint": _mask_secret(settings.GEMINI_API_KEY),
         "ai_confidence_threshold": settings.AI_CONFIDENCE_THRESHOLD,
         "ai_filtering_mode": settings.AI_FILTERING_MODE,
+        "voice_gate_enabled": settings.VOICE_GATE_ENABLED,
+        "voice_gate_available": _vad_available(),
     }
 
 
@@ -369,7 +389,7 @@ async def get_settings():
 async def update_settings(settings_update: SettingsUpdate):
     """Met à jour la configuration et la persiste dans SQLite"""
     from ..core.config import settings
-    from ..main import propresenter_service, verse_parser, ai_service, deepgram_service
+    from ..main import output_manager, verse_parser, ai_service, deepgram_service
     from ..services.database import get_database
     
     db = get_database()
@@ -392,15 +412,15 @@ async def update_settings(settings_update: SettingsUpdate):
     if update.get("propresenter_host"):
         settings.PROPRESENTER_HOST = update["propresenter_host"]
         await db.set_setting("propresenter_host", settings.PROPRESENTER_HOST)
-        if propresenter_service:
-            propresenter_service.host = settings.PROPRESENTER_HOST
+        if output_manager and "propresenter" in output_manager.outputs:
+            output_manager.outputs["propresenter"].host = settings.PROPRESENTER_HOST
             reconnect_propresenter = True
             
     if update.get("propresenter_port") is not None:
         settings.PROPRESENTER_PORT = int(update["propresenter_port"])
         await db.set_setting("propresenter_port", settings.PROPRESENTER_PORT)
-        if propresenter_service:
-            propresenter_service.port = settings.PROPRESENTER_PORT
+        if output_manager and "propresenter" in output_manager.outputs:
+            output_manager.outputs["propresenter"].port = settings.PROPRESENTER_PORT
             reconnect_propresenter = True
             
     if update.get("deepgram_model"):
@@ -453,10 +473,15 @@ async def update_settings(settings_update: SettingsUpdate):
         settings.AI_FILTERING_MODE = str(update["ai_filtering_mode"])
         await db.set_setting("ai_filtering_mode", settings.AI_FILTERING_MODE)
 
-    if reconnect_propresenter and propresenter_service:
-        await propresenter_service.disconnect()
+    if "voice_gate_enabled" in update:
+        settings.VOICE_GATE_ENABLED = bool(update["voice_gate_enabled"])
+        await db.set_setting("voice_gate_enabled", settings.VOICE_GATE_ENABLED)
+
+    if reconnect_propresenter and output_manager and "propresenter" in output_manager.outputs:
+        pp_driver = output_manager.outputs["propresenter"]
+        await pp_driver.disconnect()
         if settings.PROPRESENTER_AUTO_CONNECT:
-            await propresenter_service.connect()
+            await pp_driver.connect()
 
     return await get_settings()
 

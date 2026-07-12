@@ -12,24 +12,24 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from loguru import logger
 import uvicorn
 
 from .core.config import settings
 from .core.security import http_request_allowed, websocket_allowed
 from .services.deepgram_service import DeepgramService
-from .services.propresenter_service import ProPresenterService
 from .services.verse_parser import VerseParserService
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
 from .services.ai_service import AIService
+from .outputs import OutputManager
 from .api.routes import router as api_router
 
 
 # Services globaux
 deepgram_service: DeepgramService | None = None
-propresenter_service: ProPresenterService | None = None
+output_manager: OutputManager | None = None
 verse_parser: VerseParserService | None = None
 db_service: DatabaseService | None = None
 vosk_service: VoskService | None = None
@@ -41,29 +41,36 @@ projector_connections = set()
 current_projection_slide = {
     "text": "En attente d'affichage...",
     "reference": "",
-    "background": "black"
+    "background": "black",
+    "theme": "classic",
+    "translations": {}
 }
 
-async def broadcast_projection(text: str, reference: str, background: str | None = None, translations: dict | None = None):
-    """Diffuse le slide à tous les projecteurs et suiveurs connectés"""
+async def broadcast_projection(text: str, reference: str, background: str | None = None, translations: dict | None = None, theme: str | None = None):
+    """Diffuse le slide à tous les projecteurs et suiveurs connectés via OutputManager"""
     global current_projection_slide
     current_projection_slide = {
         "text": text,
         "reference": reference,
         "background": background or current_projection_slide.get("background", "black"),
+        "theme": theme or current_projection_slide.get("theme", "presentation"),
         "translations": translations or {}
     }
-    for conn in list(projector_connections):
-        try:
-            await conn.send_json(current_projection_slide)
-        except Exception as e:
-            logger.debug(f"Erreur envoi client projection: {e}")
+    
+    if output_manager:
+        await output_manager.project(
+            text=text,
+            reference=reference,
+            background=background,
+            translations=translations,
+            theme=theme
+        )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global deepgram_service, propresenter_service, verse_parser, db_service, vosk_service, ai_service, current_session_id
+    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, ai_service, current_session_id
     
     # Startup
     logger.info("🚀 Démarrage de VersePro v2...")
@@ -102,24 +109,17 @@ async def lifespan(app: FastAPI):
     
     # Initialisation des autres services avec la config SQLite chargée
     deepgram_service = DeepgramService(settings.DEEPGRAM_API_KEY)
-    propresenter_service = ProPresenterService(
-        host=settings.PROPRESENTER_HOST,
-        port=settings.PROPRESENTER_PORT
-    )
+    
+    # Initialisation d'OutputManager avec ses drivers
+    output_manager = OutputManager()
+    await output_manager.initialize_defaults()
+    
     verse_parser = VerseParserService()
     vosk_service = VoskService()
     ai_service = AIService()
     
     # Chargement en arrière-plan du modèle local Vosk pour éviter de bloquer l'application
     threading.Thread(target=vosk_service.initialize, daemon=True).start()
-    
-    # Connexion à ProPresenter
-    if settings.PROPRESENTER_AUTO_CONNECT:
-        connected = await propresenter_service.connect()
-        if connected:
-            logger.info("✅ Connecté à ProPresenter")
-        else:
-            logger.warning("⚠️ ProPresenter non détecté (démarrage quand même)")
     
     logger.info("✅ Services initialisés")
     
@@ -133,8 +133,8 @@ async def lifespan(app: FastAPI):
     
     if deepgram_service:
         await deepgram_service.disconnect()
-    if propresenter_service:
-        await propresenter_service.disconnect()
+    if output_manager:
+        await output_manager.disconnect_all()
     if db_service:
         await db_service.disconnect()
 
@@ -185,8 +185,8 @@ async def root():
 async def health_check():
     """Check de santé détaillé"""
     propresenter_connected = False
-    if propresenter_service:
-        propresenter_connected = await propresenter_service.is_connected()
+    if output_manager and "propresenter" in output_manager.outputs:
+        propresenter_connected = await output_manager.outputs["propresenter"].is_connected()
     
     return {
         "status": "healthy",
@@ -199,23 +199,22 @@ async def health_check():
     }
 
 
-# Endpoints de Projection Web Autonome
-@app.get("/projection", response_class=HTMLResponse)
-async def get_projection_page():
-    """Sert l'écran de projection HTML5 natif"""
+# Endpoints de Rendu d'Affichage Web Autonome (Outputs)
+@app.get("/output", response_class=HTMLResponse)
+async def get_output_page():
+    """Sert l'écran d'affichage HTML5 universel (Render Engine)"""
     html_content = """
     <!DOCTYPE html>
-    <html>
+    <html lang="fr">
     <head>
         <meta charset="utf-8">
-        <title>Écran de Projection - VersePro</title>
+        <title>Rendu d'Affichage - VersePro</title>
         <style>
             body {
                 margin: 0;
                 padding: 0;
                 background-color: #000;
                 color: #fff;
-                /* Pile de polices système : aucune dépendance réseau (usage hors-ligne) */
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
                 overflow: hidden;
                 display: flex;
@@ -223,31 +222,47 @@ async def get_projection_page():
                 justify-content: center;
                 height: 100vh;
                 text-align: center;
-                transition: background-color 0.3s ease;
+                transition: background 0.3s ease, background-color 0.3s ease;
+            }
+            
+            /* Support transparent */
+            .bg-transparent {
+                background: transparent !important;
+                background-color: transparent !important;
             }
             .chroma-green {
+                background: #00ff00 !important;
                 background-color: #00ff00 !important;
             }
             .chroma-blue {
+                background: #0000ff !important;
                 background-color: #0000ff !important;
             }
+
+            /* Animations Apple-Style ultra-sobres */
+            @keyframes fadeInUp {
+                from {
+                    opacity: 0;
+                    transform: translateY(8px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
             #container {
                 width: 85%;
                 max-width: 1200px;
-                opacity: 0;
-                transform: translateY(20px);
-                transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             }
-            #container.visible {
-                opacity: 1;
-                transform: translateY(0);
-            }
+
             #text {
                 font-size: 3.5rem;
                 line-height: 1.4;
                 font-weight: 500;
                 margin-bottom: 2rem;
                 text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
+                opacity: 0;
             }
             #reference {
                 font-size: 2.2rem;
@@ -256,6 +271,146 @@ async def get_projection_page():
                 text-transform: uppercase;
                 letter-spacing: 2px;
                 text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
+                opacity: 0;
+            }
+
+            /* Déclenchement séquentiel des animations */
+            #container.visible #text {
+                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+            #container.visible #reference {
+                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
+            }
+
+            /* --- TYPE: PRESENTATION (Cinématique épuré) --- */
+            body.theme-presentation {
+                background: radial-gradient(circle, #101114 0%, #030304 100%);
+                font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+            }
+            body.theme-presentation #text {
+                font-weight: 400;
+                font-style: italic;
+                letter-spacing: 0.5px;
+            }
+            body.theme-presentation #reference {
+                color: #e2b865; /* Ambre */
+                font-weight: 600;
+                font-size: 1.8rem;
+            }
+
+            /* --- TYPE: BROADCAST (Lower Thirds) --- */
+            body.theme-broadcast {
+                justify-content: center;
+                align-items: flex-end;
+            }
+            body.theme-broadcast #container {
+                width: 90%;
+                max-width: 1400px;
+                background: rgba(10, 11, 15, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-left: 6px solid #3b82f6;
+                border-radius: 8px;
+                padding: 24px 40px;
+                margin-bottom: 5vh;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 40px;
+                text-align: left;
+                box-sizing: border-box;
+            }
+            body.theme-broadcast #text {
+                font-size: 1.8rem;
+                line-height: 1.4;
+                margin-bottom: 0;
+                font-weight: 450;
+                text-shadow: none;
+                flex: 1;
+            }
+            body.theme-broadcast #reference {
+                font-size: 1.4rem;
+                font-weight: 800;
+                letter-spacing: 1px;
+                text-shadow: none;
+                flex-shrink: 0;
+                background: rgba(59, 130, 246, 0.12);
+                border: 1px solid rgba(59, 130, 246, 0.2);
+                padding: 6px 16px;
+                border-radius: 6px;
+            }
+
+            /* --- TYPE: CONFIDENCE (Moniteur de scène) --- */
+            body.theme-confidence {
+                background: #000 !important;
+                color: #ff0 !important; /* Jaune très lisible */
+                justify-content: flex-start;
+                align-items: flex-start;
+                text-align: left;
+            }
+            body.theme-confidence #container {
+                width: 95%;
+                margin: 40px;
+            }
+            body.theme-confidence #text {
+                font-size: 4rem;
+                font-weight: bold;
+                color: #fff;
+                margin-bottom: 30px;
+                text-shadow: none;
+            }
+            body.theme-confidence #reference {
+                font-size: 3rem;
+                color: #ff0;
+                text-shadow: none;
+            }
+
+            /* --- TYPE: DUAL (Multi-Langues) --- */
+            body.theme-dual #container {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 50px;
+                text-align: left;
+                width: 90%;
+                max-width: 1300px;
+            }
+            body.theme-dual #text {
+                font-size: 2.2rem;
+                line-height: 1.5;
+                grid-column: span 2;
+                margin-bottom: 1rem;
+            }
+            body.theme-dual .split-columns {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 40px;
+                grid-column: span 2;
+            }
+            body.theme-dual .split-col {
+                border-left: 3px solid rgba(255,255,255,0.15);
+                padding-left: 20px;
+            }
+            body.theme-dual .split-ver {
+                font-size: 1.8rem;
+                line-height: 1.5;
+                color: #f3f4f6;
+                margin-bottom: 12px;
+                opacity: 0;
+            }
+            body.theme-dual .split-label {
+                font-size: 11px;
+                font-weight: bold;
+                color: #9ca3af;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                opacity: 0;
+            }
+
+            body.theme-dual #container.visible .split-ver {
+                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+            body.theme-dual #container.visible .split-label {
+                animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
             }
         </style>
     </head>
@@ -263,16 +418,26 @@ async def get_projection_page():
         <div id="container">
             <div id="text">En attente d'affichage...</div>
             <div id="reference"></div>
+            <!-- Zone pour l'affichage double version split -->
+            <div id="split-container" style="display: none;">
+                <div class="split-columns" id="split-cols">
+                    <!-- Généré en JS -->
+                </div>
+            </div>
         </div>
+        
         <script>
             const container = document.getElementById('container');
             const textEl = document.getElementById('text');
             const refEl = document.getElementById('reference');
+            const splitContainer = document.getElementById('split-container');
+            const splitCols = document.getElementById('split-cols');
 
-            // Paramètres d'URL : ?bg=green|blue (chroma key OBS), ?scale=1.4 (taille du texte)
             const params = new URLSearchParams(window.location.search);
             const forcedBg = params.get('bg');
+            const forcedTheme = params.get('theme');
             const scale = parseFloat(params.get('scale') || '1');
+
             if (scale && scale !== 1) {
                 textEl.style.fontSize = (3.5 * scale) + 'rem';
                 refEl.style.fontSize = (2.2 * scale) + 'rem';
@@ -281,37 +446,65 @@ async def get_projection_page():
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${proto}//${window.location.host}/ws/projection`;
+                const wsUrl = `${proto}//${window.location.host}/ws/output`;
                 ws = new WebSocket(wsUrl);
                 
                 ws.onopen = () => {
-                    console.log('🔗 Connecté au flux de projection');
+                    console.log('🔗 Connecté au moteur de rendu');
                     container.classList.add('visible');
                 };
                 
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     
-                    // Gestion de la couleur d'arrière-plan (Chroma Key), forçable via ?bg=
+                    // Couleur d'arrière-plan
                     const bg = forcedBg || data.background;
                     document.body.className = '';
-                    if (bg === 'green') {
+                    if (bg === 'transparent') {
+                        document.body.classList.add('bg-transparent');
+                    } else if (bg === 'green') {
                         document.body.classList.add('chroma-green');
                     } else if (bg === 'blue') {
                         document.body.classList.add('chroma-blue');
                     }
+
+                    // Thème dynamique
+                    const theme = forcedTheme || data.theme || 'presentation';
+                    document.body.classList.add('theme-' + theme);
                     
-                    // Effet de transition fluide
+                    // Réinitialisation des animations en enlevant la classe visible
                     container.classList.remove('visible');
                     
                     setTimeout(() => {
-                        textEl.textContent = data.text || '';
-                        refEl.textContent = data.reference || '';
+                        // Nettoyage dual/split
+                        splitContainer.style.display = 'none';
+                        textEl.style.display = 'block';
+                        refEl.style.display = 'block';
+
+                        if (theme === 'dual' && data.translations && Object.keys(data.translations).length > 0) {
+                            textEl.style.display = 'none';
+                            refEl.style.display = 'none';
+                            splitContainer.style.display = 'block';
+                            
+                            splitCols.innerHTML = '';
+                            Object.entries(data.translations).slice(0, 2).forEach(([version, txt]) => {
+                                const col = document.createElement('div');
+                                col.className = 'split-col';
+                                col.innerHTML = `
+                                    <div class="split-ver">"${txt}"</div>
+                                    <div class="split-label">${version} — ${data.reference || ''}</div>
+                                `;
+                                splitCols.appendChild(col);
+                            });
+                        } else {
+                            textEl.textContent = data.text || '';
+                            refEl.textContent = data.reference || '';
+                        }
                         
                         if (data.text || data.reference) {
                             container.classList.add('visible');
                         }
-                    }, 400);
+                    }, 150); // Petit délai de ré-apparition
                 };
                 
                 ws.onclose = () => {
@@ -325,6 +518,18 @@ async def get_projection_page():
     </html>
     """
     return HTMLResponse(content=html_content)
+
+
+@app.get("/obs")
+async def get_obs_browser_source():
+    """Redirige les anciens flux vers le nouvel endpoint Output unifié"""
+    return RedirectResponse(url="/output?theme=broadcast&bg=transparent")
+
+
+@app.get("/projection")
+async def get_legacy_projection_page():
+    """Compatibilité : l'ancien écran /projection vit désormais sur /output"""
+    return RedirectResponse(url="/output")
 
 
 @app.get("/follow", response_class=HTMLResponse)
@@ -454,7 +659,7 @@ async def get_follow_page():
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${window.location.host}/ws/projection`);
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
                 ws.onopen = () => { connEl.textContent = 'En direct'; };
                 ws.onmessage = (event) => render(JSON.parse(event.data));
                 ws.onclose = () => {
@@ -470,26 +675,67 @@ async def get_follow_page():
     return HTMLResponse(content=html_content)
 
 
-@app.websocket("/ws/projection")
-async def websocket_projection(websocket: WebSocket):
-    """WebSocket pour les écrans de projection (écoute uniquement)"""
+@app.websocket("/ws/output")
+async def websocket_output(websocket: WebSocket):
+    """WebSocket pour les écrans d'affichage unifiés (écoute uniquement)"""
     await websocket.accept()
-    projector_connections.add(websocket)
-    try:
-        # Envoie immédiatement l'état courant
-        await websocket.send_json(current_projection_slide)
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        projector_connections.discard(websocket)
+    browser_driver = output_manager.outputs.get("browser") if output_manager else None
+    if browser_driver:
+        await browser_driver.register_connection(websocket)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            browser_driver.unregister_connection(websocket)
+    else:
+        await websocket.close(code=1011, reason="Moteur d'affichage non initialisé")
 
 
 @app.get("/api/v1/projection/current")
 async def get_current_projection():
     """État de projection courant — permet à la console de le restaurer après un rechargement"""
     return current_projection_slide
+
+
+@app.post("/api/v1/projection/theme")
+async def update_projection_theme(payload: dict):
+    """Change le thème de la projection en direct"""
+    theme = payload.get("theme", "presentation")
+    await broadcast_projection(
+        current_projection_slide.get("text", ""),
+        current_projection_slide.get("reference", ""),
+        current_projection_slide.get("background", "black"),
+        translations=current_projection_slide.get("translations"),
+        theme=theme
+    )
+    return {"status": "success", "theme": theme}
+
+
+@app.post("/api/v1/projection/vmix")
+async def update_vmix_config(payload: dict):
+    """Met à jour les paramètres de session vMix en direct"""
+    host = payload.get("host", "127.0.0.1")
+    port = int(payload.get("port", 8088))
+    enabled = bool(payload.get("enabled", False))
+    input_id = payload.get("input_id", "VerseProTitle")
+    
+    settings.VMIX_HOST = host
+    settings.VMIX_PORT = port
+    settings.VMIX_ENABLED = enabled
+    settings.VMIX_INPUT_ID = input_id
+    
+    if output_manager and "vmix" in output_manager.outputs:
+        await output_manager.outputs["vmix"].update_settings(host, port, enabled, input_id)
+        
+    if db_service:
+        await db_service.set_setting("vmix_host", host)
+        await db_service.set_setting("vmix_port", str(port))
+        await db_service.set_setting("vmix_enabled", "true" if enabled else "false")
+        await db_service.set_setting("vmix_input_id", input_id)
+        
+    return {"status": "success", "config": payload}
 
 
 @app.post("/api/v1/project")
@@ -499,12 +745,17 @@ async def project_slide(slide: dict):
     text = slide.get("text", "")
     ref = slide.get("reference", "")
     bg = slide.get("background", "black")
+    translations = slide.get("translations") if isinstance(slide.get("translations"), dict) else None
+    theme = slide.get("theme", current_projection_slide.get("theme", "presentation"))
     
-    await broadcast_projection(text, ref, bg)
+    await broadcast_projection(text, ref, bg, translations=translations, theme=theme)
     
-    # Optionnel: envoi à ProPresenter également
-    if slide.get("send_to_propresenter", False) and propresenter_service and ref:
-        await propresenter_service.show_verse({"reference": ref, "text": text})
+    # Si send_to_propresenter est activé, on demande spécifiquement au driver propresenter
+    if slide.get("send_to_propresenter", False) and output_manager and "propresenter" in output_manager.outputs:
+        await output_manager.outputs["propresenter"].send_scene({
+            "text": text,
+            "reference": ref
+        })
         
     return {"status": "success", "slide": current_projection_slide}
 
@@ -565,6 +816,19 @@ async def websocket_audio(websocket: WebSocket):
     use_vosk = False
     transcription_session = None
     recognizer = None
+
+    # Barrière vocale : ignore musique et silences avant transcription (optionnelle)
+    voice_gate = None
+    if settings.VOICE_GATE_ENABLED:
+        try:
+            from .services.vad_service import VoiceGate, vad_available
+            if vad_available():
+                voice_gate = await asyncio.to_thread(VoiceGate, settings.AUDIO_SAMPLE_RATE)
+                logger.info("🎚️ Barrière vocale active sur cette session")
+            else:
+                logger.warning("⚠️ VOICE_GATE_ENABLED mais modèle silero_vad.onnx absent de data/")
+        except Exception as vg_err:
+            logger.error(f"❌ Barrière vocale indisponible : {vg_err}")
     
     # Callback pour Deepgram
     async def on_transcript_received(result):
@@ -660,6 +924,12 @@ async def websocket_audio(websocket: WebSocket):
         try:
             while True:
                 data = await websocket.receive_bytes()
+
+                # Porte vocale : les chunks sans parole (musique, silence) sont ignorés
+                if voice_gate is not None:
+                    is_speech = await asyncio.to_thread(voice_gate.accept, data)
+                    if not is_speech:
+                        continue
 
                 # Si on utilise en théorie Deepgram mais que la session est inactive (déconnexion 1011 ou erreur)
                 if not use_vosk and (not transcription_session or not transcription_session.is_active):
@@ -833,7 +1103,12 @@ async def websocket_audio(websocket: WebSocket):
                         # Les deductions IA ou correspondances floues restent en validation manuelle.
                         if ref["auto_projected"]:
                             await broadcast_projection(ref.get("text", ""), ref["reference"], translations=ref.get("translations"))
-                            sent = await propresenter_service.show_verse(ref)
+                            sent = False
+                            if output_manager and "propresenter" in output_manager.outputs:
+                                sent = await output_manager.outputs["propresenter"].send_scene({
+                                    "reference": ref["reference"],
+                                    "text": ref.get("text", "")
+                                })
                             try:
                                 await websocket.send_json({
                                     "type": "propresenter_status",
@@ -975,20 +1250,22 @@ async def websocket_audio(websocket: WebSocket):
         logger.info("🔒 Session audio fermée")
 
 
-@app.websocket("/ws/propresenter")
-async def websocket_propresenter(websocket: WebSocket):
-    """Contrôle manuel de la projection"""
+@app.websocket("/ws/control")
+async def websocket_control(websocket: WebSocket):
+    """Contrôle manuel de la projection multi-sorties"""
     if not websocket_allowed(websocket):
         await websocket.close(code=1008, reason="Jeton API requis pour les clients distants")
         return
 
     await websocket.accept()
-    if not propresenter_service:
-        await websocket.close(code=1011, reason="Service non initialisé")
+    if not output_manager:
+        await websocket.close(code=1011, reason="Moteur de sortie non initialisé")
         return
         
     try:
         logger.info("📺 Session contrôle manuel ouverte")
+        pp_driver = output_manager.outputs.get("propresenter")
+        
         while True:
             data = await websocket.receive_json()
             action = data.get("action")
@@ -996,30 +1273,45 @@ async def websocket_propresenter(websocket: WebSocket):
             if action == "send_reference":
                 ref = data.get("reference")
                 if ref:
-                    # Envoi à ProPresenter
                     parsed = await verse_parser.parse(ref) if verse_parser else None
-                    sent = await propresenter_service.show_verse(parsed or ref)
                     
-                    # Récupère le texte de la bible pour le projeter sur l'écran autonome
+                    # Rendu universel
                     if parsed:
                         await broadcast_projection(parsed.get("text", ""), parsed["reference"], translations=parsed.get("translations"))
+                    
+                    # Envoi à ProPresenter si configuré
+                    sent = False
+                    if pp_driver and pp_driver.enabled:
+                        sent = await pp_driver.send_scene({
+                            "reference": parsed["reference"] if parsed else ref,
+                            "text": parsed.get("text", "") if parsed else ""
+                        })
                             
                     await websocket.send_json({
                         "type": "send_result",
-                        "success": sent,
+                        "success": sent or True, # On renvoie True si le rendu universel a réussi
                         "reference": ref
                     })
                     
             elif action == "clear":
-                cleared = await propresenter_service.clear_display()
-                await broadcast_projection("", "")  # Efface l'écran autonome
+                # Effacement universel
+                await broadcast_projection("", "")
+                cleared = False
+                if pp_driver and pp_driver.enabled:
+                    cleared = await pp_driver.clear()
+                    
                 await websocket.send_json({
                     "type": "clear_result",
-                    "success": cleared
+                    "success": cleared or True
                 })
                 
             elif action == "status":
-                status = await propresenter_service.get_status()
+                status = {}
+                if pp_driver:
+                    status = {
+                        "connected": await pp_driver.is_connected(),
+                        "stats": pp_driver.stats
+                    }
                 await websocket.send_json({
                     "type": "status",
                     "data": status

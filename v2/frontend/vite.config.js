@@ -12,6 +12,9 @@ export default defineConfig({
     proxy: {
       '/api': backendHttp,
       '/projection': backendHttp,
+      '/output': backendHttp,
+      '/obs': backendHttp,
+      '/follow': backendHttp,
       '/ws': {
         target: backendWs,
         ws: true

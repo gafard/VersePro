@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.services.propresenter_service import ProPresenterService
+from app.outputs.propresenter import ProPresenterOutput
 from app.services.verse_parser import VerseParserService
 
 
@@ -61,17 +61,39 @@ def test_fuzzy_index_finds_approximate_quotes_and_rejects_noise():
     assert index.search("la réunion de lundi soir est reportée à mardi prochain", min_score=0.55) == []
 
 
-def test_propresenter_reference_normalization_accepts_string_and_dict():
-    service = ProPresenterService()
+def test_parser_returns_most_recent_reference_in_buffer():
+    """Dans un buffer de parole continue contenant deux références, la plus
+    récemment prononcée doit primer (c'est elle que le prédicateur cite)."""
+    parser = VerseParserService()
+    result = asyncio.run(parser.parse(
+        "nous avons lu jean 3:16 tout à l'heure et maintenant philippiens 4:13"
+    ))
+    assert result is not None
+    assert result["reference"] == "Ph 4:13"
 
-    assert service._normalize_reference("Jn 3:16")["reference"] == "Jn 3:16"
 
-    normalized = service._normalize_reference({
-        "reference": "Ps 23:1",
-        "text": "L'Éternel est mon berger",
-        "version": "LSG",
-    })
+def test_voice_gate_blocks_silence_and_reports_stats():
+    """La barrière vocale doit fermer la porte sur du silence pur."""
+    from app.services.vad_service import VoiceGate, vad_available
 
-    assert normalized["reference"] == "Ps 23:1"
-    assert normalized["text"] == "L'Éternel est mon berger"
-    assert normalized["version"] == "LSG"
+    if not vad_available():
+        pytest.skip("Modèle silero_vad.onnx absent")
+
+    import numpy as np
+    gate = VoiceGate(sample_rate=16000)
+    silence = np.zeros(4096, dtype=np.int16).tobytes()
+
+    # Plusieurs chunks de silence : tous bloqués (aucune parole, pas de grâce initiale)
+    results = [gate.accept(silence) for _ in range(4)]
+    assert not any(results)
+    assert gate.stats()["chunks_blocked"] == 4
+
+
+def test_propresenter_output_initialization():
+    driver = ProPresenterOutput(host="10.0.0.1", port=54321, enabled=True)
+    
+    assert driver.name == "propresenter"
+    assert driver.host == "10.0.0.1"
+    assert driver.port == 54321
+    assert driver.enabled is True
+    assert driver.connected is False

@@ -92,7 +92,7 @@ function App() {
             title="Accueil"
           >
             <div className="app-sidebar-logo w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black">
-              VP
+              V
             </div>
           </button>
 
@@ -128,7 +128,7 @@ function App() {
         {activeTab === 'home' && <LandingPage setActiveTab={setActiveTab} />}
         {activeTab === 'live' && (
           <div className="p-6 animate-slide-up flex-1">
-            <LiveDetection />
+            <LiveDetection setActiveTab={setActiveTab} />
           </div>
         )}
         {activeTab === 'history' && (

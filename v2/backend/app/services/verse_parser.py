@@ -849,10 +849,19 @@ class VerseParserService:
         clean_text_regex = cleaned_text.lower().strip()
         clean_text_regex = clean_text_regex.replace(",", " ")
         
-        # 2. Essaye d'abord les patterns explicites (regex)
-        for idx, pattern in enumerate(self.patterns):
-            match = pattern.search(clean_text_regex)
-            if match:
+        # 2. Patterns explicites (regex), par groupes de fiabilité décroissante :
+        #    formes précises d'abord, puis le pattern "loose", puis le chapitre seul.
+        #    Au sein d'un groupe, la référence la plus RÉCEMMENT prononcée prime :
+        #    dans un buffer de parole continue ("...jean 3:16 ... puis philippiens
+        #    4:13"), c'est le dernier passage cité que le prédicateur commente.
+        pattern_groups = [(0, 1, 2), (self.LOOSE_PATTERN_INDEX,), (4,)]
+        for group in pattern_groups:
+            candidates = []
+            for idx in group:
+                for match in self.patterns[idx].finditer(clean_text_regex):
+                    candidates.append((match.start(), idx, match))
+            # Position décroissante = du plus récent au plus ancien dans la parole
+            for _, idx, match in sorted(candidates, key=lambda c: -c[0]):
                 reference = self._extract_reference(match, cleaned_text, loose=(idx == self.LOOSE_PATTERN_INDEX))
                 if reference:
                     if self._validate_reference(reference):

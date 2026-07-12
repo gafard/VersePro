@@ -32,7 +32,8 @@ export default function Settings() {
     deepgram_language: 'fr',
     ai_agent_enabled: true,
     ai_confidence_threshold: 95,
-    ai_filtering_mode: 'strict'
+    ai_filtering_mode: 'strict',
+    voice_gate_enabled: false
   })
   const [secretForm, setSecretForm] = useState({
     deepgram_api_key: '',
@@ -42,10 +43,69 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [helpModal, setHelpModal] = useState(null)
+  const [rehearseText, setRehearseText] = useState('')
+  const [rehearseResults, setRehearseResults] = useState(null)
+  const [rehearsing, setRehearsing] = useState(false)
+  const [audioDevices, setAudioDevices] = useState([])
+  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(() => {
+    try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
+  })
+
+  const refreshAudioDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const inputs = devices.filter((device) => device.kind === 'audioinput')
+      setAudioDevices(inputs)
+      setSelectedAudioDeviceId((current) => {
+        const saved = (() => {
+          try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
+        })()
+        const next = current || saved || inputs[0]?.deviceId || ''
+        if (next && inputs.some((device) => device.deviceId === next)) return next
+        return inputs[0]?.deviceId || ''
+      })
+    } catch (error) {
+      console.warn('Impossible de lire les entrées audio:', error)
+    }
+  }
+
+  const updateAudioDevice = (deviceId) => {
+    setSelectedAudioDeviceId(deviceId)
+    try {
+      if (deviceId) localStorage.setItem('versepro_audio_device_id', deviceId)
+      else localStorage.removeItem('versepro_audio_device_id')
+    } catch {}
+    addToast({ message: 'Entrée micro mise à jour', kind: 'success' })
+  }
+
+  const runRehearsal = async () => {
+    if (!rehearseText.trim()) return
+    setRehearsing(true)
+    setRehearseResults(null)
+    try {
+      const response = await fetch('/api/v1/rehearse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: rehearseText })
+      })
+      const data = await response.json()
+      setRehearseResults(data.detections || [])
+    } catch {
+      setRehearseResults([])
+    } finally {
+      setRehearsing(false)
+    }
+  }
 
   useEffect(() => {
     fetchBibles()
     fetchSettings()
+    refreshAudioDevices()
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshAudioDevices)
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', refreshAudioDevices)
+    }
   }, [])
 
   useEffect(() => {
@@ -59,7 +119,8 @@ export default function Settings() {
       deepgram_language: settings.deepgram_language || 'fr',
       ai_agent_enabled: Boolean(settings.ai_agent_enabled),
       ai_confidence_threshold: settings.ai_confidence_threshold || 95,
-      ai_filtering_mode: settings.ai_filtering_mode || 'strict'
+      ai_filtering_mode: settings.ai_filtering_mode || 'strict',
+      voice_gate_enabled: Boolean(settings.voice_gate_enabled)
     })
   }, [settings, activeBible])
 
@@ -246,6 +307,39 @@ export default function Settings() {
         <div className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
+              <span>Audio</span>
+              <h2>Entrée micro</h2>
+            </div>
+            <button type="button" className="vp-btn vp-btn--ghost vp-btn--sm" onClick={refreshAudioDevices}>
+              Actualiser
+            </button>
+          </div>
+          <p style={{ marginBottom: '16px' }}>
+            Choisissez ici le micro ou l'interface audio de la régie. Le live garde seulement le démarrage,
+            l'arrêt et le niveau du signal.
+          </p>
+          <label>
+            <small>Source audio par défaut</small>
+            <select value={selectedAudioDeviceId} onChange={(e) => updateAudioDevice(e.target.value)}>
+              {audioDevices.length === 0 ? (
+                <option value="">Micro par défaut du navigateur</option>
+              ) : (
+                audioDevices.map((device, index) => (
+                  <option key={device.deviceId || index} value={device.deviceId}>
+                    {device.label || `Micro ${index + 1}`}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <span className="settings-secret-hint">
+            Ce réglage est local à ce navigateur. Les noms exacts des micros apparaissent après autorisation micro.
+          </span>
+        </div>
+
+        <div className="settings-card is-wide">
+          <div className="settings-card-head">
+            <div>
               <span>Analyse intelligente</span>
               <h2>Moteur semantique</h2>
             </div>
@@ -351,6 +445,67 @@ export default function Settings() {
               </span>
             </label>
           </div>
+        </div>
+        <div className="settings-card">
+          <div className="settings-card-head">
+            <div>
+              <span>Audio</span>
+              <h2>Barrière vocale (anti-musique)</h2>
+            </div>
+            <label className="settings-switch">
+              <input
+                type="checkbox"
+                checked={form.voice_gate_enabled}
+                disabled={!settings?.voice_gate_available}
+                onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}
+              />
+              <span />
+            </label>
+          </div>
+          <p>
+            Filtre local (Silero VAD) qui ignore la musique, les chants et les silences avant
+            transcription : moins de fausses détections pendant la louange, moins de quota consommé.
+            {!settings?.voice_gate_available && ' — Modèle silero_vad.onnx absent du dossier data/.'}
+          </p>
+        </div>
+
+        <div className="settings-card">
+          <span>Avant le culte</span>
+          <h2>Mode répétition</h2>
+          <p style={{ marginBottom: '10px' }}>
+            Collez un extrait de prédication : la chaîne de détection est rejouée comme en direct,
+            sans rien projeter.
+          </p>
+          <textarea
+            value={rehearseText}
+            onChange={(e) => setRehearseText(e.target.value)}
+            placeholder="Ex : ce matin nous lisons dans jean chapitre trois verset seize car dieu a tant aimé le monde…"
+            rows={3}
+            style={{ width: '100%', background: 'var(--vp-bg-elevated)', border: '1px solid var(--vp-border-strong)', borderRadius: '8px', color: 'var(--vp-text)', fontSize: '13px', padding: '10px 12px', resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
+          />
+          <button
+            type="button"
+            className="vp-btn vp-btn--sm"
+            style={{ marginTop: '10px' }}
+            onClick={runRehearsal}
+            disabled={rehearsing || !rehearseText.trim()}
+          >
+            {rehearsing ? 'Analyse…' : 'Tester la détection'}
+          </button>
+          {rehearseResults !== null && (
+            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {rehearseResults.length === 0 ? (
+                <span style={{ fontSize: '12px', color: 'var(--vp-text-faint)' }}>Aucune référence détectée dans ce texte.</span>
+              ) : (
+                rehearseResults.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '12.5px', background: 'var(--vp-bg-elevated)', border: '1px solid var(--vp-border)', borderRadius: '8px', padding: '7px 12px' }}>
+                    <strong style={{ color: 'var(--vp-text)' }}>{d.reference}</strong>
+                    <span style={{ color: 'var(--vp-text-faint)', fontSize: '11px' }}>{d.detection_method}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </section>
 
