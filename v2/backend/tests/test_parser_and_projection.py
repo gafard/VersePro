@@ -32,7 +32,10 @@ def test_loose_pattern_confidence_below_autopilot_threshold():
     validation manuelle — il est trop sujet aux faux positifs."""
     parser = VerseParserService()
 
-    loose = asyncio.run(parser.parse("Jean trois seize"))
+    # Sans indice de citation, le pattern loose ne s'applique plus (anti-faux)
+    assert asyncio.run(parser.parse("Jean trois seize")) is None
+
+    loose = asyncio.run(parser.parse("lisons Jean trois seize"))
     assert loose is not None
     assert loose["reference"] == "Jn 3:16"
     assert loose["confidence"] < 0.95
@@ -87,6 +90,29 @@ def test_voice_gate_blocks_silence_and_reports_stats():
     results = [gate.accept(silence) for _ in range(4)]
     assert not any(results)
     assert gate.stats()["chunks_blocked"] == 4
+
+
+def test_natural_french_phrasings_and_ordinals():
+    """Les formulations orales réelles doivent détecter le BON livre, vite."""
+    import time
+    parser = VerseParserService()
+
+    # Mots de liaison (« au chapitre… au verset… ») — manqué avant le correctif
+    r = asyncio.run(parser.parse("dans le livre de jean au chapitre trois au verset seize"))
+    assert r is not None and r["reference"] == "Jn 3:16"
+
+    # Ordinal parlé : « première épître de jean » = 1 Jn, PAS Jn
+    r = asyncio.run(parser.parse("première épître de jean chapitre quatre verset huit"))
+    assert r is not None and r["reference"] == "1 Jn 4:8"
+
+    r = asyncio.run(parser.parse("seconde lettre de pierre chapitre un verset trois"))
+    assert r is not None and r["reference"] == "2 P 1:3"
+
+    # Garde de performance : une phrase libre ne doit JAMAIS bloquer la boucle
+    # (l'ancien scan par sous-chaîne prenait ~2 600 ms)
+    t0 = time.perf_counter()
+    asyncio.run(parser.parse("et je crois que nous devons tous prendre au sérieux cette parole ce matin"))
+    assert (time.perf_counter() - t0) < 0.25
 
 
 def test_propresenter_output_initialization():

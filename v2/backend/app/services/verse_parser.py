@@ -449,35 +449,10 @@ class BibleLoader:
                         "confidence": 0.9,
                     }
                     
-        # 2. Recherche par sous-chaîne complète si pas de match direct d'index (requête >= 25 car pour éviter les faux positifs)
-        if len(norm_query) >= 25:
-            for v_id, version in self.versions.items():
-                for book_abbr, chapters in version.items():
-                    for ch_num, verses in chapters.items():
-                        for v_num, text in verses.items():
-                            norm_v_text = self._normalize_text(text)
-                            if norm_query in norm_v_text:
-                                ref_text = f"{book_abbr} {ch_num}:{v_num}"
-                                
-                                translations = {}
-                                for v_name in self.versions.keys():
-                                    text_v = self.get_verse_text(book_abbr, ch_num, v_num, version_id=v_name)
-                                    if text_v:
-                                        translations[v_name] = text_v
-                                        
-                                return {
-                                    "book": get_full_book_name(book_abbr),
-                                    "book_abbr": book_abbr,
-                                    "chapter": ch_num,
-                                    "verse_start": v_num,
-                                    "verse_end": None,
-                                    "reference": ref_text,
-                                    "text": self.get_verse_text(book_abbr, ch_num, v_num),
-                                    "translations": translations,
-                                    "detected_from": query_text[:100],
-                                    "detection_method": "text_substring",
-                                    "confidence": 0.84,
-                                }
+        # 2. (Supprimé) L'ancien scan par sous-chaîne parcourait ~180 000 versets
+        #    en BLOQUANT la boucle d'événements ~2,6 s par phrase sans détection —
+        #    cause directe des transcripts saccadés et des projections en retard.
+        #    L'index flou ci-dessous couvre ce cas en ~10 ms.
 
         # 3. Recherche floue locale : citations approximatives, mots déformés par l'ASR.
         #    Confiance plafonnée sous le seuil d'autopilotage -> toujours en validation manuelle.
@@ -667,10 +642,10 @@ class VerseParserService:
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
             
             # "Jean chapitre 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
             
             # "Jean 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
 
             # "Jean 3 16" (sans séparateur, par exemple après conversion des mots de Vosk)
             # ⚠️ Pattern "loose" : sujet aux faux positifs sur du langage courant converti en
@@ -678,16 +653,33 @@ class VerseParserService:
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)\s+(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
             
             # "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
         ]
         return patterns
 
     # Index du pattern "livre chiffre chiffre" (sans séparateur) dans la liste ci-dessus
     LOOSE_PATTERN_INDEX = 3
 
+    # Livres à plusieurs épîtres : « première/seconde/troisième … » devient « 1/2/3 … »
+    _ORDINAL_BOOK_RE = re.compile(
+        r"\b(premi[eè]re?|1[eè]?re|second[e]?|deuxi[eè]me|2[eè]?me|troisi[eè]me|3[eè]?me)\s+"
+        r"(?:[ée]p[iî]tre\s+|lettre\s+)?(?:de\s+|d'|aux\s+|à\s+)?"
+        r"(jean|pierre|corinthiens|thessaloniciens|timoth[ée]e|samuel|rois|chroniques)\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _convert_ordinal_books(cls, text: str) -> str:
+        def repl(m):
+            o = m.group(1).lower()
+            n = "1" if o.startswith(("premi", "1")) else ("3" if o.startswith(("troisi", "3")) else "2")
+            return f"{n} {m.group(2)}"
+        return cls._ORDINAL_BOOK_RE.sub(repl, text)
+
     def _clean_homophones(self, text: str) -> str:
         """Nettoie le texte en corrigeant les homophones vocaux ASR courants en français"""
         text = text.lower()
+        text = self._convert_ordinal_books(text)
         replacements = {
             r'\bgens\b': 'jean',
             r'\bromain\b': 'romains',
@@ -854,8 +846,15 @@ class VerseParserService:
         #    Au sein d'un groupe, la référence la plus RÉCEMMENT prononcée prime :
         #    dans un buffer de parole continue ("...jean 3:16 ... puis philippiens
         #    4:13"), c'est le dernier passage cité que le prédicateur commente.
+        # Le pattern « sans séparateur » (jean 3 16) ne s'applique que si le contexte
+        # contient un indice de citation — sinon la parole libre remplit la file de faux.
+        CUE_RE = re.compile(r"\b(verset|versets|chapitre|lisons|lisez|lecture|ouvrez|ouvrons|bible|évangile|evangile|épître|epitre|livre|psaume|selon|écrit|ecrit|parole)\b")
+        has_cue = bool(CUE_RE.search(clean_text_regex))
+
         pattern_groups = [(0, 1, 2), (self.LOOSE_PATTERN_INDEX,), (4,)]
         for group in pattern_groups:
+            if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue:
+                continue
             candidates = []
             for idx in group:
                 for match in self.patterns[idx].finditer(clean_text_regex):

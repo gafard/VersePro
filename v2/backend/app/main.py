@@ -1503,17 +1503,9 @@ async def websocket_audio(websocket: WebSocket):
                     if ref_key != last_projected_ref:
                         last_projected_ref = ref_key
                         verse_id = None
-                        
-                        if db_service and db_service.db:
-                            verse_id = await db_service.add_detected_verse(
-                                reference=ref,
-                                session_id=current_session_id,
-                                context=analysis_text,
-                                confidence=int(float(ref.get("confidence") or 1.0) * 100),
-                                source=source
-                            )
-                            
-                        # Notification au client
+
+                        # Notification au client D'ABORD — la persistance SQLite
+                        # (commit disque) ne doit jamais retarder l'affichage régie
                         try:
                             await websocket.send_json({
                                 "type": "reference_detected",
@@ -1523,6 +1515,15 @@ async def websocket_audio(websocket: WebSocket):
                             })
                         except Exception:
                             pass
+
+                        if db_service and db_service.db:
+                            asyncio.create_task(db_service.add_detected_verse(
+                                reference=ref,
+                                session_id=current_session_id,
+                                context=analysis_text,
+                                confidence=int(float(ref.get("confidence") or 1.0) * 100),
+                                source=source
+                            ))
                         
                         # Projection directe uniquement pour les references explicites et fiables.
                         # Les deductions IA ou correspondances floues restent en validation manuelle.
