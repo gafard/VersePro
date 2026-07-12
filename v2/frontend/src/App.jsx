@@ -91,8 +91,8 @@ function App() {
             className="mb-8 p-2 rounded-xl transition-all duration-200"
             title="Accueil"
           >
-            <div className="app-sidebar-logo w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black">
-              V
+            <div className="app-sidebar-logo w-8 h-8 rounded-lg flex items-center justify-center">
+              v
             </div>
           </button>
 

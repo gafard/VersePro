@@ -130,6 +130,9 @@ export default function LiveDetection({ setActiveTab }) {
     ctx.scale(dpr, dpr)
     const width = rect.width
     const height = rect.height
+    const styles = getComputedStyle(document.documentElement)
+    const liveWave = styles.getPropertyValue('--color-wave-live').trim()
+    const idleWave = styles.getPropertyValue('--color-wave-idle').trim()
 
     const animate = () => {
       ctx.clearRect(0, 0, width, height)
@@ -137,7 +140,7 @@ export default function LiveDetection({ setActiveTab }) {
       phase += isListening ? 0.06 + (volume / 100) * 0.08 : 0.015
 
       ctx.beginPath()
-      ctx.strokeStyle = isListening ? 'rgba(123, 131, 235, 0.9)' : 'rgba(99, 102, 109, 0.4)'
+      ctx.strokeStyle = isListening ? liveWave : idleWave
       ctx.lineWidth = 1.4
       for (let x = 0; x < width; x++) {
         const envelope = Math.sin((x / width) * Math.PI)
@@ -193,7 +196,7 @@ export default function LiveDetection({ setActiveTab }) {
         setSelectedQueueIndex((prev) => Math.max(0, prev - 1))
       } else if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault()
-        if (currentItem) projectVerseFromQueue(currentItem.queueId, currentItem.reference, currentItem.text)
+        if (currentItem) handleProjectFromQueue(currentItem.queueId, currentItem.reference, currentItem.text)
       } else if (e.key === 'Escape' || e.key === 'Backspace') {
         e.preventDefault()
         if (currentItem) rejectVerseFromQueue(currentItem.queueId)
@@ -402,6 +405,42 @@ export default function LiveDetection({ setActiveTab }) {
     setManualReference('')
   }
 
+  const handleProjectFromQueue = async (queueId, reference, text) => {
+    setProjectingIds((prev) => {
+      const next = new Set(prev)
+      next.add(queueId)
+      return next
+    })
+    setFailedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(queueId)
+      return next
+    })
+    try {
+      const success = await projectVerseFromQueue(queueId, reference, text)
+      if (!success) {
+        setFailedIds((prev) => {
+          const next = new Set(prev)
+          next.add(queueId)
+          return next
+        })
+      }
+    } catch (err) {
+      console.error('Erreur de projection depuis la file:', err)
+      setFailedIds((prev) => {
+        const next = new Set(prev)
+        next.add(queueId)
+        return next
+      })
+    } finally {
+      setProjectingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(queueId)
+        return next
+      })
+    }
+  }
+
   const handleShiftVerse = async (delta) => {
     const next = shiftVerse(onAir?.reference, delta)
     if (next) await sendReference(next)
@@ -562,16 +601,20 @@ export default function LiveDetection({ setActiveTab }) {
       ? Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)
       : null
 
+    const isLoading = projectingIds.has(item.queueId)
+    const isFailed = failedIds.has(item.queueId)
+    const isProjected = item.status === 'projected'
+
     return (
       <article
         key={item.queueId}
-        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''}`}
+        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''} ${isProjected ? 'is-projected' : ''} ${isLoading ? 'is-loading' : ''} ${isFailed ? 'is-failed' : ''}`}
         onClick={() => setSelectedQueueIndex(pendingIdx)}
       >
         <div className="live-card-head">
           <span className="live-card-ref">{item.reference}</span>
-          <span className={`live-card-badge ${accent === 'ai' ? 'is-ai' : 'is-local'}`}>
-            {accent === 'ai' ? `Copilote ${confidencePct ?? 95}%` : 'Direct'}
+          <span className={`live-card-badge ${accent === 'ai' ? 'is-ai' : 'is-local'} ${isProjected ? 'is-projected-badge' : ''}`}>
+            {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Copilote ${confidencePct ?? 95}%` : 'Direct')}
           </span>
         </div>
         <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
@@ -580,18 +623,47 @@ export default function LiveDetection({ setActiveTab }) {
             {new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </span>
           <div className="live-card-actions">
-            <button
-              className="vp-btn vp-btn--ghost vp-btn--sm"
-              onClick={(e) => { e.stopPropagation(); rejectVerseFromQueue(item.queueId) }}
-            >
-              Ignorer
-            </button>
-            <button
-              className={`vp-btn vp-btn--sm ${accent === 'ai' ? 'vp-btn--ai' : 'vp-btn--ok'}`}
-              onClick={(e) => { e.stopPropagation(); projectVerseFromQueue(item.queueId, item.reference, item.text) }}
-            >
-              Projeter
-            </button>
+            {!isProjected && (
+              <button
+                className="vp-btn vp-btn--ghost vp-btn--sm"
+                onClick={(e) => { e.stopPropagation(); rejectVerseFromQueue(item.queueId) }}
+                disabled={isLoading}
+              >
+                Ignorer
+              </button>
+            )}
+            
+            {isProjected ? (
+              <button
+                className="vp-btn vp-btn--sm vp-btn--ok"
+                disabled
+                style={{ cursor: 'default', opacity: 1 }}
+              >
+                ✓ À l'antenne
+              </button>
+            ) : isLoading ? (
+              <button
+                className="vp-btn vp-btn--sm"
+                disabled
+              >
+                Envoi...
+              </button>
+            ) : isFailed ? (
+              <button
+                className="vp-btn vp-btn--sm"
+                style={{ background: 'var(--danger)', borderColor: 'var(--danger)', color: '#ffffff' }}
+                onClick={(e) => { e.stopPropagation(); handleProjectFromQueue(item.queueId, item.reference, item.text) }}
+              >
+                ⚠ Réessayer
+              </button>
+            ) : (
+              <button
+                className={`vp-btn vp-btn--sm ${accent === 'ai' ? 'vp-btn--ai' : 'vp-btn--ok'}`}
+                onClick={(e) => { e.stopPropagation(); handleProjectFromQueue(item.queueId, item.reference, item.text) }}
+              >
+                Projeter
+              </button>
+            )}
           </div>
         </div>
       </article>
@@ -605,7 +677,7 @@ export default function LiveDetection({ setActiveTab }) {
         <div className="vp-modal-backdrop">
           <div className="vp-modal">
             <h2>Bienvenue sur VersePro</h2>
-            <p style={{ marginTop: 8 }}>
+            <p className="vp-modal-intro">
               Ouvrez la régie maintenant en mode local. Vous pourrez ajouter Deepgram,
               OpenRouter ou Gemini plus tard depuis Paramètres.
             </p>
@@ -624,7 +696,7 @@ export default function LiveDetection({ setActiveTab }) {
                 <summary>Configurer les moteurs cloud maintenant</summary>
 
                 <label>
-                  <span className="vp-label" style={{ display: 'block', marginBottom: 6 }}>Clé API Deepgram — transcription cloud</span>
+                  <span className="vp-label">Clé API Deepgram — transcription cloud</span>
                   <input
                     className="vp-input"
                     type="password"
@@ -634,7 +706,7 @@ export default function LiveDetection({ setActiveTab }) {
                   />
                 </label>
                 <label>
-                  <span className="vp-label" style={{ display: 'block', marginBottom: 6 }}>Clé OpenRouter ou Gemini — détection IA</span>
+                  <span className="vp-label">Clé OpenRouter ou Gemini — détection IA</span>
                   <input
                     className="vp-input"
                     type="password"
@@ -650,7 +722,7 @@ export default function LiveDetection({ setActiveTab }) {
               </details>
 
               <div className="vp-onboarding-vosk">
-                <span className="vp-label" style={{ display: 'block', marginBottom: 8 }}>Moteur local Vosk (hors-ligne)</span>
+                <span className="vp-label">Moteur local Vosk (hors-ligne)</span>
                 {voskStatus.installed ? (
                   <span className="vp-chip is-ok"><span className="dot" />Modèle {voskStatus.model_type} installé et prêt</span>
                 ) : voskStatus.downloading ? (
@@ -677,7 +749,7 @@ export default function LiveDetection({ setActiveTab }) {
             </span>
           )}
           {micError && (
-            <span className="live-ai-note animate-fade-in" style={{ color: '#ffa39c', borderColor: 'rgba(255,69,58,0.3)', background: 'rgba(255,69,58,0.08)' }}>
+            <span className="live-ai-note is-error animate-fade-in">
               {micError}
             </span>
           )}
@@ -703,7 +775,7 @@ export default function LiveDetection({ setActiveTab }) {
 
           <button className={`live-mic-main ${isListening ? 'is-live' : ''}`} onClick={toggleListening}>
             <span className="mic-dot" />
-            {isListening ? 'LIVE' : 'Start'}
+            {isListening ? 'LIVE' : 'Micro'}
             <span className="mic-vu"><div style={{ width: `${isListening ? volume : 0}%` }} /></span>
           </button>
         </div>
@@ -722,7 +794,7 @@ export default function LiveDetection({ setActiveTab }) {
           <section className="vp-panel live-queue">
             <div className="live-queue-head">
               <h2>À valider <span className="count">{pendingItems.length}</span></h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="live-queue-tools">
                 <span className="live-queue-hints">
                   <span className="vp-kbd">↑↓</span> naviguer
                   <span className="vp-kbd">Espace</span> projeter
@@ -737,7 +809,7 @@ export default function LiveDetection({ setActiveTab }) {
 
             {!propresenterConnected && (
               <div className="live-alert animate-fade-in">
-                <div style={{ flex: 1 }}>
+                <div className="live-alert-body">
                   <strong>ProPresenter non connecté</strong>
                   <span>La projection passe par l'écran de secours autonome — ouvrez-le sur le poste relié au vidéoprojecteur.</span>
                 </div>
@@ -822,7 +894,7 @@ export default function LiveDetection({ setActiveTab }) {
             <div className="live-audio-head">
               <div>
                 <span className="vp-label">Entrée micro</span>
-                <strong>{isListening ? 'Signal actif' : 'En attente'}</strong>
+                <strong>{isListening ? 'Signal actif' : 'Micro prêt'}</strong>
               </div>
               <span className={`live-audio-state ${isListening ? 'is-live' : ''}`}>
                 <i />{isListening ? 'LIVE' : 'OFF'}
@@ -843,7 +915,7 @@ export default function LiveDetection({ setActiveTab }) {
                 {isListening ? 'Arrêter' : 'Démarrer'}
               </button>
               <button className="vp-btn vp-btn--ghost" onClick={() => setActiveTab?.('settings')} disabled={isListening}>
-                Choisir le micro
+                Paramètres micro
               </button>
             </div>
           </section>
@@ -852,7 +924,7 @@ export default function LiveDetection({ setActiveTab }) {
             <div className="live-manual-head">
               <span className="vp-label">Recherche manuelle</span>
               {(!isListening || !connected) ? (
-                <span className="vp-label" style={{ color: 'var(--vp-accent)' }}>Mode principal</span>
+                <span className="vp-label live-mode-label">Mode principal</span>
               ) : (
                 <span className="live-queue-hints"><span className="vp-kbd">⌘K</span> recherche avancée</span>
               )}
@@ -885,7 +957,7 @@ export default function LiveDetection({ setActiveTab }) {
                 <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={() => savePlan([])}>Effacer</button>
               )}
             </div>
-            <div className="live-manual-row" style={{ marginBottom: 0 }}>
+            <div className="live-manual-row is-flush">
               <input
                 className="vp-input"
                 type="text"
@@ -923,7 +995,7 @@ export default function LiveDetection({ setActiveTab }) {
             <span className="vp-label">Réglages de session</span>
 
             <details className="live-settings-group" open>
-              <summary>Audio</summary>
+              <summary>Moteur vocal</summary>
               <label>
                 <span className="vp-label">Moteur vocal</span>
                 <select className="vp-select" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
@@ -959,9 +1031,9 @@ export default function LiveDetection({ setActiveTab }) {
 
             <details className="live-settings-group" open>
               <summary>Projection & Écrans</summary>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="live-settings-stack">
                 <div>
-                  <span className="vp-label" style={{ display: 'block', marginBottom: 6 }}>Mode de projection</span>
+                  <span className="vp-label">Mode de projection</span>
                   <div className="vp-segmented">
                     <button className={autopilotMode ? 'is-active' : ''} onClick={() => setAutopilotMode(true)}>
                       Autopilote
@@ -970,7 +1042,7 @@ export default function LiveDetection({ setActiveTab }) {
                       Validation
                     </button>
                   </div>
-                  <p style={{ fontSize: 11, color: 'var(--vp-text-faint)', marginTop: 7, lineHeight: 1.45 }}>
+                  <p className="live-settings-note">
                     {autopilotMode
                       ? 'Les références explicites très fiables sont projetées directement. L\'IA reste en validation.'
                       : 'Toutes les détections passent par la file de validation.'}
@@ -993,14 +1065,14 @@ export default function LiveDetection({ setActiveTab }) {
 
             <details className="live-settings-group">
               <summary>Pont vMix Title API</summary>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <div className="live-settings-stack is-tight">
+                <label className="live-check-row">
                   <input 
                     type="checkbox" 
                     checked={vmixEnabled} 
                     onChange={(e) => updateVMixConfig({ enabled: e.target.checked, host: vmixHost, port: vmixPort, input_id: vmixInputId })} 
                   />
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>Activer le pont vMix</span>
+                  <span className="live-check-label">Activer le pont vMix</span>
                 </label>
                 <label>
                   <span className="vp-label">Adresse IP vMix</span>
@@ -1012,7 +1084,7 @@ export default function LiveDetection({ setActiveTab }) {
                     placeholder="127.0.0.1"
                   />
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
+                <div className="live-vmix-grid">
                   <label>
                     <span className="vp-label">Port API</span>
                     <input 

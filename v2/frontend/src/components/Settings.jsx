@@ -201,6 +201,39 @@ export default function Settings() {
       </section>
 
       <section className="settings-grid">
+        <div className="settings-card is-wide is-primary">
+          <div className="settings-card-head">
+            <div>
+              <span>Audio</span>
+              <h2>Entrée micro</h2>
+            </div>
+            <button type="button" className="vp-btn vp-btn--ghost vp-btn--sm" onClick={refreshAudioDevices}>
+              Actualiser
+            </button>
+          </div>
+          <p>
+            Choisissez ici le micro ou l'interface audio de la régie. Le live garde seulement
+            le démarrage, l'arrêt et le niveau du signal.
+          </p>
+          <label>
+            <small>Source audio par défaut</small>
+            <select value={selectedAudioDeviceId} onChange={(e) => updateAudioDevice(e.target.value)}>
+              {audioDevices.length === 0 ? (
+                <option value="">Micro par défaut du navigateur</option>
+              ) : (
+                audioDevices.map((device, index) => (
+                  <option key={device.deviceId || index} value={device.deviceId}>
+                    {device.label || `Micro ${index + 1}`}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <span className="settings-secret-hint">
+            Ce réglage est local à ce navigateur. Les noms exacts des micros apparaissent après autorisation micro.
+          </span>
+        </div>
+
         <div className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
@@ -279,16 +312,16 @@ export default function Settings() {
               </select>
             </label>
           </div>
-          <div style={{ marginTop: '12px' }}>
+          <div className="settings-divider">
             <label>
-              <small style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <small className="settings-label-row">
                 <span>Cle API Deepgram</span>
                 <button
                   type="button"
                   onClick={() => setHelpModal('deepgram')}
-                  style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '11px', padding: 0, fontWeight: 'normal' }}
+                  className="settings-help-button"
                 >
-                  Obtenir une clé gratuite
+                  Obtenir une clé
                 </button>
               </small>
               <input
@@ -307,39 +340,6 @@ export default function Settings() {
         <div className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
-              <span>Audio</span>
-              <h2>Entrée micro</h2>
-            </div>
-            <button type="button" className="vp-btn vp-btn--ghost vp-btn--sm" onClick={refreshAudioDevices}>
-              Actualiser
-            </button>
-          </div>
-          <p style={{ marginBottom: '16px' }}>
-            Choisissez ici le micro ou l'interface audio de la régie. Le live garde seulement le démarrage,
-            l'arrêt et le niveau du signal.
-          </p>
-          <label>
-            <small>Source audio par défaut</small>
-            <select value={selectedAudioDeviceId} onChange={(e) => updateAudioDevice(e.target.value)}>
-              {audioDevices.length === 0 ? (
-                <option value="">Micro par défaut du navigateur</option>
-              ) : (
-                audioDevices.map((device, index) => (
-                  <option key={device.deviceId || index} value={device.deviceId}>
-                    {device.label || `Micro ${index + 1}`}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          <span className="settings-secret-hint">
-            Ce réglage est local à ce navigateur. Les noms exacts des micros apparaissent après autorisation micro.
-          </span>
-        </div>
-
-        <div className="settings-card is-wide">
-          <div className="settings-card-head">
-            <div>
               <span>Analyse intelligente</span>
               <h2>Moteur semantique</h2>
             </div>
@@ -352,18 +352,18 @@ export default function Settings() {
               <span />
             </label>
           </div>
-          <p style={{ marginBottom: '16px' }}>
+          <p>
             L IA peut proposer une reference quand le predicteur paraphrase, mais elle ne doit pas prendre le controle de l ecran.
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div className="settings-form-grid">
             <label>
-              <small style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <small className="settings-label-row">
                 <span>Cle API OpenRouter</span>
                 <button
                   type="button"
                   onClick={() => setHelpModal('openrouter')}
-                  style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
+                  className="settings-help-button"
                 >
                   Obtenir une clé
                 </button>
@@ -376,12 +376,12 @@ export default function Settings() {
               />
             </label>
             <label>
-              <small style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <small className="settings-label-row">
                 <span>Cle API Gemini Direct</span>
                 <button
                   type="button"
                   onClick={() => setHelpModal('gemini')}
-                  style={{ background: 'none', border: 'none', color: 'var(--vp-accent)', cursor: 'pointer', fontSize: '10px', padding: 0, fontWeight: 'normal' }}
+                  className="settings-help-button"
                 >
                   Obtenir une clé
                 </button>
@@ -395,15 +395,14 @@ export default function Settings() {
             </label>
           </div>
 
-          <div style={{ marginTop: '16px', borderTop: '1px solid var(--vp-border)', paddingTop: '16px' }}>
-            <label style={{ display: 'block' }}>
+          <div className="settings-divider">
+            <label>
               <small>Tamis sémantique (Sensibilité d'écoute IA)</small>
-              <div className="live-segmented" style={{ width: 'fit-content', marginTop: '8px' }}>
+              <div className="live-segmented settings-segmented">
                 <button
                   type="button"
                   className={form.ai_filtering_mode === 'strict' ? 'is-active' : ''}
                   onClick={() => updateField('ai_filtering_mode', 'strict')}
-                  style={{ border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}
                 >
                   Strict — filtre par mots-clés
                 </button>
@@ -411,23 +410,22 @@ export default function Settings() {
                   type="button"
                   className={form.ai_filtering_mode === 'open' ? 'is-active' : ''}
                   onClick={() => updateField('ai_filtering_mode', 'open')}
-                  style={{ border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}
                 >
                   Ouvert — analyse tout
                 </button>
               </div>
-              <span style={{ fontSize: '11px', color: 'var(--vp-text-dim)', display: 'block', marginTop: '6px' }}>
+              <span className="settings-muted-note">
                 Le <strong>Mode Strict</strong> filtre les phrases d'après une liste de mots-clés théologiques pour économiser les performances. Le <strong>Mode Ouvert</strong> analyse tout (recommandé pour capturer des récits ou des phrases implicites comme "il a marché sur l'eau").
               </span>
             </label>
           </div>
 
-          <div style={{ marginTop: '16px', borderTop: '1px solid var(--vp-border)', paddingTop: '16px' }}>
+          <div className="settings-divider">
             <label>
               <small>
                 Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
                 {form.ai_confidence_threshold >= 90 && (
-                  <span style={{ color: 'var(--vp-warn)', fontSize: '11px', display: 'block', marginTop: '2px', fontWeight: 'normal' }}>
+                  <span className="settings-muted-note">
                     Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour proteger le direct.
                   </span>
                 )}
@@ -438,9 +436,8 @@ export default function Settings() {
                 max="99"
                 value={form.ai_confidence_threshold}
                 onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
-                style={{ width: '100%', marginTop: '8px' }}
               />
-              <span style={{ fontSize: '11px', color: 'var(--vp-text-dim)', display: 'block', marginTop: '4px' }}>
+              <span className="settings-muted-note">
                 Toute suggestion IA sous ce seuil sera automatiquement rejetee pour eviter les hallucinations.
               </span>
             </label>
@@ -472,7 +469,7 @@ export default function Settings() {
         <div className="settings-card">
           <span>Avant le culte</span>
           <h2>Mode répétition</h2>
-          <p style={{ marginBottom: '10px' }}>
+          <p className="settings-rehearsal-copy">
             Collez un extrait de prédication : la chaîne de détection est rejouée comme en direct,
             sans rien projeter.
           </p>
@@ -481,26 +478,24 @@ export default function Settings() {
             onChange={(e) => setRehearseText(e.target.value)}
             placeholder="Ex : ce matin nous lisons dans jean chapitre trois verset seize car dieu a tant aimé le monde…"
             rows={3}
-            style={{ width: '100%', background: 'var(--vp-bg-elevated)', border: '1px solid var(--vp-border-strong)', borderRadius: '8px', color: 'var(--vp-text)', fontSize: '13px', padding: '10px 12px', resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
           />
           <button
             type="button"
             className="vp-btn vp-btn--sm"
-            style={{ marginTop: '10px' }}
             onClick={runRehearsal}
             disabled={rehearsing || !rehearseText.trim()}
           >
             {rehearsing ? 'Analyse…' : 'Tester la détection'}
           </button>
           {rehearseResults !== null && (
-            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="settings-result-list">
               {rehearseResults.length === 0 ? (
-                <span style={{ fontSize: '12px', color: 'var(--vp-text-faint)' }}>Aucune référence détectée dans ce texte.</span>
+                <span className="settings-secret-hint">Aucune référence détectée dans ce texte.</span>
               ) : (
                 rehearseResults.map((d, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '12.5px', background: 'var(--vp-bg-elevated)', border: '1px solid var(--vp-border)', borderRadius: '8px', padding: '7px 12px' }}>
-                    <strong style={{ color: 'var(--vp-text)' }}>{d.reference}</strong>
-                    <span style={{ color: 'var(--vp-text-faint)', fontSize: '11px' }}>{d.detection_method}</span>
+                  <div key={i} className="settings-result-row">
+                    <strong>{d.reference}</strong>
+                    <span>{d.detection_method}</span>
                   </div>
                 ))
               )}
@@ -521,45 +516,43 @@ export default function Settings() {
 
       {helpModal && (
         <div className="vp-modal-backdrop">
-          <div className="vp-modal" style={{ maxWidth: '500px' }}>
-            <h3 style={{ marginBottom: '12px' }}>
+          <div className="vp-modal settings-modal">
+            <h3 className="settings-modal-title">
               {helpModal === 'deepgram' && 'Obtenir une clé API Deepgram'}
               {helpModal === 'openrouter' && 'Obtenir une clé API OpenRouter'}
               {helpModal === 'gemini' && 'Obtenir une clé API Gemini Direct'}
             </h3>
             
-            <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
+            <div className="settings-modal-body">
               {helpModal === 'deepgram' && (
-                <ol style={{ paddingLeft: '16px', listStyleType: 'decimal' }}>
-                  <li style={{ marginBottom: '6px' }}>Allez sur le site <strong><a href="https://console.deepgram.com" target="_blank" rel="noreferrer" >console.deepgram.com</a></strong> et créez un compte gratuit.</li>
-                  <li style={{ marginBottom: '6px' }}>Deepgram vous offre <strong>200 $ de crédits gratuits</strong> au démarrage (ce qui équivaut à plus de 10 000 heures de transcription).</li>
-                  <li style={{ marginBottom: '6px' }}>Cliquez sur <strong>"API Keys"</strong> dans la barre latérale gauche, puis sur <strong>"Create New API Key"</strong>.</li>
-                  <li style={{ marginBottom: '6px' }}>Sélectionnez le rôle d'administrateur ou d'écriture, nommez la clé "VersePro", puis cliquez sur créer.</li>
-                  <li style={{ marginBottom: '6px' }}>Copiez la clé générée (elle commence par <code>dg_</code>) et collez-la dans le champ correspondant dans VersePro.</li>
+                <ol className="settings-modal-list">
+                  <li>Allez sur le site <strong><a href="https://console.deepgram.com" target="_blank" rel="noreferrer" >console.deepgram.com</a></strong> et créez un compte.</li>
+                  <li>Ouvrez la section <strong>"API Keys"</strong>, puis créez une nouvelle clé.</li>
+                  <li>Sélectionnez le rôle d'administrateur ou d'écriture, nommez la clé "VersePro", puis cliquez sur créer.</li>
+                  <li>Copiez la clé générée (elle commence par <code>dg_</code>) et collez-la dans le champ correspondant dans VersePro.</li>
                 </ol>
               )}
               {helpModal === 'openrouter' && (
-                <ol style={{ paddingLeft: '16px', listStyleType: 'decimal' }}>
-                  <li style={{ marginBottom: '6px' }}>Allez sur <strong><a href="https://openrouter.ai" target="_blank" rel="noreferrer" >openrouter.ai</a></strong> et inscrivez-vous.</li>
-                  <li style={{ marginBottom: '6px' }}>Dans votre compte, allez dans la section <strong>"Keys"</strong> (ou Clés API).</li>
-                  <li style={{ marginBottom: '6px' }}>Créez une nouvelle clé API et nommez-la "VersePro".</li>
-                  <li style={{ marginBottom: '6px' }}>Copiez la clé (elle commence par <code>sk-or-v1-</code>). Elle vous donne accès à de nombreux modèles d'IA, y compris certains gratuits (comme Gemini Flash).</li>
+                <ol className="settings-modal-list">
+                  <li>Allez sur <strong><a href="https://openrouter.ai" target="_blank" rel="noreferrer" >openrouter.ai</a></strong> et inscrivez-vous.</li>
+                  <li>Dans votre compte, allez dans la section <strong>"Keys"</strong> (ou Clés API).</li>
+                  <li>Créez une nouvelle clé API et nommez-la "VersePro".</li>
+                  <li>Copiez la clé (elle commence par <code>sk-or-v1-</code>) et collez-la dans VersePro.</li>
                 </ol>
               )}
               {helpModal === 'gemini' && (
-                <ol style={{ paddingLeft: '16px', listStyleType: 'decimal' }}>
-                  <li style={{ marginBottom: '6px' }}>Allez sur <strong><a href="https://aistudio.google.com" target="_blank" rel="noreferrer" >aistudio.google.com</a></strong> avec votre compte Google.</li>
-                  <li style={{ marginBottom: '6px' }}>Cliquez sur <strong>"Get API Key"</strong> en haut à gauche.</li>
-                  <li style={{ marginBottom: '6px' }}>Créez une clé dans un nouveau projet ou un projet existant.</li>
-                  <li style={{ marginBottom: '6px' }}>Copiez la clé générée (elle commence par <code>AIzaSy</code>) et collez-la dans VersePro. C'est 100% gratuit dans la limite des quotas standards d'AI Studio.</li>
+                <ol className="settings-modal-list">
+                  <li>Allez sur <strong><a href="https://aistudio.google.com" target="_blank" rel="noreferrer" >aistudio.google.com</a></strong> avec votre compte Google.</li>
+                  <li>Cliquez sur <strong>"Get API Key"</strong> en haut à gauche.</li>
+                  <li>Créez une clé dans un nouveau projet ou un projet existant.</li>
+                  <li>Copiez la clé générée (elle commence par <code>AIzaSy</code>) et collez-la dans VersePro.</li>
                 </ol>
               )}
             </div>
             
             <button
               onClick={() => setHelpModal(null)}
-              className="vp-btn vp-btn--primary"
-              style={{ marginTop: '20px', width: '100%' }}
+              className="vp-btn vp-btn--primary settings-modal-close"
             >
               Compris, fermer
             </button>

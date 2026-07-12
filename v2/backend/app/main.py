@@ -251,7 +251,7 @@ async def get_output_page():
         <meta charset="utf-8">
         <title>Rendu d'Affichage - VersePro</title>
         <style>
-            :root { --accent: #3b82f6; --read: #ffffff; --unread: rgba(255,255,255,0.34); }
+            :root { --accent: oklch(76% 0.17 50); --accent-2: oklch(68% 0.16 18); --read: #ffffff; --unread: rgba(255,255,255,0.34); }
             html { font-size: 16px; }
             body {
                 margin: 0; padding: 0;
@@ -323,7 +323,7 @@ async def get_output_page():
                 font-family: Georgia, "Times New Roman", serif;
             }
             body.theme-presentation #text { font-weight: 400; font-style: italic; letter-spacing: 0.5px; }
-            body.theme-presentation #reference { color: #e2b865; font-weight: 600; font-size: 1.8rem; }
+            body.theme-presentation #reference { color: var(--accent); font-weight: 600; font-size: 1.8rem; }
 
             /* --- THEME: BROADCAST (lower third) --- */
             body.theme-broadcast { justify-content: center; align-items: flex-end; }
@@ -393,6 +393,252 @@ async def get_output_page():
             body.theme-dual .split-label { font-size: 11px; font-weight: bold; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; opacity: 0; }
             body.theme-dual #container.visible .split-ver { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
             body.theme-dual #container.visible .split-label { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards; }
+
+            /* --- NOUVEAUX STYLES DE BROADCAST --- */
+
+            /* Style: pill (Capsule Moderne - Image 1) */
+            body.theme-broadcast.style-pill #container {
+                background: rgba(18, 20, 26, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 9999px;
+                padding: 16px 36px 16px 48px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 24px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            }
+            body.theme-broadcast.style-pill #text {
+                font-size: 1.55rem;
+                color: #f3f4f6;
+                margin-bottom: 0;
+                text-shadow: none;
+                flex: 1;
+            }
+            body.theme-broadcast.style-pill #reference {
+                background: oklch(0.85 0.18 112); /* Jaune/Vert néon */
+                color: #0c1c0c;
+                border: none;
+                font-size: 1.1rem;
+                font-weight: 800;
+                border-radius: 9999px;
+                padding: 6px 20px;
+                text-shadow: none;
+                flex-shrink: 0;
+            }
+
+            /* Style: sage (Sauge & Terracotta - Image 2) */
+            body.theme-broadcast.style-sage #container {
+                background: rgba(148, 166, 149, 0.94); /* Vert sauge */
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 24px;
+                padding: 24px 44px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 32px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            }
+            body.theme-broadcast.style-sage #text {
+                font-size: 1.6rem;
+                color: #121813;
+                font-weight: 600;
+                text-shadow: none;
+                margin-bottom: 0;
+                flex: 1;
+            }
+            body.theme-broadcast.style-sage #text.karaoke .w { color: rgba(18, 24, 19, 0.35); }
+            body.theme-broadcast.style-sage #text.karaoke .w.read { color: #121813; }
+            body.theme-broadcast.style-sage #reference {
+                background: oklch(0.55 0.14 32); /* Terracotta */
+                color: #ffffff;
+                border: none;
+                font-size: 1.15rem;
+                border-radius: 9999px;
+                padding: 8px 24px;
+                text-shadow: none;
+                flex-shrink: 0;
+            }
+
+            /* Style: split (Barre Complète Divisée - Image 4) */
+            body.theme-broadcast.style-split {
+                align-items: flex-end;
+            }
+            body.theme-broadcast.style-split #container {
+                width: 100%;
+                max-width: 100%;
+                margin-bottom: 0;
+                background: #0d0e12;
+                border: none;
+                border-top: 2px solid oklch(0.62 0.17 29); /* Ligne rouge */
+                border-radius: 0;
+                padding: 0;
+                display: grid;
+                grid-template-columns: 320px 1fr;
+                align-items: stretch;
+                box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+            }
+            body.theme-broadcast.style-split #reference {
+                background: #090a0d;
+                color: #ffffff;
+                border: none;
+                border-radius: 0;
+                padding: 24px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                font-size: 1.3rem;
+                font-weight: 700;
+                border-right: 1px solid rgba(255, 255, 255, 0.05);
+            }
+            body.theme-broadcast.style-split #text {
+                padding: 24px 48px;
+                font-size: 1.65rem;
+                color: #f3f4f6;
+                margin: 0;
+                text-shadow: none;
+                display: flex;
+                align-items: center;
+                text-align: left;
+                flex: 1;
+            }
+
+            /* --- NOUVEAUX THÈMES PLEIN ÉCRAN / SOCIAL --- */
+
+            /* Thème: poster (Cadre Vertical Sacré - Image 3) */
+            body.theme-poster {
+                background: radial-gradient(circle, #3d080c 0%, #120204 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            body.theme-poster #container {
+                width: 580px;
+                height: 720px;
+                background: #ffffff;
+                border-radius: 40px;
+                box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+                padding: 60px 48px;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                align-items: center;
+                box-sizing: border-box;
+                position: relative;
+            }
+            /* Badge Logo fictif en haut */
+            body.theme-poster #container::before {
+                content: "VP";
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 60px;
+                height: 60px;
+                border-radius: 50%;
+                background: #0d0d0d;
+                color: #ffffff;
+                font-weight: 800;
+                font-size: 1.2rem;
+                border: 4px solid #ffffff;
+                position: absolute;
+                top: -30px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            }
+            body.theme-poster #text {
+                font-size: 2.1rem;
+                line-height: 1.6;
+                color: #1a1a1a;
+                font-weight: 500;
+                margin: auto 0;
+                text-shadow: none;
+            }
+            body.theme-poster #text.karaoke .w { color: rgba(26, 26, 26, 0.3); }
+            body.theme-poster #text.karaoke .w.read { color: #1a1a1a; }
+            body.theme-poster #reference {
+                width: 100%;
+                text-align: center;
+                color: #990000;
+                font-size: 1.4rem;
+                font-weight: 800;
+                border-top: 2px solid #e6e6e6;
+                padding-top: 20px;
+                text-shadow: none;
+            }
+
+            /* Thème: story (Carte Rétro avec Filigrane - Image 5) */
+            body.theme-story {
+                background: linear-gradient(135deg, #0e1e24 0%, #18333c 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                overflow: hidden;
+            }
+            /* Grand filigrane en arrière-plan */
+            body.theme-story::before {
+                content: "VP";
+                position: absolute;
+                font-size: 32rem;
+                font-weight: 900;
+                color: rgba(255, 255, 255, 0.035);
+                line-height: 1;
+                z-index: 0;
+                left: -40px;
+                bottom: -60px;
+                pointer-events: none;
+            }
+            body.theme-story #container {
+                z-index: 1;
+                width: 620px;
+                background: oklch(0.38 0.12 165); /* Vert émeraude/forêt profond */
+                border-radius: 32px;
+                box-shadow: 0 35px 80px rgba(0, 0, 0, 0.5);
+                padding: 48px;
+                display: flex;
+                flex-direction: column;
+                gap: 24px;
+                position: relative;
+                box-sizing: border-box;
+            }
+            /* Ruban "étiquette" en bas à droite */
+            body.theme-story #container::after {
+                content: "VERSEPRO";
+                position: absolute;
+                right: 24px;
+                bottom: -12px;
+                background: #ffffff;
+                color: #121813;
+                font-size: 10px;
+                font-weight: 800;
+                padding: 6px 16px;
+                border-radius: 4px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+                letter-spacing: 0.1em;
+            }
+            body.theme-story #reference {
+                color: #ffffff;
+                font-family: "Impact", "Arial Black", sans-serif;
+                font-size: 2.8rem;
+                text-transform: uppercase;
+                text-align: left;
+                border: none;
+                padding: 0;
+                margin: 0;
+                letter-spacing: 1px;
+                text-shadow: none;
+            }
+            body.theme-story #text {
+                font-size: 1.8rem;
+                line-height: 1.5;
+                color: #e6f2ec;
+                font-weight: 450;
+                text-align: left;
+                text-shadow: none;
+                margin-bottom: 20px;
+            }
+            body.theme-story #text.karaoke .w { color: rgba(230, 242, 236, 0.35); }
+            body.theme-story #text.karaoke .w.read { color: #ffffff; }
         </style>
     </head>
     <body>
@@ -456,6 +702,11 @@ async def get_output_page():
 
                 const theme = forcedTheme || data.theme || 'presentation';
                 document.body.classList.add('theme-' + theme);
+
+                const forcedStyle = params.get('style') || data.style;
+                if (forcedStyle) {
+                    document.body.classList.add('style-' + forcedStyle);
+                }
 
                 // Même verset (changement de thème/fond seulement) : pas de re-animation
                 const key = (data.reference || '') + '|' + (data.text || '');
@@ -552,13 +803,13 @@ async def get_stage_display():
                 padding: 3.5vh 4vw;
             }
             header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3vh; }
-            #reference { font-size: 3.2vw; font-weight: 800; color: #ffd60a; letter-spacing: 0.04em; text-transform: uppercase; }
+            #reference { font-size: 3.2vw; font-weight: 800; color: oklch(76% 0.17 50); letter-spacing: 0.04em; text-transform: uppercase; }
             #clock { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 3.2vw; font-weight: 700; color: #fff; }
             main { flex: 1; display: flex; align-items: center; }
             #text { font-size: 4.2vw; line-height: 1.4; font-weight: 600; }
             #text .w { color: rgba(255, 255, 255, 0.36); transition: color 0.3s ease; }
             #text .w.read { color: #fff; }
-            #text .w.cur { color: #ffd60a; }
+            #text .w.cur { color: oklch(76% 0.17 50); }
             footer { border-top: 2px solid rgba(255, 255, 255, 0.14); padding-top: 2.2vh; min-height: 16vh; }
             footer .label { font-size: 1.2vw; font-weight: 800; letter-spacing: 0.16em; color: #30d158; text-transform: uppercase; }
             #next-text {
@@ -712,7 +963,7 @@ async def get_follow_page():
                 border-bottom: 1px solid #25262b;
             }
             header .brand { font-size: 14px; font-weight: 700; }
-            header .brand span { color: #7b83eb; }
+            header .brand span { color: oklch(76% 0.17 50); }
             select {
                 background: #16171b;
                 color: #f0f1f3;
@@ -736,7 +987,7 @@ async def get_follow_page():
                 font-weight: 700;
                 letter-spacing: 0.06em;
                 text-transform: uppercase;
-                color: #7b83eb;
+                color: oklch(76% 0.17 50);
                 margin-bottom: 14px;
             }
             #text {

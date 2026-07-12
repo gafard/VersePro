@@ -1,0 +1,109 @@
+/* Hallmark · genre: atmospheric · theme: Lumen (Night Foundry) · design-system: design.md · designed-as-app
+ * Tokens — source de vérité du système. Importé avant index.css.
+ * Aucune valeur brute dans les pages : tout référence ces noms. */
+
+:root {
+  /* ── Papier (studio de nuit, tirant violet) ── */
+  --color-paper:      oklch(13% 0.014 265);
+  --color-paper-2:    oklch(16% 0.015 265);
+  --color-paper-3:    oklch(19% 0.016 265);
+  --color-paper-4:    oklch(23% 0.018 265);
+
+  /* ── Encre ── */
+  --color-ink:        oklch(96% 0.006 262);
+  --color-ink-2:      oklch(78% 0.010 262);
+  --color-muted:      oklch(58% 0.012 262);
+  --color-faint:      oklch(44% 0.012 262);
+
+  /* ── Règles / hairlines ── */
+  --color-rule:       oklch(96% 0.006 262 / 0.08);
+  --color-rule-2:     oklch(96% 0.006 262 / 0.16);
+  --rule-blueprint:   oklch(96% 0.006 262 / 0.04);
+
+  /* ── Accents (Lumen Night : le laiton émet, le corail marque le verbe) ── */
+  --color-accent:      oklch(76% 0.17 50);
+  --color-accent-ink:  oklch(18% 0.05 50);
+  --color-accent-hover: oklch(81% 0.16 50);
+  --color-accent-soft: oklch(76% 0.17 50 / 0.12);
+  --color-accent-2:    oklch(68% 0.16 18);
+  --color-accent-2-soft: oklch(68% 0.16 18 / 0.12);
+  --color-glow:        oklch(80% 0.16 50 / 0.42);
+  --color-paper-emit:  oklch(76% 0.17 50 / 0.04);
+  --color-focus:       oklch(76% 0.17 50);
+  --color-focus-soft:  oklch(76% 0.17 50 / 0.22);
+  --color-paper-deep:  oklch(10% 0.014 265);
+  --color-ink-inverse: oklch(98% 0.005 262);
+  --color-shadow:      oklch(5% 0.014 265 / 0.55);
+  --color-backdrop:    oklch(5% 0.014 265 / 0.72);
+  --color-backdrop-soft: oklch(5% 0.014 265 / 0.66);
+  --color-shimmer:     oklch(96% 0.006 262 / 0.05);
+  --color-wave-live:   oklch(76% 0.17 50 / 0.9);
+  --color-wave-idle:   oklch(58% 0.012 262 / 0.42);
+
+  /* ── Statuts fonctionnels de la console (données d'état, pas décoration) ── */
+  --color-ok:        oklch(70% 0.12 155);
+  --color-ok-ink:    oklch(82% 0.08 155);
+  --color-ok-hover:  oklch(76% 0.11 155);
+  --color-ok-soft:   oklch(70% 0.12 155 / 0.12);
+  --color-danger:    oklch(62% 0.19 25);
+  --color-danger-ink: oklch(78% 0.13 25);
+  --color-danger-line: oklch(62% 0.19 25 / 0.42);
+  --color-danger-soft: oklch(62% 0.19 25 / 0.10);
+  --color-warn:      oklch(76% 0.13 80);
+  --color-warn-ink:  oklch(84% 0.10 80);
+  --color-warn-line: oklch(76% 0.13 80 / 0.34);
+  --color-warn-soft: oklch(76% 0.13 80 / 0.10);
+  --color-ai-ink:    oklch(80% 0.11 18);
+  --color-ai-line:   oklch(68% 0.16 18 / 0.34);
+
+  /* ── Typographie ── */
+  --font-display: "Instrument Serif", "Tiempos Headline", ui-serif, Georgia, serif;
+  --font-body:    "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --text-display:   clamp(2.75rem, 6vw + 1rem, 5.5rem);
+  --text-display-s: clamp(2rem, 3.5vw + 1rem, 3.25rem);
+  --text-2xl: 2.25rem;
+  --text-xl:  1.75rem;
+  --text-lg:  1.375rem;
+  --text-md:  1.125rem;
+  --text-sm:  0.875rem;
+  --text-xs:  0.75rem;
+  --tracking-display: -0.032em;
+  --tracking-micro:   0.10em;
+
+  /* ── Espacement (échelle 4 pt) ── */
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs:  0.75rem;
+  --space-sm:  1rem;
+  --space-md:  1.5rem;
+  --space-lg:  2rem;
+  --space-xl:  3rem;
+  --space-2xl: 4.5rem;
+  --space-3xl: 7rem;
+
+  /* ── Mouvement ── */
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --dur-short: 220ms;
+  --dur-med:   340ms;
+  --dur-pulse: 4s;
+
+  /* ── Rayons ── */
+  --radius-input: 8px;
+  --radius-card:  12px;
+  --radius-modal: 16px;
+  --radius-pill:  999px;
+
+  /* ── Profondeur ── */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-palette: 420;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}

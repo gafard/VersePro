@@ -1,0 +1,18 @@
+{
+  "date": "2026-07-12",
+  "framework": "Vite + React",
+  "font_stack": [
+    "@fontsource/geist-sans",
+    "@fontsource/instrument-serif",
+    "@fontsource/jetbrains-mono"
+  ],
+  "palette": "design.md + v2/frontend/src/tokens.css OKLCH tokens",
+  "motion": "CSS-only, no motion library",
+  "spacing": "4-point semantic scale in tokens.css",
+  "preserve": [
+    "Lumen Night Foundry palette",
+    "Instrument Serif + Geist Sans + JetBrains Mono",
+    "Workbench app density",
+    "Marquee Hero landing family"
+  ]
+}

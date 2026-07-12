@@ -1,0 +1,22 @@
+[
+  {
+    "date": "2026-07-12",
+    "scope": "app",
+    "macrostructure": "Marquee Hero (product surface) / Workbench (app)",
+    "theme": "lumen",
+    "drop": "night",
+    "theme_axes": "dark / classical-serif-lowercase / warm-brass",
+    "enrichment": "product surface (real VersePro console preview)",
+    "brief": "VersePro · Hallmark pass — montrer le logiciel, renforcer les paramètres micro, nettoyer les tokens"
+  },
+  {
+    "date": "2026-07-12",
+    "scope": "app",
+    "macrostructure": "Marquee Hero (marketing) / Workbench (app)",
+    "theme": "lumen",
+    "drop": "night",
+    "theme_axes": "dark / classical-serif-lowercase / warm-brass",
+    "enrichment": "Tier-A CSS apparatus (chambre d'écoute)",
+    "brief": "VersePro · régie de projection biblique — redesign complet multi-pages"
+  }
+]

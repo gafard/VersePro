@@ -1,156 +1,191 @@
 import React, { useMemo } from 'react'
 import { useStore } from '../store.js'
 
+/*
+ * Landing — Hallmark · Lumen (Night Foundry) · Marquee Hero
+ * Registre deux-casses : prose en bas-de-casse, labels mono en MAJUSCULES.
+ * La landing montre le logiciel lui-même : pas d'illustration IA, pas de chrome OS factice.
+ * Les valeurs affichées doivent être vérifiables dans l'application.
+ */
+
+// Enveloppe procédurale de la bande-mètre : sinus + harmonique, jamais uniforme
+const METER_BARS = Array.from({ length: 64 }, (_, i) => {
+  const t = i / 63
+  const envelope = Math.sin(t * Math.PI)
+  const detail = 0.55 + 0.45 * Math.sin(i * 1.7) * Math.sin(i * 0.35)
+  return Math.round(4 + envelope * detail * 24)
+})
+
 export default function LandingPage({ setActiveTab }) {
   const { history, connected, propresenterConnected } = useStore()
-
   const recentVerses = useMemo(() => history.slice(0, 3), [history])
 
   return (
-    <div className="landing-shell">
-      {/* Navigation supérieure de la landing */}
-      <nav className="landing-nav">
-        <button className="landing-brand" onClick={() => setActiveTab('home')} aria-label="VersePro accueil">
-          <span className="landing-brand-mark">V</span>
-          <span>VersePro</span>
-        </button>
-
-        <div className="landing-nav-links" aria-label="Navigation principale">
-          <button onClick={() => setActiveTab('live')}>Régie</button>
-          <button onClick={() => setActiveTab('history')}>Historique</button>
-          <button onClick={() => setActiveTab('statistics')}>Rapports</button>
+    <div className="lp">
+      {/* ── Nav · N9 edge-aligned minimal ── */}
+      <nav className="lp-nav" aria-label="Navigation principale">
+        <button className="lp-wordmark" onClick={() => setActiveTab('home')}>versepro</button>
+        <div className="lp-nav-right">
+          <button className="lp-nav-link" onClick={() => setActiveTab('history')}>historique</button>
+          <button className="lp-cta" onClick={() => setActiveTab('live')}>ouvrir la régie</button>
         </div>
-
-        <button className="landing-nav-cta" onClick={() => setActiveTab('live')}>
-          Lancer la régie
-        </button>
       </nav>
 
-      {/* Hero Section asymétrique */}
-      <main className="landing-hero">
-        <section className="landing-copy" aria-labelledby="landing-title">
-          <p className="landing-kicker">Moteur de projection sémantique</p>
-          <h1 id="landing-title">Le cerveau de votre projection</h1>
-          <p className="landing-subtitle">
-            VersePro écoute le prédicateur, extrait les références bibliques à la volée 
-            et pilote toutes vos sorties vidéo (OBS, vMix, ProPresenter et moniteurs scène) 
-            en maintenant l'opérateur humain au centre des décisions.
+      {/* ── Hero · appareil à droite, titre bas-de-casse à gauche ── */}
+      <header className="lp-hero">
+        <div className="lp-hero-copy">
+          <p className="lp-eyebrow">00 · RÉGIE DE PROJECTION</p>
+          <h1 className="lp-title">
+            la parole <em>s'affiche</em> pendant qu'elle se prêche.
+          </h1>
+          <p className="lp-lede">
+            versepro écoute le prédicateur, reconnaît chaque référence biblique
+            et prépare la projection — obs, vmix, propresenter, moniteur scène.
+            l'opérateur valide. rien ne s'affiche sans lui.
           </p>
-          <div className="landing-actions">
-            <button className="vp-btn vp-btn--primary" onClick={() => setActiveTab('live')}>
-              Ouvrir la régie
-            </button>
-            <button className="vp-btn vp-btn--ghost" onClick={() => setActiveTab('history')}>
-              Parcourir l'historique
-            </button>
+          <div className="lp-actions">
+            <button className="lp-btn-primary" onClick={() => setActiveTab('live')}>ouvrir la régie</button>
+            <button className="lp-btn-ghost" onClick={() => setActiveTab('history')}>voir l'historique</button>
           </div>
-        </section>
+        </div>
 
-        {/* Schéma fonctionnel du Pipeline (remplace le faux chrome) */}
-        <section className="landing-pipeline-display" aria-label="Architecture de détection VersePro">
-          <div className="pipeline-card">
-            <div className="pipeline-card-header">
-              <span className="pipeline-dot" />
-              <span className="pipeline-mono">PIPELINE SÉMANTIQUE ACTIF</span>
+        {/* Produit · la régie est le visuel marketing */}
+        <figure className="lp-console-preview" aria-label="Aperçu de la régie VersePro">
+          <div className="lp-console-top">
+            <div>
+              <span>RÉGIE LIVE</span>
+              <strong>À valider</strong>
             </div>
-            
-            <div className="pipeline-flow">
-              <div className="pipeline-step">
-                <div className="step-num">01</div>
-                <div className="step-content">
-                  <strong>Transcription</strong>
-                  <span className="step-meta">Vosk Local / Deepgram</span>
-                  <div className="step-visual-audio">
-                    <span style={{ height: '6px' }} />
-                    <span style={{ height: '14px' }} />
-                    <span style={{ height: '22px' }} />
-                    <span style={{ height: '8px' }} />
-                    <span style={{ height: '18px' }} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pipeline-step">
-                <div className="step-num">02</div>
-                <div className="step-content">
-                  <strong>Analyse IA</strong>
-                  <span className="step-meta">Parser local & validation</span>
-                  <div className="step-badge">CONFIDENCE 98%</div>
-                </div>
-              </div>
-
-              <div className="pipeline-step">
-                <div className="step-num">03</div>
-                <div className="step-content">
-                  <strong>Routage</strong>
-                  <span className="step-meta">OBS, vMix, ProPresenter</span>
-                  <div className="step-visual-outputs">
-                    <span>OBS</span>
-                    <span>vMix</span>
-                    <span>ProPresenter</span>
-                  </div>
-                </div>
-              </div>
+            <div className="lp-console-status">
+              <span className={connected ? 'is-on' : ''} />
+              {connected ? 'SERVEUR' : 'LOCAL'}
             </div>
           </div>
-        </section>
-      </main>
 
-      {/* Sections du Workflow de détection (remplace les Proof Cards clichés) */}
-      <section className="landing-workflow" aria-label="Workflow de validation">
-        <div className="workflow-card">
-          <span className="workflow-number">01</span>
-          <h3>Écoute & Analyse</h3>
-          <p>Le flux audio du microphone est analysé en temps réel avec une latence inférieure à 5 ms.</p>
-        </div>
+          <div className="lp-console-grid">
+            <div className="lp-console-main">
+              <div className="lp-console-transcript">
+                <span>TRANSCRIPT DIRECT</span>
+                <p>… aujourd'hui nous lisons jean chapitre trois verset seize …</p>
+              </div>
 
-        <div className="workflow-card">
-          <span className="workflow-number">02</span>
-          <h3>Suggestion intelligente</h3>
-          <p>Les versets mentionnés indirectement sont isolés et présentés pour validation, sans jamais s'afficher automatiquement.</p>
-        </div>
+              <article className="lp-console-card">
+                <div>
+                  <strong>Jean 3:16</strong>
+                  <span>DIRECT</span>
+                </div>
+                <p>Car Dieu a tant aimé le monde qu'il a donné son Fils unique…</p>
+                <button type="button" onClick={() => setActiveTab('live')}>projeter</button>
+              </article>
 
-        <div className="workflow-card">
-          <span className="workflow-number">03</span>
-          <h3>Diffusion universelle</h3>
-          <p>La validation envoie instantanément la scène vers vos sorties de diffusion paramétrées.</p>
-        </div>
+              <article className="lp-console-card is-muted">
+                <div>
+                  <strong>Romains 8:28</strong>
+                  <span>IA · VALIDATION</span>
+                </div>
+                <p>Suggestion retenue en attente d'un opérateur.</p>
+              </article>
+            </div>
 
-        <div className="workflow-card workflow-status">
-          <span className="workflow-number">SYS</span>
-          <h3>Statut Système</h3>
-          <div className="status-grid">
-            <div>Serveur : <strong className={connected ? 'text-ok' : 'text-bad'}>{connected ? 'Prêt' : 'Déconnecté'}</strong></div>
-            <div>Pont ProPresenter : <strong className={propresenterConnected ? 'text-ok' : 'text-faint'}>{propresenterConnected ? 'Actif' : 'Manuel'}</strong></div>
+            <aside className="lp-console-side">
+              <div>
+                <span>ENTRÉE MICRO</span>
+                <strong>signal prêt</strong>
+              </div>
+              <div className="lp-console-micro-bars">
+                {METER_BARS.slice(0, 22).map((h, i) => (
+                  <span key={i} style={{ height: `${Math.max(6, Math.round(h * 0.72))}px` }} />
+                ))}
+              </div>
+              <button type="button" onClick={() => setActiveTab('settings')}>choisir le micro</button>
+              <div className="lp-console-output">
+                <span>OBS</span>
+                <span>vMix</span>
+                <span>ProPresenter</span>
+              </div>
+            </aside>
           </div>
+        </figure>
+      </header>
+
+      {/* ── Bande-mètre · lecture d'instrument, valeurs réelles ── */}
+      <aside className="lp-meter" aria-label="Lecture du signal">
+        <p className="lp-meter-label">ENTRÉE · 16 KHZ</p>
+        <div className="lp-meter-bars">
+          {METER_BARS.map((h, i) => (
+            <span key={i} style={{ height: `${h}px`, opacity: 0.35 + (h / 28) * 0.65 }} />
+          ))}
+        </div>
+        <p className="lp-meter-label">SEUIL VAD · 0.50</p>
+      </aside>
+
+      {/* ── Rangée de trois stats · chiffres réels, sérif, tabulaires ── */}
+      <section className="lp-stats" aria-label="Chiffres clés">
+        <div className="lp-stat">
+          <strong>29 940</strong>
+          <span className="lp-stat-label">VERSETS INDEXÉS</span>
+        </div>
+        <div className="lp-stat">
+          <strong>6</strong>
+          <span className="lp-stat-label">TRADUCTIONS BIBLIQUES</span>
+        </div>
+        <div className="lp-stat">
+          <strong>humain</strong>
+          <span className="lp-stat-label">VALIDATION AVANT ÉCRAN</span>
         </div>
       </section>
 
-      {/* Historique récent des écritures */}
-      <section className="landing-recent-band" aria-label="Dernières écritures détectées">
-        <div className="recent-header">
-          <span className="landing-section-label">Activité récente</span>
-          <h2>Dernières écritures projetées lors des cultes</h2>
+      {/* ── Chaîne de travail ── */}
+      <section className="lp-flow" aria-label="Chaîne de travail">
+        <p className="lp-eyebrow">01 · LA CHAÎNE</p>
+        <h2 className="lp-h2">trois gestes, aucun stress.</h2>
+        <div className="lp-flow-grid">
+          <article className="lp-card">
+            <p className="lp-card-eyebrow">ÉCOUTE</p>
+            <h3>le micro entre, le texte sort.</h3>
+            <p>le flux audio est transcrit en direct — en local avec vosk, ou dans le nuage avec deepgram. la musique et les silences sont filtrés avant analyse.</p>
+          </article>
+          <article className="lp-card">
+            <p className="lp-card-eyebrow">VALIDATION</p>
+            <h3>la machine propose, l'humain dispose.</h3>
+            <p>les références détectées entrent dans une file de validation. seules les citations explicites et sûres peuvent se projeter seules — et seulement si vous l'activez.</p>
+          </article>
+          <article className="lp-card">
+            <p className="lp-card-eyebrow">DIFFUSION</p>
+            <h3>une validation, toutes les sorties.</h3>
+            <p>écran autonome, obs, vmix, propresenter, moniteur scène et téléphones de l'assemblée reçoivent la même scène au même instant.</p>
+          </article>
         </div>
+      </section>
 
-        <div className="landing-recent-list">
+      {/* ── Activité récente (données : casse naturelle) ── */}
+      <section className="lp-recent" aria-label="Dernières écritures détectées">
+        <p className="lp-eyebrow">02 · ACTIVITÉ</p>
+        <h2 className="lp-h2">dernières écritures projetées.</h2>
+        <div className="lp-recent-list">
           {recentVerses.length > 0 ? recentVerses.map((verse) => (
-            <button key={verse.id} className="landing-recent-item" onClick={() => setActiveTab('history')}>
-              <span className="recent-ref">{verse.reference}</span>
-              <span className="recent-time">
+            <button key={verse.id} className="lp-recent-item" onClick={() => setActiveTab('history')}>
+              <span className="lp-recent-ref">{verse.reference}</span>
+              <span className="lp-recent-time">
                 {new Date(verse.detected_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             </button>
           )) : (
-            ['Jean 3:16', 'Psaume 23:1', 'Romains 8:28'].map((reference) => (
-              <button key={reference} className="landing-recent-item" onClick={() => setActiveTab('live')}>
-                <span className="recent-ref">{reference}</span>
-                <span className="recent-time">démo</span>
-              </button>
-            ))
+            <p className="lp-recent-empty">aucune détection pour l'instant — ouvrez la régie et parlez.</p>
           )}
         </div>
       </section>
+
+      {/* ── Footer · Ft5 Statement ── */}
+      <footer className="lp-footer">
+        <p className="lp-footer-statement">l'opérateur garde la main. toujours.</p>
+        <div className="lp-footer-meta">
+          <span>VERSEPRO · V2</span>
+          <span>{connected ? 'SERVEUR · PRÊT' : 'SERVEUR · HORS LIGNE'}</span>
+          <span>{propresenterConnected ? 'PROPRESENTER · ACTIF' : 'PROPRESENTER · MANUEL'}</span>
+          <span>100 % LOCAL LE DIMANCHE</span>
+        </div>
+      </footer>
     </div>
   )
 }
