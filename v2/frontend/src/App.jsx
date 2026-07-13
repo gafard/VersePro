@@ -7,6 +7,7 @@ import LandingPage from './components/LandingPage.jsx'
 import Settings from './components/Settings.jsx'
 import { ToastHost } from './components/ui.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
+import FirstRunWizard from './components/FirstRunWizard.jsx'
 
 const NAV_ITEMS = [
   {
@@ -76,6 +77,9 @@ function App() {
   } = useStore()
   
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [firstRun, setFirstRun] = useState(() => {
+    try { return localStorage.getItem('versepro_first_run_done') !== 'true' } catch { return false }
+  })
   const [clock, setClock] = useState(() => new Date())
 
   useEffect(() => {
@@ -229,6 +233,7 @@ function App() {
 
       <ToastHost />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {firstRun && <FirstRunWizard onDone={() => { setFirstRun(false); setActiveTab('live') }} />}
     </div>
   )
 }

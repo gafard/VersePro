@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "VersePro v2"
     VERSION: str = "2.0.0"
     API_TOKEN: str = ""
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,tauri://localhost,https://tauri.localhost"
     
     # Deepgram API
     DEEPGRAM_API_KEY: str = ""

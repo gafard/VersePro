@@ -64,3 +64,6 @@ v2/frontend/dist/
 htmlcov/
 *.pyc
 __pycache__/
+
+# Tauri
+v2/frontend/src-tauri/target/
