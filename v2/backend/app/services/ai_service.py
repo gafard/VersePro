@@ -3,7 +3,7 @@ import httpx
 import asyncio
 import re
 import unicodedata
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from loguru import logger
 from ..core.config import settings
 
@@ -61,20 +61,108 @@ class AIService:
                 return {}
             
     async def _detect_ollama(self):
-        """Vérifie si Ollama est actif localement"""
+        """Vérifie si Ollama est actif localement et télécharge le modèle si absent"""
         try:
-            async with httpx.AsyncClient(timeout=1.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 response = await client.get(f"{self.ollama_url}/api/tags")
                 if response.status_code == 200:
                     self.ollama_active = True
                     logger.info(f"🤖 [Ollama] Détecté localement sur {self.ollama_url}. Modèle par défaut: {self.ollama_model}")
-                    # S'assure que le service est activé
                     self.enabled = True
+
+                    # Vérifie si le modèle est déjà téléchargé
+                    data = response.json()
+                    models = [m.get("name") for m in data.get("models", [])]
+                    model_found = False
+                    for m in models:
+                        if self.ollama_model in m or m in self.ollama_model:
+                            model_found = True
+                            break
+
+                    if not model_found:
+                        logger.info(f"📥 [Ollama] Modèle {self.ollama_model} introuvable localement. Lancement du téléchargement automatique...")
+                        asyncio.create_task(self._pull_ollama_model(self.ollama_model))
+                    else:
+                        logger.info(f"✅ [Ollama] Le modèle {self.ollama_model} est prêt à l'emploi.")
         except Exception:
             # Silencieux si absent, ce n'est qu'un fallback
             pass
 
-    async def detect_bible_reference(self, text: str) -> Optional[Dict[str, Any]]:
+    async def _pull_ollama_model(self, model_name: str):
+        """Télécharge automatiquement le modèle Ollama en tâche de fond"""
+        try:
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                logger.info(f"⚙️ [Ollama] Début du pull du modèle {model_name} (peut prendre quelques minutes)...")
+                response = await client.post(
+                    f"{self.ollama_url}/api/pull",
+                    json={"name": model_name, "stream": False}
+                )
+                if response.status_code == 200:
+                    logger.info(f"✅ [Ollama] Le modèle {model_name} a été téléchargé avec succès et est prêt !")
+                else:
+                    logger.error(f"❌ [Ollama] Échec du pull du modèle {model_name} (Statut: {response.status_code})")
+        except Exception as e:
+            logger.error(f"❌ [Ollama] Erreur lors du téléchargement automatique d'Ollama: {e}")
+
+    @staticmethod
+    def _normalize_reference(reference: str) -> str:
+        normalized = "".join(
+            c for c in unicodedata.normalize("NFD", str(reference or "").lower())
+            if unicodedata.category(c) != "Mn"
+        )
+        return re.sub(r"[^a-z0-9]", "", normalized)
+
+    def _build_detection_prompt(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> str:
+        candidate_block = ""
+        if candidates:
+            lines = []
+            for candidate in candidates[:8]:
+                reference = candidate.get("reference", "")
+                verse_text = str(candidate.get("text", ""))[:320]
+                lines.append(f'- "{reference}" : {verse_text}')
+            candidate_block = (
+                "\n\nCANDIDATS AUTORISES (liste fermee):\n"
+                + "\n".join(lines)
+                + "\nChoisis exactement une reference de cette liste, ou null. "
+                  "N'invente et ne reformule aucune reference."
+            )
+
+        return (
+            "Analyse cette transcription de sermon. Identifie une citation ou paraphrase biblique "
+            "uniquement si le lien est suffisamment net.\n\n"
+            f'Transcription: "{text}"'
+            f"{candidate_block}\n\n"
+            "Reponds uniquement avec un objet JSON valide: "
+            '{"reference": "Jean 3:16" ou null, "confidence": entier de 0 a 100}.'
+        )
+
+    def _validate_candidate_result(
+        self,
+        result: Optional[Dict[str, Any]],
+        candidates: Optional[List[Dict[str, Any]]],
+    ) -> Optional[Dict[str, Any]]:
+        if not result or not candidates:
+            return result
+        by_reference = {
+            self._normalize_reference(candidate.get("reference", "")): candidate
+            for candidate in candidates
+        }
+        selected = by_reference.get(self._normalize_reference(result.get("reference", "")))
+        if not selected:
+            logger.warning("Suggestion IA rejetee: reference absente de la liste locale de candidats")
+            return None
+        return {
+            **result,
+            "reference": selected["reference"],
+            "candidate_score": selected.get("score"),
+            "candidate_validated": True,
+        }
+
+    async def detect_bible_reference(
+        self,
+        text: str,
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Analyse sémantiquement le texte pour détecter une référence biblique (implicite ou explicite).
         Ordre de priorité:
@@ -88,27 +176,28 @@ class AIService:
         if not self.enabled or not text or len(text.strip()) < 10:
             return None
 
-        cache_key = self._normalize_cache_key(text, "reference")
+        candidate_key = ",".join(candidate.get("reference", "") for candidate in (candidates or []))
+        cache_key = self._normalize_cache_key(text, f"reference:{candidate_key}")
         if cache_key in self._reference_cache:
             return self._reference_cache[cache_key]
             
         # 1. OpenRouter
         if self.openrouter_key:
-            ref = await self._call_openrouter(text)
+            ref = self._validate_candidate_result(await self._call_openrouter(text, candidates), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
                 
         # 2. Gemini Direct
         if self.api_key:
-            ref = await self._call_gemini_direct(text)
+            ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
                 
         # 3. Ollama Local
         if self.ollama_active:
-            ref = await self._call_ollama_local(text)
+            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
@@ -116,19 +205,11 @@ class AIService:
         self._cache_put(self._reference_cache, cache_key, None)
         return None
         
-    async def _call_openrouter(self, text: str) -> Optional[Dict[str, Any]]:
+    async def _call_openrouter(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API OpenRouter pour détecter le verset avec score de confiance"""
         url = "https://openrouter.ai/api/v1/chat/completions"
         
-        prompt = (
-            "Analyse la transcription suivante d'un sermon oral et détermine si l'orateur cite, "
-            "paraphrase ou fait référence de manière évidente à un livre, chapitre ou verset de la Bible. "
-            "Extrais uniquement le passage le plus précis mentionné ou sous-entendu.\n\n"
-            f"Transcription: \"{text}\"\n\n"
-            "Réponds UNIQUEMENT sous forme d'un objet JSON valide contenant :\n"
-            "- 'reference': la référence biblique (ex: 'Jean 3:16') ou null si aucune,\n"
-            "- 'confidence': un score entier de 0 à 100 de certitude théologique (ex: 98)."
-        )
+        prompt = self._build_detection_prompt(text, candidates)
         
         headers = {
             "Authorization": f"Bearer {self.openrouter_key}",
@@ -177,16 +258,11 @@ class AIService:
             
         return None
         
-    async def _call_gemini_direct(self, text: str) -> Optional[Dict[str, Any]]:
+    async def _call_gemini_direct(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Gemini directe de Google avec score de confiance"""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.api_key}"
         
-        prompt = (
-            "Analyse la transcription suivante d'un sermon oral et détermine si l'orateur cite, "
-            "paraphrase ou fait référence de manière évidente à un livre, chapitre ou verset de la Bible. "
-            "Extrais uniquement le passage le plus précis mentionné ou sous-entendu.\n\n"
-            f"Transcription: \"{text}\""
-        )
+        prompt = self._build_detection_prompt(text, candidates)
         
         schema = {
             "type": "OBJECT",
@@ -243,19 +319,11 @@ class AIService:
             
         return None
 
-    async def _call_ollama_local(self, text: str) -> Optional[Dict[str, Any]]:
+    async def _call_ollama_local(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Ollama locale pour détecter le verset avec score de confiance de façon 100% hors-ligne"""
         url = f"{self.ollama_url}/api/generate"
         
-        prompt = (
-            "Analyse la transcription suivante d'un sermon oral et détermine si l'orateur cite, "
-            "paraphrase ou fait référence de manière évidente à un livre, chapitre ou verset de la Bible. "
-            "Extrais uniquement le passage le plus précis mentionné ou sous-entendu.\n\n"
-            f"Transcription: \"{text}\"\n\n"
-            "Réponds uniquement sous forme d'un objet JSON valide contenant :\n"
-            "- 'reference': la référence biblique (ex: 'Jean 3:16') ou null,\n"
-            "- 'confidence': un score entier de 0 à 100 de certitude théologique (ex: 95)."
-        )
+        prompt = self._build_detection_prompt(text, candidates)
         
         system_instruction = (
             "Tu es un assistant théologique de régie d'église. Analyse le texte et "

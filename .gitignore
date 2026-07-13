@@ -53,6 +53,7 @@ v2/backend/*.db
 v2/backend/*.sqlite*
 v2/backend/data/vosk-model*/
 v2/backend/data/whisper_models/
+v2/backend/data/semantic/
 v2/backend/venv/
 v2/frontend/node_modules/
 v2/frontend/dist/

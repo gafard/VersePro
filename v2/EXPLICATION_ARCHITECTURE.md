@@ -29,9 +29,10 @@ flowchart TB
 
   subgraph Backend["Backend FastAPI"]
     WS["WebSocket audio"]
-    ASR["ASR: Deepgram ou Vosk"]
+    ASR["ASR adaptatif: Deepgram / Whisper / Vosk"]
     Parser["Parser biblique local"]
-    AI["Agent IA: OpenRouter, Gemini ou Ollama"]
+    Retrieval["Embeddings ONNX: top-k biblique"]
+    AI["Reranking: OpenRouter, Gemini ou Ollama"]
     Policy["Politique de projection"]
     DB["SQLite: settings, sessions, historique"]
     PP["Client ProPresenter"]
@@ -43,7 +44,9 @@ flowchart TB
   WS --> ASR
   ASR --> Parser
   Parser --> Policy
-  Parser --> AI
+  Parser --> Retrieval
+  Retrieval --> AI
+  Retrieval --> Policy
   AI --> Policy
   Policy --> Store
   Policy --> PP
@@ -113,7 +116,8 @@ sequenceDiagram
   participant B as Backend
   participant A as ASR
   participant P as Parser local
-  participant I as Agent IA
+  participant E as Embeddings ONNX
+  participant I as LLM arbitre
   participant Q as Queue
   participant R as Projection
 
@@ -129,8 +133,12 @@ sequenceDiagram
     B->>R: Projette si autopilote local actif
     B-->>Q: Ajoute à l'historique/file
   else Aucune référence locale
-    B->>I: Analyse sémantique si texte final pertinent
-    I-->>B: Référence + confiance
+    B->>E: Recherche locale dans les versets réels
+    E-->>B: Top-k + scores cosinus
+    opt Candidats ambigus
+      B->>I: Choix dans une liste fermée
+      I-->>B: Candidat + confiance
+    end
     B->>B: Filtre seuil et obsolescence
     B-->>Q: Ajoute en validation manuelle
   end
@@ -151,7 +159,13 @@ Le coeur du plan critique est dans la politique de projection.
 
 Cela règle la principale critique : l'IA n'est pas le pilote de l'écran. Elle est un copilote de proposition.
 
-## Agent IA
+## Retrieval local et agent IA
+
+Le moteur `LocalSemanticService` encode le texte final avec un modèle multilingue ONNX et compare le vecteur aux versets de la Bible active. L'index est calculé une fois puis mis en cache localement. Cette étape est rapide, déterministe et ne peut renvoyer qu'un passage réellement présent dans le corpus.
+
+Si le premier candidat dépasse le seuil et se détache nettement du second, il est proposé directement en validation manuelle. Si plusieurs candidats sont proches, le LLM reçoit uniquement cette liste. Une référence générée hors liste est rejetée par le backend.
+
+Les embeddings et Llama ne remplissent donc pas le même rôle : les embeddings font la recherche exhaustive rapide ; le LLM comprend le contexte et arbitre quelques candidats.
 
 L'agent IA peut utiliser trois chemins :
 
@@ -179,10 +193,13 @@ Le backend applique ensuite :
 
 ## ASR et audio
 
-Deux moteurs sont disponibles :
+Trois moteurs sont disponibles :
 
 - Deepgram pour le cloud rapide ;
-- Vosk pour le local hors-ligne.
+- Vosk pour le local hors-ligne léger et réactif ;
+- faster-whisper pour une meilleure robustesse multilingue, au bruit et au débit rapide.
+
+Le profil matériel détecte architecture, mémoire, CPU et accélération CUDA. En mode local automatique, une machine légère utilise Vosk, une machine standard utilise Whisper `small`, et une machine accélérée peut utiliser Whisper `turbo`. Whisper traite le PCM dans un worker asynchrone par fenêtres configurables afin de ne jamais bloquer le WebSocket audio.
 
 Côté navigateur, le flux audio est préparé avant envoi :
 
@@ -231,13 +248,16 @@ Les logs de configuration masquent les clés API pour éviter de laisser des sec
 
 ## Tests temps réel
 
-La suite `pytest` couvre désormais le flux de projection WebSocket :
+La suite `pytest` couvre désormais le flux de projection WebSocket et l'intelligence hybride :
 
 - connexion initiale à `/ws/projection` ;
 - broadcast d'un slide via `/api/v1/project` vers les clients connectés ;
 - transmission des traductions dans le payload WebSocket ;
 - disponibilité publique de `/obs` pour les clients distants ;
 - refus des flux distants sensibles sans jeton API.
+- accumulation PCM et transcription Whisper hors event loop ;
+- classement d'un verset réel par embeddings locaux ;
+- rejet d'une référence LLM absente du top-k biblique.
 
 ## Limites actuelles et prochaines innovations
 

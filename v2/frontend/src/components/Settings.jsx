@@ -20,7 +20,12 @@ export default function Settings() {
     activeBible,
     aiActive,
     propresenterConnected,
-    addToast
+    addToast,
+    asrStatus,
+    semanticStatus,
+    fetchIntelligenceStatus,
+    prepareWhisper,
+    prepareSemanticIndex
   } = useStore()
 
   const [form, setForm] = useState({
@@ -33,7 +38,11 @@ export default function Settings() {
     ai_agent_enabled: true,
     ai_confidence_threshold: 95,
     ai_filtering_mode: 'strict',
-    voice_gate_enabled: false
+    voice_gate_enabled: false,
+    asr_default_engine: 'auto',
+    whisper_model: 'auto',
+    local_semantic_enabled: true,
+    local_semantic_threshold: 0.72
   })
   const [secretForm, setSecretForm] = useState({
     deepgram_api_key: '',
@@ -46,6 +55,7 @@ export default function Settings() {
   const [rehearseText, setRehearseText] = useState('')
   const [rehearseResults, setRehearseResults] = useState(null)
   const [rehearsing, setRehearsing] = useState(false)
+  const [preparingLocal, setPreparingLocal] = useState('')
   const [audioDevices, setAudioDevices] = useState([])
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(() => {
     try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
@@ -101,10 +111,13 @@ export default function Settings() {
   useEffect(() => {
     fetchBibles()
     fetchSettings()
+    fetchIntelligenceStatus()
     refreshAudioDevices()
     navigator.mediaDevices?.addEventListener?.('devicechange', refreshAudioDevices)
+    const statusTimer = setInterval(fetchIntelligenceStatus, 5000)
     return () => {
       navigator.mediaDevices?.removeEventListener?.('devicechange', refreshAudioDevices)
+      clearInterval(statusTimer)
     }
   }, [])
 
@@ -120,7 +133,11 @@ export default function Settings() {
       ai_agent_enabled: Boolean(settings.ai_agent_enabled),
       ai_confidence_threshold: settings.ai_confidence_threshold || 95,
       ai_filtering_mode: settings.ai_filtering_mode || 'strict',
-      voice_gate_enabled: Boolean(settings.voice_gate_enabled)
+      voice_gate_enabled: Boolean(settings.voice_gate_enabled),
+      asr_default_engine: settings.asr_default_engine || 'auto',
+      whisper_model: settings.whisper_model || 'auto',
+      local_semantic_enabled: settings.local_semantic_enabled !== false,
+      local_semantic_threshold: Number(settings.local_semantic_threshold || 0.72)
     })
   }, [settings, activeBible])
 
@@ -179,6 +196,19 @@ export default function Settings() {
     }
   }
 
+  const prepareLocalEngine = async (kind) => {
+    setPreparingLocal(kind)
+    try {
+      if (kind === 'whisper') await prepareWhisper(form.whisper_model)
+      else await prepareSemanticIndex()
+      addToast({ message: kind === 'whisper' ? 'Préparation de Whisper lancée' : 'Indexation sémantique lancée', kind: 'success' })
+    } catch {
+      addToast({ message: 'Préparation locale impossible', kind: 'error' })
+    } finally {
+      setPreparingLocal('')
+    }
+  }
+
   return (
     <div className="settings-page app-soft-page">
       <section className="settings-hero">
@@ -232,6 +262,77 @@ export default function Settings() {
           <span className="settings-secret-hint">
             Ce réglage est local à ce navigateur. Les noms exacts des micros apparaissent après autorisation micro.
           </span>
+        </div>
+
+        <div className="settings-card is-wide">
+          <div className="settings-card-head">
+            <div>
+              <span>Intelligence locale</span>
+              <h2>Transcription et recherche hors ligne</h2>
+            </div>
+            <span className={`vp-chip ${asrStatus?.whisper?.initialized || semanticStatus?.installed ? 'is-accent' : ''}`}>
+              {asrStatus?.whisper?.initialized || semanticStatus?.installed ? 'Prêt' : 'À préparer'}
+            </span>
+          </div>
+          <p>
+            Le mode automatique privilégie Deepgram quand Internet est disponible, puis choisit
+            Whisper ou Vosk selon la puissance de cette machine.
+          </p>
+          <div className="settings-form-grid">
+            <label>
+              <small>Moteur par défaut</small>
+              <select value={form.asr_default_engine} onChange={(e) => updateField('asr_default_engine', e.target.value)}>
+                <option value="auto">Auto hybride</option>
+                <option value="local_auto">Auto 100 % local</option>
+                <option value="deepgram">Deepgram cloud</option>
+                <option value="whisper">Whisper local</option>
+                <option value="vosk">Vosk local rapide</option>
+              </select>
+            </label>
+            <label>
+              <small>Modèle Whisper</small>
+              <select value={form.whisper_model} onChange={(e) => updateField('whisper_model', e.target.value)}>
+                <option value="auto">Auto recommandé</option>
+                <option value="base">Base - ordinateur léger</option>
+                <option value="small">Small - équilibre</option>
+                <option value="turbo">Turbo - machine accélérée</option>
+              </select>
+            </label>
+          </div>
+          <div className="settings-result-row">
+            <div>
+              <strong>Whisper {asrStatus?.whisper?.model || form.whisper_model}</strong>
+              <span>
+                {asrStatus?.whisper?.initialized ? 'Chargé' : asrStatus?.whisper?.loading ? 'Préparation…' : 'Non chargé'}
+                {asrStatus?.whisper?.hardware?.tier ? ` · profil ${asrStatus.whisper.hardware.tier}` : ''}
+              </span>
+            </div>
+            <button type="button" className="vp-btn vp-btn--sm" onClick={() => prepareLocalEngine('whisper')} disabled={preparingLocal === 'whisper' || asrStatus?.whisper?.loading}>
+              {asrStatus?.whisper?.initialized ? 'Recharger' : 'Installer'}
+            </button>
+          </div>
+          <div className="settings-divider">
+            <div className="settings-card-head">
+              <div>
+                <small>Embeddings bibliques ONNX</small>
+                <p>{semanticStatus?.verses_indexed || 0} versets indexés localement</p>
+              </div>
+              <label className="settings-switch">
+                <input type="checkbox" checked={form.local_semantic_enabled} onChange={(e) => updateField('local_semantic_enabled', e.target.checked)} />
+                <span />
+              </label>
+            </div>
+            <label>
+              <small>Seuil sémantique : <strong>{Math.round(form.local_semantic_threshold * 100)} %</strong></small>
+              <input type="range" min="0.55" max="0.9" step="0.01" value={form.local_semantic_threshold} onChange={(e) => updateField('local_semantic_threshold', Number(e.target.value))} />
+            </label>
+            <button type="button" className="vp-btn vp-btn--sm" onClick={() => prepareLocalEngine('semantic')} disabled={preparingLocal === 'semantic' || semanticStatus?.indexing}>
+              {semanticStatus?.installed ? 'Réindexer' : semanticStatus?.indexing ? 'Indexation…' : 'Installer et indexer'}
+            </button>
+            <span className="settings-muted-note">
+              Première préparation uniquement : plusieurs minutes selon le processeur. Elle ne démarre jamais pendant le live sans votre action.
+            </span>
+          </div>
         </div>
 
         <div className="settings-card is-wide">

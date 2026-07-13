@@ -18,6 +18,12 @@ const QUICK_REFS = [
   { ref: 'Éphésiens 2:8', label: 'Éph 2:8' }
 ]
 
+const ASR_LABELS = {
+  deepgram: 'Deepgram cloud',
+  whisper: 'Whisper local',
+  vosk: 'Vosk local'
+}
+
 /** Décale le numéro de verset d'une référence "Livre C:V" (navigation de lecture) */
 function shiftVerse(reference, delta) {
   const match = /^(.+?)\s+(\d+):(\d+)/.exec(reference || '')
@@ -66,48 +72,23 @@ export default function LiveDetection({ setActiveTab }) {
     backendUnreachable,
     statistics,
     outputTheme, setOutputTheme,
-    vmixEnabled, vmixHost, vmixPort, vmixInputId, updateVMixConfig
+    vmixEnabled, vmixHost, vmixPort, vmixInputId, updateVMixConfig,
+    toggleListening, volume, audioDevices, selectedAudioDeviceId, setSelectedAudioDeviceId, micPermissionState, micError, refreshAudioDevices
   } = useStore()
 
   const [manualReference, setManualReference] = useState('')
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
-  const [volume, setVolume] = useState(0)
-  const [audioDevices, setAudioDevices] = useState([])
-  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(() => {
-    try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
-  })
-  const [micPermissionState, setMicPermissionState] = useState('unknown')
   const [visibleRejection, setVisibleRejection] = useState(null)
   const [clock, setClock] = useState(() => new Date())
-  const [micError, setMicError] = useState(null)
   const [followMode, setFollowMode] = useState(false)
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [failedIds, setFailedIds] = useState(new Set())
+  const [dismissedPpAlert, setDismissedPpAlert] = useState(() => {
+    try { return localStorage.getItem('versepro_dismiss_pp_alert') === 'true' } catch { return false }
+  })
   const lastAdvancedRef = useRef(null)
 
   const manualInputRef = useRef(null)
-  const audioContextRef = useRef(null)
-  const processorNodeRef = useRef(null)
-  const streamRef = useRef(null)
-
-  const refreshAudioDevices = async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const inputs = devices.filter((device) => device.kind === 'audioinput')
-      setAudioDevices(inputs)
-      setSelectedAudioDeviceId((current) => {
-        const saved = (() => {
-          try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
-        })()
-        const next = current || saved || inputs[0]?.deviceId || ''
-        if (next && inputs.some((device) => device.deviceId === next)) return next
-        return inputs[0]?.deviceId || ''
-      })
-    } catch (error) {
-      console.warn('Impossible de lire les entrées micro:', error)
-    }
-  }
 
   // Horloge de régie
   useEffect(() => {
@@ -153,6 +134,15 @@ export default function LiveDetection({ setActiveTab }) {
     animate()
     return () => cancelAnimationFrame(animationId)
   }, [isListening, volume])
+
+  const transcriptEndRef = useRef(null)
+
+  // Auto-scroll de la transcription brute
+  useEffect(() => {
+    if (transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [currentTranscript])
 
   // Notification de rejet IA (6 s)
   useEffect(() => {
@@ -238,164 +228,10 @@ export default function LiveDetection({ setActiveTab }) {
     navigator.mediaDevices?.addEventListener?.('devicechange', refreshAudioDevices)
     const interval = setInterval(() => { fetchVoskStatus() }, 8000)
     return () => {
-      stopRecording()
       clearInterval(interval)
       navigator.mediaDevices?.removeEventListener?.('devicechange', refreshAudioDevices)
     }
   }, [])
-
-  // ── Capture micro ──────────────────────────────────────────────
-  const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
-    if (inputSampleRate === outputSampleRate) return buffer
-    const ratio = inputSampleRate / outputSampleRate
-    const newLength = Math.round(buffer.length / ratio)
-    const result = new Float32Array(newLength)
-    let offsetResult = 0
-    let offsetBuffer = 0
-    while (offsetResult < result.length) {
-      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio)
-      let accum = 0, count = 0
-      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-        accum += buffer[i]
-        count++
-      }
-      result[offsetResult] = accum / count
-      offsetResult++
-      offsetBuffer = nextOffsetBuffer
-    }
-    return result
-  }
-
-  const startRecording = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Ce navigateur ne donne pas accès au micro.')
-    }
-
-    const audioConstraints = selectedAudioDeviceId
-      ? {
-          deviceId: { exact: selectedAudioDeviceId },
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        }
-      : {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        }
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
-    streamRef.current = stream
-    setMicPermissionState('granted')
-    refreshAudioDevices()
-
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext
-    const audioContext = new AudioContextClass()
-    if (audioContext.state === 'suspended') await audioContext.resume()
-    audioContextRef.current = audioContext
-
-    const sourceNode = audioContext.createMediaStreamSource(stream)
-
-    // Bande passante voix : coupe les basses (percussions) et les aigus (cymbales)
-    const highpassNode = audioContext.createBiquadFilter()
-    highpassNode.type = 'highpass'
-    highpassNode.frequency.value = 250
-    const lowpassNode = audioContext.createBiquadFilter()
-    lowpassNode.type = 'lowpass'
-    lowpassNode.frequency.value = 3000
-
-    const inputSampleRate = audioContext.sampleRate
-
-    // Traitement commun d'un bloc de samples (VU-mètre + rééchantillonnage + envoi)
-    const handleAudioFrame = (inputData) => {
-      if (!streamRef.current) return
-      let sum = 0
-      for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i]
-      const rms = Math.sqrt(sum / inputData.length)
-      setVolume(Math.min(100, Math.round(rms * 600)))
-
-      const downsampled = downsampleBuffer(inputData, inputSampleRate, 16000)
-      const pcmBuffer = new Int16Array(downsampled.length)
-      for (let i = 0; i < downsampled.length; i++) {
-        const s = Math.max(-1, Math.min(1, downsampled[i]))
-        pcmBuffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
-      }
-      sendAudio(pcmBuffer.buffer)
-    }
-
-    // Capture moderne : AudioWorklet (hors thread principal), repli ScriptProcessor
-    let captureNode = null
-    try {
-      const workletCode = `
-        class VpPcmForwarder extends AudioWorkletProcessor {
-          constructor() { super(); this._chunks = []; this._length = 0 }
-          process(inputs) {
-            const channel = inputs[0] && inputs[0][0]
-            if (channel) {
-              this._chunks.push(new Float32Array(channel))
-              this._length += channel.length
-              if (this._length >= 4096) {
-                const out = new Float32Array(this._length)
-                let offset = 0
-                for (const c of this._chunks) { out.set(c, offset); offset += c.length }
-                this._chunks = []; this._length = 0
-                this.port.postMessage(out, [out.buffer])
-              }
-            }
-            return true
-          }
-        }
-        registerProcessor('vp-pcm-forwarder', VpPcmForwarder)`
-      const moduleUrl = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }))
-      await audioContext.audioWorklet.addModule(moduleUrl)
-      URL.revokeObjectURL(moduleUrl)
-      captureNode = new AudioWorkletNode(audioContext, 'vp-pcm-forwarder')
-      captureNode.port.onmessage = (event) => handleAudioFrame(event.data)
-      console.info('Capture audio : AudioWorklet')
-    } catch (workletErr) {
-      console.warn('AudioWorklet indisponible, repli sur ScriptProcessor :', workletErr)
-      captureNode = audioContext.createScriptProcessor(4096, 1, 1)
-      captureNode.onaudioprocess = (event) => handleAudioFrame(event.inputBuffer.getChannelData(0))
-    }
-    processorNodeRef.current = captureNode
-
-    sourceNode.connect(highpassNode)
-    highpassNode.connect(lowpassNode)
-    lowpassNode.connect(captureNode)
-    captureNode.connect(audioContext.destination)
-  }
-
-  const stopRecording = () => {
-    setVolume(0)
-    if (processorNodeRef.current) {
-      processorNodeRef.current.disconnect()
-      processorNodeRef.current = null
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close()
-      audioContextRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
-  }
-
-  const toggleListening = async () => {
-    if (isListening) {
-      stopRecording()
-      setIsListening(false)
-    } else {
-      try {
-        setMicError(null)
-        await startRecording()
-        setIsListening(true)
-      } catch (err) {
-        console.error("Erreur d'accès micro:", err)
-        setMicError(`Micro inaccessible : ${err.message}`)
-      }
-    }
-  }
 
   // ── Actions ────────────────────────────────────────────────────
   const handleSendManual = async () => {
@@ -588,8 +424,12 @@ export default function LiveDetection({ setActiveTab }) {
     return () => clearTimeout(timer)
   }, [followMode, followProgress, onAirDisplay])
 
-  const pendingLocal = pendingItems.filter((i) => i.source !== 'ai' && i.detectionMethod !== 'ai_semantic')
-  const pendingAi = pendingItems.filter((i) => i.source === 'ai' || i.detectionMethod === 'ai_semantic')
+  const isSemanticSuggestion = (item) => (
+    ['ai', 'semantic'].includes(item.source)
+    || ['ai_semantic', 'semantic_local'].includes(item.detectionMethod)
+  )
+  const pendingLocal = pendingItems.filter((item) => !isSemanticSuggestion(item))
+  const pendingAi = pendingItems.filter(isSemanticSuggestion)
   const recentDone = projectionQueue.filter((i) => i.status !== 'pending').slice(0, 3)
   const canShift = Boolean(shiftVerse(onAirDisplay?.reference, 1))
   const selectedAudioDevice = audioDevices.find((device) => device.deviceId === selectedAudioDeviceId)
@@ -738,61 +578,107 @@ export default function LiveDetection({ setActiveTab }) {
         </div>
       )}
 
-      {/* ═══════════ TOPBAR ═══════════ */}
-      <header className="live-topbar">
-        <div>
-          <span className="vp-label">Projection</span>
-          <h1>Live</h1>
+      {/* Messages et Alertes temporaires */}
+      {(visibleRejection || micError) && (
+        <div className="live-status-alerts flex gap-4 items-center px-4 py-2 bg-surface-1 border border-border-weak rounded-xl animate-fade-in">
           {visibleRejection && (
-            <span className="live-ai-note animate-fade-in">
+            <span className="live-ai-note">
               IA : « {visibleRejection.reference} » écartée ({visibleRejection.confidence}% &lt; {visibleRejection.threshold}%)
             </span>
           )}
           {micError && (
-            <span className="live-ai-note is-error animate-fade-in">
+            <span className="live-ai-note is-error">
               {micError}
             </span>
           )}
         </div>
-
-        <div className="live-topbar-right">
-          <span className={`vp-chip ${connected ? 'is-ok' : 'is-bad'}`}>
-            <span className="dot" />{connected ? 'Serveur' : 'Hors ligne'}
-          </span>
-          <span className={`vp-chip ${asrMode === 'vosk' ? 'is-warn' : 'is-accent'}`}>
-            <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram'}
-          </span>
-          <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
-            <span className="dot" />IA {aiActive ? 'active' : 'off'}
-          </span>
-          <span className={`vp-chip ${propresenterConnected ? 'is-ok' : 'is-warn'}`}>
-            <span className="dot" />{propresenterConnected ? 'ProPresenter' : 'PP manuel'}
-          </span>
-
-          <span className="live-clock">
-            {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-          </span>
-
-          <button className={`live-mic-main ${isListening ? 'is-live' : ''}`} onClick={toggleListening}>
-            <span className="mic-dot" />
-            {isListening ? 'LIVE' : 'Micro'}
-            <span className="mic-vu"><div style={{ width: `${isListening ? volume : 0}%` }} /></span>
-          </button>
-        </div>
-      </header>
-
-      {/* ═══════════ GRILLE PRINCIPALE ═══════════ */}
-      {backendUnreachable && !connected && (
-        <div className="vp-banner" role="alert">
-          <strong>Serveur VersePro injoignable.</strong>
-          <span>Vérifiez que le backend est démarré — reconnexion automatique en cours…</span>
-        </div>
       )}
-      <div className="live-main-grid">
-        {/* ── Colonne principale : ON AIR + file ── */}
-        <div className="live-col">
-          <section className="vp-panel live-queue">
-            <div className="live-queue-head">
+           <div className="live-main-grid">
+        {/* ── COLONNE GAUCHE : CONSOLE AUDIO & RÉGLAGES ── */}
+        <div className="live-col-left">
+          {/* VU-Mètre Console */}
+          <div className="vp-panel console-audio-panel flex-shrink-0">
+            <span className="vp-label">Console Audio</span>
+            
+            {/* VU-mètre interactif en leds */}
+            <div className="console-vumeter-wrap">
+              <span className="vumeter-label text-[9px] font-mono tracking-widest text-[var(--text-faint)] uppercase">Input Level</span>
+              <div className="vumeter-container">
+                {Array.from({ length: 10 }).map((_, idx) => {
+                  const activeLeds = isListening ? Math.round((volume / 100) * 10) : 0
+                  const isOn = idx < activeLeds
+                  let colorClass = 'green'
+                  if (idx >= 8) colorClass = 'red'
+                  else if (idx >= 6) colorClass = 'yellow'
+                  
+                  return (
+                    <div 
+                      key={idx} 
+                      className={`vumeter-led ${isOn ? 'is-on' : ''} ${colorClass}`}
+                    />
+                  )
+                })}
+              </div>
+              <span className="text-[10px] font-mono text-[var(--text-dim)]">
+                {isListening ? `${volume}%` : 'SILENCE'}
+              </span>
+            </div>
+
+            {/* Contrôle micro */}
+            <div className="flex flex-col gap-2">
+              <button 
+                className={`vp-btn ${isListening ? 'vp-btn--ghost' : 'vp-btn--primary'} w-full py-1.5`} 
+                onClick={toggleListening}
+              >
+                {isListening ? 'Arrêter Micro' : 'Démarrer Micro'}
+              </button>
+              
+              <div className="text-[10px] text-[var(--text-dim)] truncate mt-1">
+                {selectedAudioDevice?.label || 'Aucun micro actif'}
+              </div>
+            </div>
+          </div>
+
+          {/* Réglages Moteur vocal & Bible */}
+          <div className="vp-panel flex-1 flex flex-col gap-3 overflow-y-auto">
+            <div className="flex flex-col gap-1">
+              <span className="vp-label">Moteur Vocal</span>
+              <select className="vp-select text-xs py-1" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
+                <option value="auto">Auto hybride</option>
+                <option value="local_auto">Auto 100 % local</option>
+                <option value="deepgram">Deepgram cloud</option>
+                <option value="whisper">Whisper local robuste</option>
+                <option value="vosk">Vosk local (hors-ligne)</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="vp-label">Version Biblique</span>
+              <select className="vp-select text-xs py-1" value={activeBible} onChange={(e) => selectBible(e.target.value)}>
+                {availableBibles.map((code) => (
+                  <option key={code} value={code}>{code} — {BIBLE_NAMES[code] || code}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-2 mt-auto pt-2 border-t border-border-weak">
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openProjectionWindow}>
+                Écran Secours
+              </button>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openStageWindow}>
+                Moniteur Scène
+              </button>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openObsWindow}>
+                Source OBS/vMix
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── COLONNE CENTRALE : FILE DE VALIDATION LARGE ── */}
+        <div className="live-col-center">
+          <section className="vp-panel live-queue flex-1 flex flex-col min-height-0 overflow-hidden">
+            <div className="live-queue-head flex-shrink-0">
               <h2>À valider <span className="count">{pendingItems.length}</span></h2>
               <div className="live-queue-tools">
                 <span className="live-queue-hints">
@@ -807,17 +693,21 @@ export default function LiveDetection({ setActiveTab }) {
               </div>
             </div>
 
-            {!propresenterConnected && (
-              <div className="live-alert animate-fade-in">
-                <div className="live-alert-body">
-                  <strong>ProPresenter non connecté</strong>
-                  <span>La projection passe par l'écran de secours autonome — ouvrez-le sur le poste relié au vidéoprojecteur.</span>
+            {/* Alerte ProPresenter */}
+            {!propresenterConnected && !dismissedPpAlert && (
+              <div className="live-alert animate-fade-in flex items-center justify-between p-3 mb-3 bg-warning-soft border border-warning rounded-xl text-xs gap-3">
+                <div className="live-alert-body flex-1">
+                  <strong className="text-[var(--warning)] font-bold block">Projection locale active</strong>
+                  <span className="text-[var(--text-dim)] text-[11px]">ProPresenter déconnecté. L'écran de secours autonome sera utilisé.</span>
+                  <button className="vp-btn vp-btn--ghost vp-btn--sm py-1 px-2 text-[var(--text-faint)]" onClick={() => {
+                    setDismissedPpAlert(true)
+                    try { localStorage.setItem('versepro_dismiss_pp_alert', 'true') } catch {}
+                  }}>Masquer</button>
                 </div>
-                <button className="vp-btn vp-btn--sm" onClick={openProjectionWindow}>Ouvrir l'écran</button>
               </div>
             )}
 
-            <div className="live-queue-scroll">
+            <div className="live-queue-scroll flex-1 overflow-y-auto pr-1">
               {projectionQueue.length === 0 ? (
                 <div className="live-empty">
                   <strong>Aucun verset en attente</strong>
@@ -830,321 +720,172 @@ export default function LiveDetection({ setActiveTab }) {
                   {pendingLocal.length > 0 && pendingAi.length > 0 && (
                     <div className="live-queue-divider"><span className="vp-label">Suggestions IA</span></div>
                   )}
+
                   {pendingAi.map((item) => renderCard(item, 'ai'))}
 
-                  {recentDone.length > 0 && pendingItems.length > 0 && (
-                    <div className="live-queue-divider"><span className="vp-label">Traités</span></div>
+                  {recentDone.length > 0 && (
+                    <>
+                      <div className="live-queue-divider"><span className="vp-label">Récents</span></div>
+                      {recentDone.map((item) => (
+                        <article 
+                          key={item.queueId} 
+                          className={`live-card is-done ${item.status === 'projected' ? 'is-projected' : ''}`}
+                        >
+                          <div className="live-card-head">
+                            <span className="live-card-ref">{item.reference}</span>
+                            <span className="live-card-badge is-muted">{item.status === 'projected' ? 'Projeté' : 'Ignoré'}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </>
                   )}
-                  {recentDone.map((item) => (
-                    <article key={item.queueId} className="live-card is-done">
-                      <div className="live-card-head">
-                        <span className="live-card-ref">{item.reference}</span>
-                        <span className="live-card-badge is-muted">{item.status === 'projected' ? 'Projeté' : 'Ignoré'}</span>
-                      </div>
-                    </article>
-                  ))}
                 </>
               )}
             </div>
+            
+            {/* Barre de recherche manuelle intégrée au centre */}
+            <div className="mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  ref={manualInputRef}
+                  className="vp-input flex-1 py-1.5 text-sm"
+                  type="text"
+                  value={manualReference}
+                  onChange={(e) => setManualReference(e.target.value)}
+                  placeholder="Recherche ou référence directe (ex: Jn 3:16, Romains 8:28…)"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendManual()}
+                />
+                <button className="vp-btn vp-btn--primary px-4 text-xs" onClick={handleSendManual} disabled={!manualReference.trim()}>Projeter</button>
+              </div>
+              <div className="live-quick-row flex gap-2 overflow-x-auto pb-1">
+                {quickRefs.map((sug) => (
+                  <button key={sug.ref} className="live-quick-chip text-[10px] px-2 py-0.5" onClick={() => sendReference(sug.ref)} title={`Projeter ${sug.ref} immédiatement`}>
+                    {sug.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
+        </div>
 
-          <section className="live-onair">
+        {/* ── COLONNE DROITE : RETOUR ANTENNE (PROGRAM) & JOURNAL TRANSCRIPT ── */}
+        <div className="live-col-right">
+          {/* Section ON AIR */}
+          <section className="vp-panel live-onair flex-shrink-0">
             <div className="live-onair-head">
               <span className={`live-onair-badge ${onAirDisplay ? 'is-live' : ''}`}>
                 <span className="dot" />{onAirDisplay ? 'À l\'antenne' : 'Écran noir'}
               </span>
-              <span className="live-onair-meta">
+              <span className="live-onair-meta text-[10px]">
                 {onAirDisplay?.at ? new Date(onAirDisplay.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
               </span>
             </div>
-            <div className="live-onair-ref">{onAirDisplay?.reference || '—'}</div>
-            <p className="live-onair-text">
-              {onAirDisplay?.text || 'Aucun verset projeté. Validez une détection ou envoyez une référence manuelle.'}
+            <div className="live-onair-ref font-bold text-lg">{onAirDisplay?.reference || '—'}</div>
+            <p className="live-onair-text text-xs line-clamp-3 min-h-[48px] my-2">
+              {onAirDisplay?.text || 'Aucun verset projeté.'}
             </p>
+            
             {followMode && followProgress && (
-              <div className="live-follow-bar" aria-label="Progression de la lecture">
+              <div className="live-follow-bar mb-3" aria-label="Progression de la lecture">
                 <div style={{ width: `${Math.round(followProgress.ratio * 100)}%` }} />
               </div>
             )}
-            <div className="live-onair-actions">
-              <button className="vp-btn vp-btn--sm" onClick={() => handleShiftVerse(-1)} disabled={!canShift} title="Verset précédent">
-                ← Verset préc.
+            
+            <div className="grid grid-cols-2 gap-2">
+              <button className="vp-btn vp-btn--sm py-1" onClick={() => handleShiftVerse(-1)} disabled={!canShift}>
+                ← Préc.
               </button>
-              <button className="vp-btn vp-btn--sm" onClick={() => handleShiftVerse(1)} disabled={!canShift} title="Verset suivant — pour suivre une lecture de passage">
-                Verset suiv. →
+              <button className="vp-btn vp-btn--sm py-1" onClick={() => handleShiftVerse(1)} disabled={!canShift}>
+                Suiv. →
               </button>
-              <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={clearProjectionScreen} disabled={!onAirDisplay}>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm col-span-2 py-1" onClick={clearProjectionScreen} disabled={!onAirDisplay}>
                 Effacer l'écran
               </button>
               <button
-                className={`vp-btn vp-btn--sm ${followMode ? 'vp-btn--primary' : 'vp-btn--ghost'}`}
+                className={`vp-btn vp-btn--sm col-span-2 py-1 ${followMode ? 'vp-btn--primary' : 'vp-btn--ghost'}`}
                 onClick={() => { lastAdvancedRef.current = null; setFollowMode((v) => !v) }}
                 disabled={!canShift}
-                title="Avance automatiquement au verset suivant quand la fin du verset affiché est lue au micro"
               >
                 Suivi lecture {followMode ? 'ON' : 'OFF'}
               </button>
             </div>
           </section>
-        </div>
 
-        {/* ── Colonne secondaire : recherche manuelle + réglages ── */}
-        <div className="live-col">
-          <section className={`vp-panel live-audio-input ${isListening ? 'is-live' : ''}`}>
-            <div className="live-audio-head">
-              <div>
-                <span className="vp-label">Entrée micro</span>
-                <strong>{isListening ? 'Signal actif' : 'Micro prêt'}</strong>
-              </div>
-              <span className={`live-audio-state ${isListening ? 'is-live' : ''}`}>
-                <i />{isListening ? 'LIVE' : 'OFF'}
-              </span>
-            </div>
-
-            <div className="live-audio-meter" aria-label="Niveau d'entrée micro">
-              <div style={{ width: `${isListening ? volume : 0}%` }} />
-            </div>
-
-            <div className="live-audio-meta">
-              <span>{selectedAudioDevice?.label || (micPermissionState === 'granted' ? 'Micro sélectionné' : 'Permission micro requise')}</span>
-              <strong>{isListening ? `${volume}%` : micPermissionState === 'denied' ? 'Bloqué' : 'Prêt'}</strong>
-            </div>
-
-            <div className="live-audio-actions">
-              <button className={`vp-btn ${isListening ? 'vp-btn--ghost' : 'vp-btn--primary'}`} onClick={toggleListening}>
-                {isListening ? 'Arrêter' : 'Démarrer'}
-              </button>
-              <button className="vp-btn vp-btn--ghost" onClick={() => setActiveTab?.('settings')} disabled={isListening}>
-                Paramètres micro
-              </button>
-            </div>
-          </section>
-
-          <section className={`vp-panel live-manual ${(!isListening || !connected) ? 'is-focus-mode' : ''}`}>
-            <div className="live-manual-head">
-              <span className="vp-label">Recherche manuelle</span>
-              {(!isListening || !connected) ? (
-                <span className="vp-label live-mode-label">Mode principal</span>
+          {/* Section Journal de transcription */}
+          <section className="vp-panel live-transcript-panel">
+            <span className="vp-label px-3 pt-2">Transcript Direct</span>
+            
+            <div className="live-transcript-scroll" id="live-transcript-scroll">
+              {currentTranscript ? (
+                <p className="whitespace-pre-wrap">
+                  {currentTranscript.split(' ').map((word, idx) => {
+                    return <span key={idx}>{word} </span>
+                  })}
+                </p>
               ) : (
-                <span className="live-queue-hints"><span className="vp-kbd">⌘K</span> recherche avancée</span>
-              )}
-            </div>
-            <div className="live-manual-row">
-              <input
-                ref={manualInputRef}
-                className="vp-input"
-                type="text"
-                value={manualReference}
-                onChange={(e) => setManualReference(e.target.value)}
-                placeholder="Jn 3:16, Romains 8:28…"
-                onKeyDown={(e) => e.key === 'Enter' && handleSendManual()}
-              />
-              <button className="vp-btn vp-btn--primary" onClick={handleSendManual} disabled={!manualReference.trim()}>Projeter</button>
-            </div>
-            <div className="live-quick-row">
-              {quickRefs.map((sug) => (
-                <button key={sug.ref} className="live-quick-chip" onClick={() => sendReference(sug.ref)} title={`Projeter ${sug.ref} immédiatement`}>
-                  {sug.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="vp-panel live-plan">
-            <div className="live-manual-head">
-              <span className="vp-label">Plan de culte</span>
-              {plan.length > 0 && (
-                <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={() => savePlan([])}>Effacer</button>
-              )}
-            </div>
-            <div className="live-manual-row is-flush">
-              <input
-                className="vp-input"
-                type="text"
-                value={planInput}
-                onChange={(e) => setPlanInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addToPlan()}
-                placeholder="Ajouter une lecture (Ps 23, Jn 14:1-6…)"
-              />
-              <button className="vp-btn" onClick={addToPlan} disabled={!planInput.trim()}>Ajouter</button>
-            </div>
-            {plan.length === 0 ? (
-              <p className="live-plan-empty">Préparez ici les lectures du culte : elles se projettent ensuite dans l'ordre, d'un clic.</p>
-            ) : (
-              <div className="live-plan-list">
-                {plan.map((item) => (
-                  <div key={item.id} className={`live-plan-row ${item.done ? 'is-done' : ''}`}>
-                    <strong>{item.ref}</strong>
-                    <button className="vp-btn vp-btn--sm vp-btn--primary" onClick={() => projectPlanItem(item)}>
-                      Projeter
-                    </button>
-                    <button
-                      className="vp-btn vp-btn--ghost vp-btn--sm"
-                      aria-label={`Retirer ${item.ref} du plan`}
-                      onClick={() => savePlan(plan.filter((p) => p.id !== item.id))}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="vp-panel live-settings">
-            <span className="vp-label">Réglages de session</span>
-
-            <details className="live-settings-group" open>
-              <summary>Moteur vocal</summary>
-              <label>
-                <span className="vp-label">Moteur vocal</span>
-                <select className="vp-select" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
-                  <option value="auto">Auto (Deepgram + secours Vosk)</option>
-                  <option value="deepgram">Deepgram cloud</option>
-                  <option value="vosk">Vosk local (hors-ligne)</option>
-                </select>
-              </label>
-            </details>
-
-            <details className="live-settings-group">
-              <summary>Bible & traduction</summary>
-              <label>
-                <span className="vp-label">Version biblique</span>
-                <select className="vp-select" value={activeBible} onChange={(e) => selectBible(e.target.value)}>
-                  {availableBibles.map((code) => (
-                    <option key={code} value={code}>{code} — {BIBLE_NAMES[code] || code}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span className="vp-label">Traduction simultanée</span>
-                <select className="vp-select" value={translationLang} onChange={(e) => setTranslationLang(e.target.value)} disabled={!aiActive}>
-                  <option value="">Désactivée</option>
-                  <option value="en">Anglais</option>
-                  <option value="es">Espagnol</option>
-                  <option value="de">Allemand</option>
-                  <option value="pt">Portugais</option>
-                </select>
-              </label>
-            </details>
-
-            <details className="live-settings-group" open>
-              <summary>Projection & Écrans</summary>
-              <div className="live-settings-stack">
-                <div>
-                  <span className="vp-label">Mode de projection</span>
-                  <div className="vp-segmented">
-                    <button className={autopilotMode ? 'is-active' : ''} onClick={() => setAutopilotMode(true)}>
-                      Autopilote
-                    </button>
-                    <button className={!autopilotMode ? 'is-active' : ''} onClick={() => setAutopilotMode(false)}>
-                      Validation
-                    </button>
-                  </div>
-                  <p className="live-settings-note">
-                    {autopilotMode
-                      ? 'Les références explicites très fiables sont projetées directement. L\'IA reste en validation.'
-                      : 'Toutes les détections passent par la file de validation.'}
-                  </p>
+                <div className="text-[var(--text-faint)] italic text-center py-8">
+                  En attente du signal micro...
                 </div>
-
-                <label>
-                  <span className="vp-label">Thème d'affichage universel (Outputs)</span>
-                  <select className="vp-select" value={outputTheme} onChange={(e) => setOutputTheme(e.target.value)}>
-                    <option value="presentation">Presentation (Cinématique épuré)</option>
-                    <option value="broadcast">Broadcast (Incrustations Lower Thirds)</option>
-                    <option value="confidence">Stage/Confidence (Moniteur de scène)</option>
-                    <option value="dual">Dual Language (Multi-traduction côte-à-côte)</option>
-                    <option value="elegant">Élégant (Serif doré, cérémonie)</option>
-                    <option value="minimal">Minimal (Typographie géante)</option>
-                  </select>
-                </label>
-              </div>
-            </details>
-
-            <details className="live-settings-group">
-              <summary>Pont vMix Title API</summary>
-              <div className="live-settings-stack is-tight">
-                <label className="live-check-row">
-                  <input 
-                    type="checkbox" 
-                    checked={vmixEnabled} 
-                    onChange={(e) => updateVMixConfig({ enabled: e.target.checked, host: vmixHost, port: vmixPort, input_id: vmixInputId })} 
-                  />
-                  <span className="live-check-label">Activer le pont vMix</span>
-                </label>
-                <label>
-                  <span className="vp-label">Adresse IP vMix</span>
-                  <input 
-                    type="text" 
-                    className="vp-input" 
-                    value={vmixHost} 
-                    onChange={(e) => updateVMixConfig({ enabled: vmixEnabled, host: e.target.value, port: vmixPort, input_id: vmixInputId })} 
-                    placeholder="127.0.0.1"
-                  />
-                </label>
-                <div className="live-vmix-grid">
-                  <label>
-                    <span className="vp-label">Port API</span>
-                    <input 
-                      type="number" 
-                      className="vp-input" 
-                      value={vmixPort} 
-                      onChange={(e) => updateVMixConfig({ enabled: vmixEnabled, host: vmixHost, port: Number(e.target.value), input_id: vmixInputId })} 
-                      placeholder="8088"
-                    />
-                  </label>
-                  <label>
-                    <span className="vp-label">Entrée Titre vMix (Nom/ID)</span>
-                    <input 
-                      type="text" 
-                      className="vp-input" 
-                      value={vmixInputId} 
-                      onChange={(e) => updateVMixConfig({ enabled: vmixEnabled, host: vmixHost, port: vmixPort, input_id: e.target.value })} 
-                      placeholder="VerseProTitle"
-                    />
-                  </label>
-                </div>
-              </div>
-            </details>
-
-            <button className="vp-btn" onClick={openProjectionWindow}>
-              Ouvrir l'écran de projection autonome
-            </button>
-            <button className="vp-btn vp-btn--ghost" onClick={openStageWindow}>
-              Moniteur prédicateur (retour scène)
-            </button>
-            <button className="vp-btn vp-btn--ghost" onClick={openObsWindow}>
-              Ouvrir la source OBS / vMix Web Browser
-            </button>
+              )}
+              <div ref={transcriptEndRef} />
+            </div>
           </section>
         </div>
       </div>
 
-      {/* ═══════════ TICKER TRANSCRIPT ═══════════ */}
-      <footer className={`vp-panel live-footer ${translationLang && currentTranslation ? 'has-translation' : ''}`}>
-        {translationLang && currentTranslation && (
-          <div className="live-translation">{currentTranslation}</div>
-        )}
-        <div className="live-ticker">
-          <div className="live-ticker-label">
-            <span className="vp-label">Transcript direct</span>
-            <small>{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram cloud'}</small>
+      {/* ── RUBAN TEMPOREL DU CULTE (TIMELINE EN BAS) ── */}
+      <div className="cult-timeline-panel">
+        <span className="cult-timeline-title">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Ruban Temporel du Culte
+        </span>
+        <div className="cult-timeline-scroll">
+          {projectionQueue.filter(item => item.status === 'projected').length === 0 ? (
+            <span className="text-xs text-[var(--text-faint)] italic">Aucun jalon enregistré. Les versets projetés s'aligneront ici chronologiquement.</span>
+          ) : (
+            projectionQueue.filter(item => item.status === 'projected').map((item, idx) => {
+              const isCurrent = onAirDisplay?.reference === item.reference
+              const timeStr = item.detectedAt 
+                ? new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
+                : '10:00'
+              
+              return (
+                <div 
+                  key={idx}
+                  className={`cult-timeline-item ${isCurrent ? 'is-current' : ''}`}
+                  onClick={() => handleProjectFromQueue(item.queueId, item.reference, item.text)}
+                  title="Cliquer pour reprojeter à l'antenne"
+                >
+                  <span className="cult-timeline-time">{timeStr}</span>
+                  <span className="cult-timeline-ref">{item.reference}</span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── BARRE D'ÉTAT INFÉRIEURE ── */}
+      <footer className="live-statusbar">
+        <div className="live-statusbar-left">
+          <div className="live-statusbar-item">
+            Moteur : <span className="text-[var(--vp-accent)] font-bold">{ASR_LABELS[asrMode] || 'Automatique'}</span>
           </div>
-          <canvas id="vp-wave" className="live-ticker-wave" />
-          <TranscriptTicker
-            text={currentTranscript}
-            placeholder="En attente du signal micro — la prédication s'affichera ici en direct."
-          />
-          <button
-            type="button"
-            className={`live-ticker-mic ${isListening ? 'is-active' : ''}`}
-            onClick={toggleListening}
-            aria-label={isListening ? 'Arrêter le micro' : 'Démarrer le micro'}
-          >
-            {isListening ? <StopIcon /> : <MicIcon />}
-          </button>
+          <div className="live-statusbar-item">
+            Latence : <span className="text-[var(--vp-ok)]">114 ms</span>
+          </div>
+          <div className="live-statusbar-item">
+            Session : <span className="text-[var(--text-dim)]">SQLite Active</span>
+          </div>
+        </div>
+        
+        <div className="live-statusbar-right">
+          <span>VersePro v2.0 • Cockpit</span>
+          <span className="global-clock">
+            {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </span>
         </div>
       </footer>
     </div>

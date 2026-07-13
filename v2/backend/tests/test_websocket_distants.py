@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.services.deepgram_service import DeepgramService
 from app.services.verse_parser import VerseParserService
 from app.services.vosk_service import VoskService
+from app.services.whisper_service import WhisperService
 
 @pytest.fixture(autouse=True)
 def configure_api_token(monkeypatch):
@@ -18,6 +19,7 @@ def init_main_services():
     main.deepgram_service = DeepgramService("fake-key")
     main.verse_parser = VerseParserService()
     main.vosk_service = VoskService()
+    main.whisper_service = WhisperService("base")
     if not main.output_manager:
         main.output_manager = main.OutputManager()
         import asyncio
@@ -26,6 +28,7 @@ def init_main_services():
     main.deepgram_service = None
     main.verse_parser = None
     main.vosk_service = None
+    main.whisper_service = None
 
 def test_remote_projection_ws_is_public():
     # L'écran d'affichage est public : même à distance (ex: 203.0.113.10), il doit se connecter sans token.

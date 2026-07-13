@@ -66,6 +66,19 @@ class SettingsUpdate(BaseModel):
     ai_confidence_threshold: Optional[int] = None
     ai_filtering_mode: Optional[str] = None
     voice_gate_enabled: Optional[bool] = None
+    asr_default_engine: Optional[str] = None
+    whisper_model: Optional[str] = None
+    local_semantic_enabled: Optional[bool] = None
+    local_semantic_threshold: Optional[float] = None
+
+
+class PrepareModelRequest(BaseModel):
+    model: Optional[str] = None
+
+
+class SemanticSearchRequest(BaseModel):
+    text: str
+    top_k: int = 5
 
 
 class ReferenceResponse(BaseModel):
@@ -352,11 +365,80 @@ async def download_vosk_model():
     return {"status": "started", "message": "Téléchargement du modèle Vosk démarré en arrière-plan"}
 
 
+@router.get("/asr/status")
+async def get_asr_status():
+    """Capacites locales et recommandation adaptee a la machine."""
+    from ..main import whisper_service, vosk_service
+    from ..core.config import settings
+
+    return {
+        "default_engine": settings.ASR_DEFAULT_ENGINE,
+        "whisper": whisper_service.status() if whisper_service else {"available": False},
+        "vosk": {
+            "available": bool(vosk_service and vosk_service.initialized),
+            "model": getattr(vosk_service, "model_name", ""),
+        },
+    }
+
+
+@router.post("/asr/prepare")
+async def prepare_whisper(request: PrepareModelRequest):
+    """Telecharge et charge Whisper hors de la boucle temps reel."""
+    from ..main import whisper_service
+    if not whisper_service:
+        raise HTTPException(status_code=503, detail="Service Whisper indisponible")
+    if request.model:
+        try:
+            whisper_service.configure_model(request.model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    import threading
+    if not whisper_service.loading:
+        threading.Thread(
+            target=whisper_service.initialize,
+            kwargs={"allow_download": True},
+            daemon=True,
+        ).start()
+    return {"status": "preparing", **whisper_service.status()}
+
+
+@router.get("/semantic/status")
+async def get_semantic_status():
+    from ..main import semantic_service
+    return semantic_service.status() if semantic_service else {"enabled": False, "installed": False}
+
+
+@router.post("/semantic/prepare")
+async def prepare_semantic_index():
+    """Installe le modele ONNX et indexe le corpus biblique en arriere-plan."""
+    from ..main import semantic_service
+    if not semantic_service:
+        raise HTTPException(status_code=503, detail="Service semantique indisponible")
+    import threading
+    if not semantic_service.indexing:
+        threading.Thread(
+            target=semantic_service.initialize,
+            kwargs={"allow_download": True},
+            daemon=True,
+        ).start()
+    return {"status": "preparing", **semantic_service.status()}
+
+
+@router.post("/semantic/search")
+async def semantic_search(request: SemanticSearchRequest):
+    from ..main import semantic_service
+    if not semantic_service or not semantic_service.initialized:
+        raise HTTPException(status_code=503, detail="Index semantique non prepare")
+    import asyncio
+    results = await asyncio.to_thread(semantic_service.search, request.text, min(max(request.top_k, 1), 10))
+    return {"results": results}
+
+
 @router.get("/settings")
 async def get_settings():
     """Récupère la configuration"""
     from ..core.config import settings
-    from ..main import ai_service, output_manager
+    from ..main import ai_service, output_manager, whisper_service, semantic_service
     
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
@@ -382,6 +464,13 @@ async def get_settings():
         "ai_filtering_mode": settings.AI_FILTERING_MODE,
         "voice_gate_enabled": settings.VOICE_GATE_ENABLED,
         "voice_gate_available": _vad_available(),
+        "asr_default_engine": settings.ASR_DEFAULT_ENGINE,
+        "whisper_model": settings.WHISPER_MODEL,
+        "whisper_status": whisper_service.status() if whisper_service else {},
+        "local_semantic_enabled": settings.LOCAL_SEMANTIC_ENABLED,
+        "local_semantic_threshold": settings.LOCAL_SEMANTIC_THRESHOLD,
+        "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
+        "semantic_status": semantic_service.status() if semantic_service else {},
     }
 
 
@@ -389,7 +478,7 @@ async def get_settings():
 async def update_settings(settings_update: SettingsUpdate):
     """Met à jour la configuration et la persiste dans SQLite"""
     from ..core.config import settings
-    from ..main import output_manager, verse_parser, ai_service, deepgram_service
+    from ..main import output_manager, verse_parser, ai_service, deepgram_service, whisper_service, semantic_service
     from ..services.database import get_database
     
     db = get_database()
@@ -408,6 +497,14 @@ async def update_settings(settings_update: SettingsUpdate):
         await db.set_setting("bible_version", settings.BIBLE_VERSION)
         if verse_parser and verse_parser.bible_loader and version in verse_parser.bible_loader.versions:
             verse_parser.bible_loader.active_version = version
+            if semantic_service:
+                semantic_service.reset()
+                import threading
+                threading.Thread(
+                    target=semantic_service.initialize,
+                    kwargs={"allow_download": False},
+                    daemon=True,
+                ).start()
             
     if update.get("propresenter_host"):
         settings.PROPRESENTER_HOST = update["propresenter_host"]
@@ -476,6 +573,34 @@ async def update_settings(settings_update: SettingsUpdate):
     if "voice_gate_enabled" in update:
         settings.VOICE_GATE_ENABLED = bool(update["voice_gate_enabled"])
         await db.set_setting("voice_gate_enabled", settings.VOICE_GATE_ENABLED)
+
+    if update.get("asr_default_engine"):
+        engine = str(update["asr_default_engine"])
+        if engine not in {"auto", "local_auto", "deepgram", "whisper", "vosk"}:
+            raise HTTPException(status_code=400, detail="Moteur ASR invalide")
+        settings.ASR_DEFAULT_ENGINE = engine
+        await db.set_setting("asr_default_engine", engine)
+
+    if update.get("whisper_model"):
+        model = str(update["whisper_model"])
+        try:
+            if whisper_service:
+                whisper_service.configure_model(model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        settings.WHISPER_MODEL = model
+        await db.set_setting("whisper_model", model)
+
+    if "local_semantic_enabled" in update:
+        settings.LOCAL_SEMANTIC_ENABLED = bool(update["local_semantic_enabled"])
+        await db.set_setting("local_semantic_enabled", settings.LOCAL_SEMANTIC_ENABLED)
+
+    if "local_semantic_threshold" in update:
+        threshold = float(update["local_semantic_threshold"])
+        if not 0.4 <= threshold <= 0.98:
+            raise HTTPException(status_code=400, detail="Seuil semantique hors limites")
+        settings.LOCAL_SEMANTIC_THRESHOLD = threshold
+        await db.set_setting("local_semantic_threshold", threshold)
 
     if reconnect_propresenter and output_manager and "propresenter" in output_manager.outputs:
         pp_driver = output_manager.outputs["propresenter"]

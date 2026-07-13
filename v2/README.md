@@ -6,11 +6,12 @@ La V2 actuelle a été durcie pour un usage réel par des bénévoles : démarra
 
 ## Ce que la V2 fait maintenant
 
-- Transcription en direct avec Deepgram cloud ou Vosk local.
+- Transcription adaptative avec Deepgram cloud, Whisper local ou Vosk local.
 - Onde audio réelle calculée depuis le signal micro, pas une animation factice.
 - Prompteur moderne avec fondu haut/bas pour suivre la parole reconnue.
 - Parser biblique local très rapide pour les références explicites comme `Jean 3:16`.
-- Agent IA sémantique en secours pour les paraphrases, avec score de confiance.
+- Retrieval sémantique ONNX local sur le corpus biblique, puis arbitrage LLM limité au top-k.
+- Agent IA anti-hallucination : toute référence hors des candidats locaux est rejetée.
 - File de projection manuelle pour vérifier avant l'écran.
 - Projection directe uniquement pour les références locales explicites et très fiables.
 - Page Paramètres pour gérer Bible, ProPresenter, Deepgram, IA et seuil de confiance.
@@ -81,11 +82,15 @@ La page Paramètres permet de modifier sans terminal :
 
 - version biblique par défaut ;
 - hôte et port ProPresenter ;
+- moteur ASR par défaut : hybride, local adaptatif, Deepgram, Whisper ou Vosk ;
+- modèle Whisper choisi automatiquement selon le matériel, ou forcé manuellement ;
+- installation des modèles locaux et état de préparation ;
 - modèle et langue Deepgram ;
 - clé Deepgram ;
 - clés OpenRouter ou Gemini ;
 - activation du copilote IA ;
-- tamis sémantique réglable (Mode Strict avec filtre ou Mode Ouvert pour détection maximale) ;
+- embeddings bibliques ONNX et seuil sémantique local ;
+- tamis LLM réglable (Mode Strict ou Mode Ouvert) ;
 - seuil de confiance minimal de l'IA ;
 - mode projection directe ou validation.
 
@@ -119,7 +124,9 @@ VersePro sépare strictement détection et projection :
 | --- | --- | --- |
 | Parser local explicite | référence valide, confiance >= 95%, autopilote activé | projection directe autorisée |
 | Parser local flou ou incomplet | référence valide mais prudence requise | file manuelle |
-| Agent IA | score >= seuil configuré | file manuelle seulement |
+| Embeddings locaux ONNX | score >= seuil, candidat non ambigu | file manuelle seulement |
+| Agent IA | choisit un candidat local et score >= seuil | file manuelle seulement |
+| Agent IA | référence absente du top-k local | rejet immédiat |
 | Agent IA | score < seuil | rejet silencieux |
 | Réponse IA ancienne | une référence locale plus récente existe | ignorée |
 
@@ -131,11 +138,13 @@ Cela évite le scénario dangereux où une paraphrase mal comprise serait projet
 flowchart LR
   Mic["Micro navigateur"] --> Audio["Web Audio: filtre vocal + onde réelle"]
   Audio --> WS["WebSocket audio PCM"]
-  WS --> ASR["Deepgram cloud ou Vosk local"]
+  WS --> ASR["Deepgram / Whisper / Vosk adaptatif"]
   ASR --> Parser["Parser biblique local"]
   Parser -->|référence explicite| Policy["Politique de projection"]
-  Parser -->|aucune référence| AI["Agent IA sémantique"]
-  AI -->|score >= seuil| Queue["File de validation"]
+  Parser -->|aucune référence| ONNX["Embeddings ONNX: top-k biblique"]
+  ONNX -->|candidat net| Queue["File de validation"]
+  ONNX -->|ambigu| AI["LLM: arbitrage liste fermée"]
+  AI --> Queue
   Policy -->|direct autorisé| Projector["ProPresenter / projection web / OBS"]
   Policy -->|prudence| Queue
 ```
@@ -186,7 +195,28 @@ Le fichier `backend/.env.example` liste toutes les variables disponibles :
 - `PROPRESENTER_HOST`
 - `PROPRESENTER_PORT`
 - `BIBLE_VERSION`
+- `ASR_DEFAULT_ENGINE`
+- `WHISPER_MODEL`
+- `WHISPER_CHUNK_SECONDS`
 - `VOSK_MODEL_TYPE`
+- `LOCAL_SEMANTIC_ENABLED`
+- `LOCAL_SEMANTIC_THRESHOLD`
+
+## Choix de performance
+
+- **Vosk** démarre vite et consomme peu : idéal sur un petit ordinateur et pour les références explicites.
+- **Whisper** demande davantage de calcul et travaille par fenêtres d'environ `2,4 s`, mais résiste mieux aux accents, au multilingue, à la musique de fond et au débit rapide.
+- **Deepgram** reste le chemin cloud à faible latence quand Internet est fiable.
+- **Embeddings ONNX** ne remplacent pas Llama : ils retrouvent rapidement les versets réels. Llama, Gemini ou OpenRouter ne servent ensuite qu'à départager les meilleurs candidats.
+
+La première indexation ONNX encode environ 30 000 versets et peut prendre plusieurs minutes sur CPU. Elle est lancée explicitement depuis Paramètres, jamais automatiquement pendant le direct, puis son cache est réutilisé.
+
+Le benchmark local reproductible se lance avec :
+
+```bash
+cd v2/backend
+venv/bin/python benchmarks/run_detection_benchmark.py
+```
 
 Pour un usage normal, privilégier la page Paramètres plutôt que l'édition manuelle de `.env`.
 

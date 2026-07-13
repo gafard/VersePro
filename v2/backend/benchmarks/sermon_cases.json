@@ -1,0 +1,10 @@
+[
+  {"text": "Ouvrons Jean chapitre 3 verset 16", "expected": "Jn 3:16", "kind": "explicit"},
+  {"text": "Comme il est ecrit dans Romains 8 verset 28", "expected": "Rm 8:28", "kind": "explicit"},
+  {"text": "Le Seigneur est mon berger et je ne manquerai de rien", "expected": "Ps 23:1", "kind": "quotation"},
+  {"text": "Dieu a tellement aime le monde qu'il a donne son Fils unique", "expected": "Jn 3:16", "kind": "paraphrase"},
+  {"text": "Sa grace nous sauve par le moyen de la foi, cela ne vient pas de nous", "expected": "Eph 2:8", "kind": "paraphrase"},
+  {"text": "Nous savons que toute chose concourt au bien de ceux qui aiment Dieu", "expected": "Rm 8:28", "kind": "quotation"},
+  {"text": "La reunion des benevoles commence a neuf heures demain", "expected": null, "kind": "negative"},
+  {"text": "Merci de verifier le cable HDMI avant le debut du culte", "expected": null, "kind": "negative"}
+]

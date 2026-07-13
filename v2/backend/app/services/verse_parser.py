@@ -544,10 +544,10 @@ class VerseParserService:
             "psaumes": "Ps", "psaume": "Ps", "ps": "Ps",
             "proverbes": "Pr", "prov": "Pr", "pr": "Pr",
             "ecclésiaste": "Ec", "eccl": "Ec", "ec": "Ec",
-            "cantique": "Ct", "cant": "Ct", "ct": "Ct",
+            "cantique": "Ct", "cant": "Ct", "ct": "Ct", "cantique des cantiques": "Ct",
             "ésaïe": "És", "esai": "És", "es": "És",
             "jérémie": "Jér", "jer": "Jér", "jr": "Jér",
-            "lamentations": "Lm", "lam": "Lm", "lm": "Lm",
+            "lamentations": "Lm", "lam": "Lm", "lm": "Lm", "lamentations de jeremie": "Lm", "lamentations de jérémie": "Lm",
             "ézéchiel": "Éz", "ez": "Éz",
             "daniel": "Dn", "dan": "Dn", "dn": "Dn",
             "osée": "Os", "ose": "Os",
@@ -568,7 +568,7 @@ class VerseParserService:
             "marc": "Mc", "mar": "Mc", "mc": "Mc",
             "luc": "Lc",
             "jean": "Jn", "jn": "Jn",
-            "actes": "Ac", "act": "Ac", "ac": "Ac",
+            "actes": "Ac", "act": "Ac", "ac": "Ac", "actes des apotres": "Ac", "actes des apôtres": "Ac",
             "romains": "Rm", "rom": "Rm", "rm": "Rm",
             "1 corinthiens": "1 Co", "1cor": "1 Co", "1co": "1 Co", "1 co": "1 Co",
             "2 corinthiens": "2 Co", "2cor": "2 Co", "2co": "2 Co", "2 co": "2 Co",
@@ -639,21 +639,21 @@ class VerseParserService:
         """Compile les patterns regex optimisés (évite le greedy matching)"""
         patterns = [
             # "Jean 3:16" ou "Jn 3:16" ou "1 Co 13:4-8"
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
             
             # "Jean chapitre 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
             
             # "Jean 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
 
             # "Jean 3 16" (sans séparateur, par exemple après conversion des mots de Vosk)
             # ⚠️ Pattern "loose" : sujet aux faux positifs sur du langage courant converti en
             # chiffres — sa confiance est plafonnée sous le seuil d'autopilotage (voir LOOSE_PATTERN_INDEX)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)\s+(\d+)\s+(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s+(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
             
             # "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
         ]
         return patterns
 
@@ -892,6 +892,12 @@ class VerseParserService:
         try:
             book_name = match.group(1).lower().strip()
             book_name = re.sub(r'\s+', ' ', book_name)
+            # Nettoyer les préfixes génériques de désignation oraux (ex: "livre de jean" -> "jean")
+            book_name = re.sub(
+                r'^(?:livre de|livre des|evangile selon|evangile de|epitre de|epitre aux|epitre de paul aux|epitre de paul de)\s+',
+                '',
+                book_name
+            )
             
             chapter = int(match.group(2))
             

@@ -22,7 +22,9 @@ from .services.deepgram_service import DeepgramService
 from .services.verse_parser import VerseParserService
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
+from .services.whisper_service import WhisperService
 from .services.ai_service import AIService
+from .services.semantic_search import LocalSemanticService
 from .services.reading_tracker import ReadingTracker
 from .outputs import OutputManager
 from .api.routes import router as api_router
@@ -34,7 +36,9 @@ output_manager: OutputManager | None = None
 verse_parser: VerseParserService | None = None
 db_service: DatabaseService | None = None
 vosk_service: VoskService | None = None
+whisper_service: WhisperService | None = None
 ai_service: AIService | None = None
+semantic_service: LocalSemanticService | None = None
 current_session_id: int | None = None
 
 # Connexions et état de projection
@@ -79,9 +83,26 @@ async def broadcast_projection(text: str, reference: str, background: str | None
     global current_projection_slide
 
     next_ref, next_text = await _lookup_next_verse(reference)
+    
+    book = None
+    chapter = None
+    verse_start = None
+    verse_end = None
+    if reference and verse_parser:
+        parsed = await verse_parser.parse(reference, skip_text_search=True)
+        if parsed:
+            book = parsed.get("book")
+            chapter = parsed.get("chapter")
+            verse_start = parsed.get("verse_start")
+            verse_end = parsed.get("verse_end")
+
     current_projection_slide = {
         "text": text,
         "reference": reference,
+        "book": book,
+        "chapter": chapter,
+        "verse_start": verse_start,
+        "verse_end": verse_end,
         "background": background or current_projection_slide.get("background", "black"),
         "theme": theme or current_projection_slide.get("theme", "presentation"),
         "translations": translations or {},
@@ -99,7 +120,7 @@ async def broadcast_projection(text: str, reference: str, background: str | None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, ai_service, current_session_id
+    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, whisper_service, ai_service, semantic_service, current_session_id
     
     # Startup
     logger.info("🚀 Démarrage de VersePro v2...")
@@ -145,10 +166,19 @@ async def lifespan(app: FastAPI):
     
     verse_parser = VerseParserService()
     vosk_service = VoskService()
+    whisper_service = WhisperService()
     ai_service = AIService()
+    semantic_service = LocalSemanticService(verse_parser.bible_loader)
     
     # Chargement en arrière-plan du modèle local Vosk pour éviter de bloquer l'application
     threading.Thread(target=vosk_service.initialize, daemon=True).start()
+    if whisper_service.model_downloaded:
+        threading.Thread(target=whisper_service.initialize, kwargs={"allow_download": False}, daemon=True).start()
+    threading.Thread(
+        target=semantic_service.initialize,
+        kwargs={"allow_download": settings.LOCAL_SEMANTIC_AUTO_DOWNLOAD},
+        daemon=True,
+    ).start()
     
     logger.info("✅ Services initialisés")
     
@@ -223,7 +253,9 @@ async def health_check():
             "deepgram": deepgram_service is not None,
             "propresenter": propresenter_connected,
             "parser": verse_parser is not None,
-            "vosk_loaded": vosk_service.initialized if vosk_service else False
+            "vosk_loaded": vosk_service.initialized if vosk_service else False,
+            "whisper_loaded": whisper_service.initialized if whisper_service else False,
+            "whisper_model": whisper_service.model_size if whisper_service else "",
         }
     }
 
@@ -676,7 +708,7 @@ async def get_output_page():
             function renderWords(text) {
                 textEl.textContent = '';
                 textEl.classList.add('karaoke');
-                (text || '').split(/\s+/).filter(Boolean).forEach((word) => {
+        (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
                     const span = document.createElement('span');
                     span.className = 'w';
                     span.textContent = word;
@@ -691,6 +723,19 @@ async def get_output_page():
                     span.classList.toggle('read', i < matched);
                     span.classList.toggle('cur', i === matched - 1);
                 });
+            }
+
+            function getFullReference(data) {
+                if (!data) return '';
+                if (!data.book) return data.reference || '';
+                let ref = data.book + ' ' + data.chapter;
+                if (data.verse_start !== undefined && data.verse_start !== null) {
+                    ref += ':' + data.verse_start;
+                    if (data.verse_end) {
+                        ref += '-' + data.verse_end;
+                    }
+                }
+                return ref;
             }
 
             function renderScene(data) {
@@ -709,7 +754,8 @@ async def get_output_page():
                 }
 
                 // Même verset (changement de thème/fond seulement) : pas de re-animation
-                const key = (data.reference || '') + '|' + (data.text || '');
+                const fullRef = getFullReference(data);
+                const key = fullRef + '|' + (data.text || '');
                 if (key === currentKey) return;
                 currentKey = key;
 
@@ -733,14 +779,14 @@ async def get_output_page():
                             ver.textContent = txt;
                             const label = document.createElement('div');
                             label.className = 'split-label';
-                            label.textContent = version + ' — ' + (data.reference || '');
+                            label.textContent = version + ' — ' + fullRef;
                             col.appendChild(ver);
                             col.appendChild(label);
                             splitCols.appendChild(col);
                         });
                     } else {
                         renderWords(data.text);
-                        refEl.textContent = data.reference || '';
+                        refEl.textContent = fullRef;
                     }
 
                     if (data.text || data.reference) container.classList.add('visible');
@@ -847,7 +893,7 @@ async def get_stage_display():
             function renderWords(text) {
                 textEl.textContent = '';
                 textEl.classList.remove('waiting');
-                (text || '').split(/\s+/).filter(Boolean).forEach((word) => {
+        (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
                     const span = document.createElement('span');
                     span.className = 'w';
                     span.textContent = word;
@@ -864,8 +910,22 @@ async def get_stage_display():
                 });
             }
 
+            function getFullReference(data) {
+                if (!data) return '';
+                if (!data.book) return data.reference || '';
+                let ref = data.book + ' ' + data.chapter;
+                if (data.verse_start !== undefined && data.verse_start !== null) {
+                    ref += ':' + data.verse_start;
+                    if (data.verse_end) {
+                        ref += '-' + data.verse_end;
+                    }
+                }
+                return ref;
+            }
+
             function renderScene(data) {
-                refEl.textContent = data.reference || '—';
+                const fullRef = getFullReference(data);
+                refEl.textContent = fullRef || '—';
                 if (data.text) {
                     renderWords(data.text);
                 } else {
@@ -1188,6 +1248,13 @@ async def select_bible_version(data: dict):
         
     loader.active_version = version
     settings.BIBLE_VERSION = version
+    if semantic_service:
+        semantic_service.reset()
+        threading.Thread(
+            target=semantic_service.initialize,
+            kwargs={"allow_download": False},
+            daemon=True,
+        ).start()
     logger.info(f"🔄 Traduction de la Bible modifiée : {version}")
     return {"status": "success", "active": version}
 
@@ -1204,7 +1271,7 @@ async def websocket_audio(websocket: WebSocket):
 
     await websocket.accept()
 
-    if not deepgram_service or not verse_parser or not vosk_service:
+    if not deepgram_service or not verse_parser or not vosk_service or not whisper_service:
         await websocket.close(code=1011, reason="Services non initialisés")
         return
         
@@ -1216,7 +1283,9 @@ async def websocket_audio(websocket: WebSocket):
         
     transcript_queue = asyncio.Queue()
     use_vosk = False
+    use_whisper = False
     transcription_session = None
+    whisper_session = None
     recognizer = None
 
     # Barrière vocale : ignore musique et silences avant transcription (optionnelle)
@@ -1252,19 +1321,74 @@ async def websocket_audio(websocket: WebSocket):
         except Exception as e:
             logger.error(f"❌ Erreur callback transcription Deepgram: {e}")
 
-    # Lecture du paramètre query 'engine' (auto, deepgram, vosk) et 'translation_lang'
-    engine = websocket.query_params.get("engine", "auto")
+    async def on_whisper_transcript(transcript: str, is_final: bool):
+        if transcript.strip():
+            logger.debug("Whisper local: '{}'", transcript)
+            await transcript_queue.put((transcript, is_final))
+
+    async def activate_vosk(status: str = "connected") -> bool:
+        nonlocal use_vosk, use_whisper, recognizer
+        success = await asyncio.to_thread(vosk_service.initialize)
+        if not success:
+            return False
+        recognizer = vosk_service.get_recognizer(settings.AUDIO_SAMPLE_RATE)
+        if not recognizer:
+            return False
+        use_vosk = True
+        use_whisper = False
+        await websocket.send_json({"type": "status_update", "status": status, "mode": "vosk"})
+        return True
+
+    async def activate_whisper(allow_download: bool, status: str = "connected") -> bool:
+        nonlocal use_vosk, use_whisper, whisper_session
+        session = whisper_service.create_streaming_session(
+            on_whisper_transcript,
+            sample_rate=settings.AUDIO_SAMPLE_RATE,
+            chunk_seconds=settings.WHISPER_CHUNK_SECONDS,
+        )
+        if not await session.start(allow_download=allow_download):
+            return False
+        whisper_session = session
+        use_whisper = True
+        use_vosk = False
+        await websocket.send_json({
+            "type": "status_update",
+            "status": status,
+            "mode": "whisper",
+            "model": whisper_service.model_size,
+        })
+        return True
+
+    async def activate_recommended_local(status: str = "fallback") -> bool:
+        preferred = whisper_service.hardware.recommended_local_engine
+        if preferred == "whisper" and await activate_whisper(allow_download=False, status=status):
+            return True
+        return await activate_vosk(status=status)
+
+    # Lecture du paramètre query 'engine' et 'translation_lang'.
+    engine = websocket.query_params.get("engine", settings.ASR_DEFAULT_ENGINE)
     translation_lang = websocket.query_params.get("translation_lang", "")
     logger.info(f"🔌 Connexion WebSocket audio demandée avec le moteur : {engine} | Traduction: {translation_lang or 'aucune'}")
 
-    if engine == "vosk":
+    if engine == "whisper":
+        try:
+            if not await activate_whisper(allow_download=True):
+                raise RuntimeError(whisper_service.last_error or "Whisper indisponible")
+            logger.info("Moteur Whisper local activé (forcé, modèle={})", whisper_service.model_size)
+        except Exception as exc:
+            logger.error("Échec démarrage Whisper forcé: {}", exc)
+            await websocket.close(code=1011, reason=f"Moteur Whisper local hors-service: {exc}")
+            return
+    elif engine == "local_auto":
+        if not await activate_recommended_local(status="connected"):
+            await websocket.close(code=1011, reason="Aucun moteur local disponible")
+            return
+        logger.info("Moteur local adaptatif actif: {}", "whisper" if use_whisper else "vosk")
+    elif engine == "vosk":
         # Mode Vosk local forcé (chargement du modèle hors event loop)
         try:
-            success = await asyncio.to_thread(vosk_service.initialize)
+            success = await activate_vosk()
             if success:
-                use_vosk = True
-                recognizer = vosk_service.get_recognizer(settings.AUDIO_SAMPLE_RATE)
-                await websocket.send_json({"type": "status_update", "status": "connected", "mode": "vosk"})
                 logger.info("🎙️ Moteur local Vosk activé (Mode forcé)")
             else:
                 raise RuntimeError("Modèle Vosk local non disponible")
@@ -1297,12 +1421,9 @@ async def websocket_audio(websocket: WebSocket):
         except Exception as e:
             logger.warning(f"⚠️ Échec connexion Deepgram ({e}). Activation du secours local Vosk...")
             try:
-                success = await asyncio.to_thread(vosk_service.initialize)
+                success = await activate_recommended_local(status="fallback")
                 if success:
-                    use_vosk = True
-                    recognizer = vosk_service.get_recognizer(settings.AUDIO_SAMPLE_RATE)
-                    await websocket.send_json({"type": "status_update", "status": "connected", "mode": "vosk"})
-                    logger.info("🎙️ Secours local Vosk activé et prêt")
+                    logger.info("Secours local {} activé et prêt", "Whisper" if use_whisper else "Vosk")
                 else:
                     raise RuntimeError("Modèle Vosk non disponible")
             except Exception as we:
@@ -1315,7 +1436,7 @@ async def websocket_audio(websocket: WebSocket):
             
     async def receive_audio_task():
         """Reçoit l'audio client et l'envoie au moteur de transcription actif"""
-        nonlocal use_vosk, recognizer, transcription_session
+        nonlocal use_vosk, use_whisper, recognizer, transcription_session, whisper_session
         
         # Pour le mécanisme de reconnexion automatique de Deepgram
         reconnecting_deepgram = False
@@ -1335,19 +1456,19 @@ async def websocket_audio(websocket: WebSocket):
                         continue
 
                 # Si on utilise en théorie Deepgram mais que la session est inactive (déconnexion 1011 ou erreur)
-                if not use_vosk and (not transcription_session or not transcription_session.is_active):
+                if not use_vosk and not use_whisper and (not transcription_session or not transcription_session.is_active):
                     now = asyncio.get_event_loop().time()
                     if now - last_fallback_attempt < 5:
                         continue  # Aucun moteur disponible : on ignore ce chunk sans re-tenter ni logger
                     last_fallback_attempt = now
                     # Bascule dynamique à chaud sur Vosk local si possible (hors event loop)
                     try:
-                        success = await asyncio.to_thread(vosk_service.initialize)
+                        success = await activate_recommended_local(status="fallback")
                         if success:
-                            use_vosk = True
-                            recognizer = vosk_service.get_recognizer(settings.AUDIO_SAMPLE_RATE)
-                            await websocket.send_json({"type": "status_update", "status": "fallback", "mode": "vosk"})
-                            logger.warning("⚠️ Session Deepgram inactive. Bascule automatique et transparente sur Vosk local.")
+                            logger.warning(
+                                "Session Deepgram inactive. Bascule automatique sur {} local.",
+                                "Whisper" if use_whisper else "Vosk",
+                            )
                         else:
                             logger.error("❌ Impossible de basculer sur Vosk : modèle indisponible. Nouvelle tentative dans 5s.")
                             continue
@@ -1355,8 +1476,10 @@ async def websocket_audio(websocket: WebSocket):
                         logger.error(f"❌ Erreur bascule à chaud Vosk : {ve}")
                         continue
 
-                if not use_vosk:
+                if not use_vosk and not use_whisper:
                     await transcription_session.send_audio(data)
+                elif use_whisper:
+                    await whisper_session.send_audio(data)
                 else:
                     # Vosk local : traitement en temps réel du flux audio non-bloquant
                     is_accepted = await asyncio.to_thread(recognizer.AcceptWaveform, data)
@@ -1381,7 +1504,7 @@ async def websocket_audio(websocket: WebSocket):
                             reconnecting_deepgram = True
                             
                             async def try_reconnect_deepgram():
-                                nonlocal transcription_session, use_vosk, reconnecting_deepgram
+                                nonlocal transcription_session, use_vosk, use_whisper, whisper_session, reconnecting_deepgram
                                 logger.info("🔄 Tentative de reconnexion en arrière-plan à Deepgram...")
                                 try:
                                     new_session = await deepgram_service.create_session(on_transcript_received)
@@ -1392,7 +1515,11 @@ async def websocket_audio(websocket: WebSocket):
                                         except Exception:
                                             pass
                                     transcription_session = new_session
+                                    if whisper_session:
+                                        await whisper_session.close()
+                                        whisper_session = None
                                     use_vosk = False
+                                    use_whisper = False
                                     await websocket.send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
                                     logger.info("⚡ Connexion Deepgram rétablie en arrière-plan. Retour au moteur principal.")
                                 except Exception as re_err:
@@ -1407,7 +1534,9 @@ async def websocket_audio(websocket: WebSocket):
         except Exception as e:
             logger.error(f"❌ Erreur réception audio: {e}")
         finally:
-            if not use_vosk and transcription_session:
+            if whisper_session:
+                await whisper_session.close()
+            if not use_vosk and not use_whisper and transcription_session:
                 await transcription_session.close()
             # Signal de fermeture de la queue
             await transcript_queue.put(None)
@@ -1473,9 +1602,10 @@ async def websocket_audio(websocket: WebSocket):
 
                 async def process_detected_reference(ref, analysis_text, source="local"):
                     nonlocal last_projected_ref, last_deterministic_at
+                    ref["source"] = source
 
-                    if source == "ai":
-                        ref["detection_method"] = "ai_semantic"
+                    if source != "local":
+                        ref["detection_method"] = "semantic_local" if source == "semantic" else "ai_semantic"
                         ref["confidence"] = min(float(ref.get("confidence") or 0.95), 0.95)
                         ref["requires_review"] = True
                         ref["projection_policy"] = "manual_review"
@@ -1564,7 +1694,34 @@ async def websocket_audio(websocket: WebSocket):
                         await process_detected_reference(reference, analysis_text)
                         return
                         
-                    # B. Fallback Agent IA sémantique (si final et non détecté localement)
+                    # B. Retrieval semantique local ONNX. Il genere une liste courte
+                    # de versets reels; aucune suggestion ne peut sortir du corpus.
+                    semantic_candidates = []
+                    if final_state and semantic_service and settings.LOCAL_SEMANTIC_ENABLED:
+                        if not semantic_service.initialized and not semantic_service.indexing:
+                            await asyncio.to_thread(semantic_service.initialize, False)
+                        if semantic_service.initialized:
+                            semantic_candidates = await asyncio.to_thread(
+                                semantic_service.search,
+                                analysis_text,
+                                settings.LOCAL_SEMANTIC_TOP_K,
+                                0.0,
+                            )
+
+                    semantic_floor = max(0.45, settings.LOCAL_SEMANTIC_THRESHOLD - 0.03)
+                    if semantic_candidates and float(semantic_candidates[0].get("score") or 0) < semantic_floor:
+                        semantic_candidates = []
+
+                    if semantic_candidates:
+                        best_score = float(semantic_candidates[0].get("score") or 0)
+                        runner_up = float(semantic_candidates[1].get("score") or 0) if len(semantic_candidates) > 1 else 0
+                        unambiguous = best_score >= settings.LOCAL_SEMANTIC_THRESHOLD and (best_score - runner_up) >= settings.LOCAL_SEMANTIC_MARGIN
+                        if unambiguous:
+                            await process_detected_reference(semantic_candidates[0], analysis_text, source="semantic")
+                            return
+
+                    # C. Le LLM arbitre les candidats locaux ambigus. Sans index ONNX,
+                    # le fallback historique reste disponible mais toujours en file manuelle.
                     if final_state and ai_service and ai_service.enabled:
                         lowercase_text = analysis_text.lower()
                         
@@ -1573,11 +1730,13 @@ async def websocket_audio(websocket: WebSocket):
                         has_keyword = any(kw in lowercase_text for kw in BIBLE_KEYWORDS)
                         has_numbers = any(char.isdigit() for char in lowercase_text)
                         
-                        if bypass_filter or has_keyword or has_numbers:
+                        if semantic_candidates or bypass_filter or has_keyword or has_numbers:
                             async def run_ai_detection():
                                 try:
-                                    # L'IA analyse le contexte large et renvoie le dictionnaire {"reference", "confidence"}
-                                    res = await ai_service.detect_bible_reference(analysis_text)
+                                    res = await ai_service.detect_bible_reference(
+                                        analysis_text,
+                                        candidates=semantic_candidates or None,
+                                    )
                                     if res:
                                         ai_ref_str = res.get("reference")
                                         ai_conf = res.get("confidence", 95)

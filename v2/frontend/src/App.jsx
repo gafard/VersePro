@@ -59,14 +59,36 @@ function App() {
     localStorage.setItem('versepro_last_tab', tab)
     setActiveTabState(tab)
   }
-  const { fetchHistory, fetchStatistics, connectWebSocket, disconnectWebSocket, connected } = useStore()
+  
+  const { 
+    fetchHistory, 
+    fetchStatistics, 
+    connectWebSocket, 
+    disconnectWebSocket, 
+    connected,
+    asrMode,
+    aiActive,
+    propresenterConnected,
+    isListening,
+    toggleListening,
+    volume,
+    onAir
+  } = useStore()
+  
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [clock, setClock] = useState(() => new Date())
 
   useEffect(() => {
     connectWebSocket()
     fetchHistory()
     fetchStatistics()
     return () => { disconnectWebSocket() }
+  }, [])
+
+  // Horloge de régie globale
+  useEffect(() => {
+    const timer = setInterval(() => setClock(new Date()), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   // ⌘K / Ctrl+K : palette de recherche biblique, disponible partout
@@ -81,6 +103,17 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Libellé de l'onglet actif
+  const getTabLabel = () => {
+    switch (activeTab) {
+      case 'live': return 'Régie en direct'
+      case 'history': return 'Historique & Rapports'
+      case 'statistics': return 'Statistiques d\'activité'
+      case 'settings': return 'Paramètres'
+      default: return 'VersePro'
+    }
+  }
+
   return (
     <div className="app-shell min-h-screen flex font-sans">
       {/* ═══════════ SIDEBAR ═══════════ */}
@@ -91,8 +124,8 @@ function App() {
             className="mb-8 p-2 rounded-xl transition-all duration-200"
             title="Accueil"
           >
-            <div className="app-sidebar-logo w-8 h-8 rounded-lg flex items-center justify-center">
-              v
+            <div className="app-sidebar-logo w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
+              <img src="/icons/icon-192.png" alt="VersePro" className="w-full h-full object-contain" />
             </div>
           </button>
 
@@ -115,7 +148,7 @@ function App() {
             <div className="app-nav-wrap">
               <div
                 className="w-2.5 h-2.5 rounded-full transition-all"
-                style={{ background: connected ? 'var(--vp-ok)' : 'var(--vp-live)' }}
+                style={{ background: connected ? 'var(--success)' : 'var(--danger)' }}
               />
               <span className="app-nav-tooltip">{connected ? 'Serveur connecté' : 'Serveur déconnecté'}</span>
             </div>
@@ -125,6 +158,52 @@ function App() {
 
       {/* ═══════════ CONTENU ═══════════ */}
       <main className={`flex-1 ${activeTab !== 'home' ? 'pl-[64px]' : ''} relative z-10 min-h-screen flex flex-col`}>
+        {activeTab !== 'home' && (
+          <header className="global-header">
+            <div className="global-header-left">
+              <h1>{getTabLabel()}</h1>
+              {onAir && (
+                <div className="global-program-preview" title={onAir.text}>
+                  <span className="dot" />
+                  <span className="label">Direct :</span>
+                  <span className="ref">{onAir.reference}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="global-header-right">
+              <span className={`vp-chip ${connected ? 'is-ok' : 'is-bad'}`}>
+                <span className="dot" />{connected ? 'Serveur' : 'Hors ligne'}
+              </span>
+              <span className={`vp-chip ${asrMode === 'vosk' ? 'is-warn' : 'is-accent'}`}>
+                <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram'}
+              </span>
+              <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
+                <span className="dot" />IA {aiActive ? 'active' : 'off'}
+              </span>
+              <span className={`vp-chip ${propresenterConnected ? 'is-ok' : 'is-warn'}`}>
+                <span className="dot" />{propresenterConnected ? 'ProPresenter' : 'PP manuel'}
+              </span>
+
+              <span className="global-clock">
+                {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+
+              <button 
+                className={`global-mic-btn ${isListening ? 'is-live' : ''}`} 
+                onClick={toggleListening}
+                title={isListening ? 'Micro activé — cliquer pour désactiver' : 'Démarrer le micro'}
+              >
+                <span className="mic-dot" />
+                {isListening ? 'LIVE' : 'Micro'}
+                <span className="mic-vu">
+                  <div style={{ width: `${isListening ? volume : 0}%` }} />
+                </span>
+              </button>
+            </div>
+          </header>
+        )}
+
         {activeTab === 'home' && <LandingPage setActiveTab={setActiveTab} />}
         {activeTab === 'live' && (
           <div className="p-6 animate-slide-up flex-1">
