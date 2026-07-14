@@ -266,7 +266,7 @@ async def rehearse(request: RehearseRequest):
     (fenêtres glissantes de mots, comme en direct) SANS rien projeter.
     Permet de valider la reconnaissance avant le culte.
     """
-    from ..main import verse_parser
+    from ..main import verse_parser, run_detection_cascade
 
     if not verse_parser:
         raise HTTPException(status_code=503, detail="Parser non disponible")
@@ -275,9 +275,11 @@ async def rehearse(request: RehearseRequest):
     detections = []
     seen = set()
 
+    # Rejoue EXACTEMENT la cascade du direct (explicite + fusion hybride des
+    # paraphrases), fenêtre par fenêtre. Chaque fin de fenêtre est un « final ».
     for end in range(6, len(words) + 1, 3):
         window = " ".join(words[max(0, end - 40):end])
-        ref = await verse_parser.parse(window)
+        ref = await run_detection_cascade(window, final_state=True)
         if ref and ref["reference"] not in seen:
             seen.add(ref["reference"])
             detections.append({
@@ -285,6 +287,7 @@ async def rehearse(request: RehearseRequest):
                 "text": ref.get("text", ""),
                 "detection_method": ref.get("detection_method"),
                 "confidence": ref.get("confidence"),
+                "fusion": ref.get("fusion"),
                 "window": window[-90:],
             })
 
@@ -447,7 +450,7 @@ async def get_settings():
         "voice_gate_available": _vad_available(),
         "asr_default_engine": settings.ASR_DEFAULT_ENGINE,
         "local_semantic_enabled": settings.LOCAL_SEMANTIC_ENABLED,
-        "local_semantic_threshold": settings.LOCAL_SEMANTIC_THRESHOLD,
+        "local_semantic_threshold": semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD,
         "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
         "semantic_status": semantic_service.status() if semantic_service else {},
     }
@@ -568,8 +571,12 @@ async def update_settings(settings_update: SettingsUpdate):
         threshold = float(update["local_semantic_threshold"])
         if not 0.4 <= threshold <= 0.98:
             raise HTTPException(status_code=400, detail="Seuil semantique hors limites")
+        # Le curseur agit sur le modèle réellement actif (Qwen ou e5), chacun
+        # ayant sa propre échelle de scores. Ainsi le réglage suit l'encodeur.
+        active = (semantic_service.active_model if semantic_service else None) or settings.LOCAL_SEMANTIC_MODEL
+        settings.LOCAL_SEMANTIC_CALIBRATION.setdefault(active, {})["threshold"] = threshold
         settings.LOCAL_SEMANTIC_THRESHOLD = threshold
-        await db.set_setting("local_semantic_threshold", threshold)
+        await db.set_setting(f"local_semantic_threshold_{active}", threshold)
 
     if reconnect_propresenter and output_manager and "propresenter" in output_manager.outputs:
         pp_driver = output_manager.outputs["propresenter"]

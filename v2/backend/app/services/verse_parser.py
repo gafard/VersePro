@@ -467,6 +467,16 @@ class BibleLoader:
 
         return None
 
+    def translations_for(self, book_abbr: str, chapter: int, verse: int) -> dict:
+        """Texte du verset dans chaque version disponible (pour confirmer un
+        recouvrement lexical quel que soit la traduction paraphrasée)."""
+        out = {}
+        for v_name in self.versions.keys():
+            text_v = self.get_verse_text(book_abbr, chapter, verse, version_id=v_name)
+            if text_v:
+                out[v_name] = text_v
+        return out
+
     def search_candidates(self, query_text: str, limit: int = 6) -> list:
         """Candidats multiples pour la palette de recherche (aperçu + score)."""
         results = []
@@ -877,8 +887,16 @@ class VerseParserService:
         if text_search_res:
             logger.info(f"📖 Référence détectée par texte du verset: {text_search_res['reference']}")
             return text_search_res
-            
+
         return None
+
+    def normalize_spoken(self, text: str) -> str:
+        """Nettoyage vocal partagé (homophones + nombres parlés). La détection
+        hybride s'en sert pour aligner l'entrée lexicale/sémantique sur celle du
+        regex explicite : mêmes corrections, mêmes chiffres."""
+        if not text:
+            return ""
+        return self._convert_spoken_numbers(self._clean_homophones(text))
     
     def _extract_reference(self, match: re.Match, full_text: str, loose: bool = False) -> Optional[Dict[str, Any]]:
         """

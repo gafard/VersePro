@@ -63,12 +63,28 @@ class Settings(BaseSettings):
     # Recherche sémantique locale. Le moteur ONNX est optionnel et retombe
     # automatiquement sur l'index lexical si le runtime n'est pas disponible.
     LOCAL_SEMANTIC_ENABLED: bool = True
-    LOCAL_SEMANTIC_MODEL: str = "e5-small"  # modèle par défaut et unique (~118 Mo)
+    # Encodeur sémantique unique : e5-small ONNX (~118 Mo). Qwen a été évalué
+    # (0,6 Md, ~585 Mo) puis écarté : sur le corpus biblique il ne séparait pas
+    # proprement signal et bruit (chevauchement des scores) — e5 fait mieux et
+    # reste léger.
+    LOCAL_SEMANTIC_MODEL: str = "e5-small"
+    LOCAL_SEMANTIC_FALLBACK: str = "e5-small"
     # Calibré sur mesures réelles e5-small (signal >= 0.877, bruit <= 0.830).
+    LOCAL_SEMANTIC_CALIBRATION: dict = {
+        "e5-small": {"threshold": 0.865, "margin": 0.012},
+    }
     LOCAL_SEMANTIC_THRESHOLD: float = 0.865
     LOCAL_SEMANTIC_MARGIN: float = 0.012
     LOCAL_SEMANTIC_TOP_K: int = 5
     LOCAL_SEMANTIC_AUTO_DOWNLOAD: bool = False
+    # Fusion hybride (détection des paraphrases) : recouvrement lexical minimal
+    # de confirmation, et bonus d'accord entre récupérateurs indépendants.
+    HYBRID_OVERLAP_MIN: float = 0.34
+    HYBRID_TOP_K: int = 6
+    # La récupération des paraphrases se concentre sur les derniers mots : une
+    # paraphrase tient dans une phrase, et cela empêche un verset précédent encore
+    # présent dans le buffer de masquer celui que le prédicateur cite maintenant.
+    HYBRID_WINDOW_WORDS: int = 22
 
     # Barrière vocale (Silero VAD local) : filtre musique/silences avant transcription
     VOICE_GATE_ENABLED: bool = False

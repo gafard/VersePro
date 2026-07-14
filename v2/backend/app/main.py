@@ -24,6 +24,7 @@ from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
 from .services.ai_service import AIService
 from .services.semantic_search import LocalSemanticService
+from .services.detection_fusion import fuse as fuse_detection, strip_attribution, recent_window
 from .services.reading_tracker import ReadingTracker
 from .outputs import OutputManager
 from .api.routes import router as api_router
@@ -1260,6 +1261,79 @@ async def select_bible_version(data: dict):
     return {"status": "success", "active": version}
 
 
+async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict | None:
+    """Cascade de détection PARTAGÉE par le direct et le mode répétition.
+
+    A. CITATION EXPLICITE (regex) — instantané (< 1 ms), précision quasi
+       parfaite. Renvoyée telle quelle (seul étage autorisé à projeter direct).
+    B. FUSION HYBRIDE des paraphrases (fin d'énoncé seulement) — deux
+       récupérateurs indépendants en parallèle (lexical/flou + sémantique e5),
+       agrégés par RRF, filtrés par accord + recouvrement lexical. Ne remonte
+       que des versets réels du corpus.
+
+    Renvoie la référence détectée (dict) ou None. AUCUN effet de bord.
+    """
+    if not verse_parser:
+        return None
+
+    # Fenêtre RÉCENTE partagée (dernière phrase) : on ne détecte que sur l'énoncé
+    # courant. Sinon une citation explicite (« Jean 3:16 ») reste dans le buffer
+    # de 40 mots et masque toute paraphrase pendant ~20 s ; et un verset précédent
+    # masque le verset courant. La fenêtre fait suivre le prédicateur en temps réel.
+    recent = recent_window(analysis_text, settings.HYBRID_WINDOW_WORDS)
+
+    # ── A. Citation explicite sur la fenêtre récente ──
+    reference = await verse_parser.parse(recent, skip_text_search=True)
+    if reference:
+        return reference
+
+    if not final_state or not settings.LOCAL_SEMANTIC_ENABLED:
+        return None
+
+    # ── B. Fusion : nettoyage vocal + retrait de l'encadrement d'attribution
+    #    (« Paul dit », « David a écrit »…) qui dilue l'embedding du verset cité.
+    cleaned = verse_parser.normalize_spoken(recent)
+    # On détecte sur le texte DÉ-ENCADRÉ. S'il reste trop court (attribution
+    # partielle en cours d'énoncé), on attend la suite plutôt que de retomber sur
+    # le texte encadré — sinon le nom réintroduit attire un mauvais verset.
+    query = strip_attribution(cleaned)
+    if len(query.split()) < 4:
+        return None
+
+    if semantic_service and not semantic_service.initialized and not semantic_service.indexing:
+        await asyncio.to_thread(semantic_service.initialize, False)
+
+    async def _lexical():
+        return await asyncio.to_thread(
+            verse_parser.bible_loader.search_candidates, query, settings.HYBRID_TOP_K
+        )
+
+    async def _semantic():
+        if not (semantic_service and semantic_service.initialized):
+            return []
+        return await asyncio.to_thread(
+            semantic_service.search, query, settings.HYBRID_TOP_K, 0.0
+        )
+
+    lexical, semantic = await asyncio.gather(_lexical(), _semantic())
+
+    # Enrichit les candidats sémantiques de leurs traductions : le recouvrement
+    # lexical peut alors confirmer une paraphrase de n'importe quelle version.
+    for cand in semantic:
+        if "translations" not in cand and cand.get("verse_start") is not None:
+            cand["translations"] = verse_parser.bible_loader.translations_for(
+                cand["book_abbr"], cand["chapter"], cand["verse_start"]
+            )
+
+    return fuse_detection(
+        lexical, semantic, query,
+        semantic_threshold=(semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD),
+        semantic_margin=(semantic_service.active_margin if semantic_service else settings.LOCAL_SEMANTIC_MARGIN),
+        overlap_min=settings.HYBRID_OVERLAP_MIN,
+        top_n=settings.HYBRID_TOP_K,
+    )
+
+
 # WebSocket principal de réception audio avec Fallback Vosk local
 @app.websocket("/ws/audio")
 async def websocket_audio(websocket: WebSocket):
@@ -1610,11 +1684,21 @@ async def websocket_audio(websocket: WebSocket):
                             except Exception:
                                 pass
 
-                # L'arbitrage LLM cloud a été retiré de la détection : la chaîne
-                # locale (explicite 0,3 ms + flou 9 ms + sémantique e5 6 ms) couvre
-                # citations et paraphrases sans les 4 s de latence ni la dépendance
-                # réseau. L'IA cloud ne sert plus qu'à la traduction et aux résumés.
-                
+                async def analyze_and_detect(analysis_text, final_state, current_transcript):
+                    # Cascade partagée (explicite instantané + fusion hybride des
+                    # paraphrases en fin d'énoncé). Voir run_detection_cascade.
+                    decision = await run_detection_cascade(analysis_text, final_state)
+                    if not decision:
+                        return
+                    if decision.get("detection_method") in ("explicit", "chapter_candidate"):
+                        await process_detected_reference(decision, analysis_text)
+                    else:
+                        fusion = decision.get("fusion")
+                        if fusion:
+                            logger.info(f"🔗 Fusion → {decision['reference']} "
+                                        f"({fusion['reason']}, recouvrement {fusion['overlap']})")
+                        await process_detected_reference(decision, analysis_text, source="semantic")
+
                 # Lance l'analyse en arrière-plan sans bloquer le flux de transcription
                 asyncio.create_task(analyze_and_detect(current_analysis_text, is_final, transcript))
                 

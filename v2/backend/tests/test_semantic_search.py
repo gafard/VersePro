@@ -84,9 +84,9 @@ def test_e5_encoder_embeddings_are_normalized_and_meaningful():
 
 def test_semantic_index_paraphrases_end_to_end():
     """Sur l'index réel (si construit) : les paraphrases célèbres sortent en tête,
-    la parole du quotidien reste sous le plancher — calibration e5."""
+    la parole du quotidien reste sous le plancher. La calibration suit l'encodeur
+    réellement actif (Qwen ou e5, échelles de scores différentes)."""
     import pytest
-    from app.core.config import settings
     from app.services.verse_parser import VerseParserService
     from app.services.semantic_search import LocalSemanticService
 
@@ -95,10 +95,12 @@ def test_semantic_index_paraphrases_end_to_end():
     if not svc.initialize(allow_download=False):
         pytest.skip("Index sémantique non construit")
 
-    floor = settings.LOCAL_SEMANTIC_THRESHOLD - 0.03
+    # Seuils du modèle actif, pas des constantes globales.
+    threshold = svc.active_threshold
+    floor = svc.active_floor
 
     top = svc.search("pierre est sorti de la barque et il a marché sur l'eau vers jésus", top_k=1)[0]
-    assert top["reference"].lower() == "mt 14:29" and top["score"] >= settings.LOCAL_SEMANTIC_THRESHOLD
+    assert top["reference"].lower() == "mt 14:29" and top["score"] >= threshold
 
     top = svc.search("je peux tout faire grâce à celui qui me donne la force", top_k=1)[0]
     assert top["reference"].lower() == "ph 4:13"

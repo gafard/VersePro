@@ -113,8 +113,9 @@ class E5OnnxEncoder:
                 logger.error(f"❌ Chargement e5-small impossible : {e}")
                 return False
 
-    def embed(self, texts: List[str], batch_size: int = 64, kind: str = "passage") -> np.ndarray:
-        """Vecteurs normalisés. `kind` ∈ {query, passage} — préfixe e5 obligatoire."""
+    def embed(self, texts: List[str], batch_size: int = 64, kind: str = "passage", progress=None) -> np.ndarray:
+        """Vecteurs normalisés. `kind` ∈ {query, passage} — préfixe e5 obligatoire.
+        `progress(done, total)` est rappelé après chaque lot (barre d'indexation)."""
         if not self.initialized and not self.load():
             raise RuntimeError(f"Encodeur non initialisé: {self.last_error}")
 
@@ -142,5 +143,7 @@ class E5OnnxEncoder:
             norms = np.linalg.norm(pooled, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             out.append(pooled / norms)
+            if progress:
+                progress(min(i + batch_size, len(texts)), len(texts))
 
         return np.vstack(out).astype(np.float32)

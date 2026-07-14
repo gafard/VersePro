@@ -288,7 +288,11 @@ export default function Settings() {
             <div className="settings-card-head">
               <div>
                 <small>Embeddings bibliques ONNX</small>
-                <p>{semanticStatus?.verses_indexed || 0} versets indexés localement</p>
+                <p>
+                  {semanticStatus?.verses_indexed || 0} versets indexés localement
+                  {semanticStatus?.model ? ` · moteur ${semanticStatus.model === 'qwen3' ? 'Qwen (haute précision)' : 'e5 (léger)'}` : ''}
+                  {semanticStatus?.using_fallback ? ' · secours' : ''}
+                </p>
               </div>
               <label className="settings-switch">
                 <input type="checkbox" checked={form.local_semantic_enabled} onChange={(e) => updateField('local_semantic_enabled', e.target.checked)} />
@@ -297,7 +301,8 @@ export default function Settings() {
             </div>
             <label>
               <small>Seuil sémantique : <strong>{Math.round(form.local_semantic_threshold * 100)} %</strong></small>
-              <input type="range" min="0.80" max="0.92" step="0.005" value={form.local_semantic_threshold} onChange={(e) => updateField('local_semantic_threshold', Number(e.target.value))} />
+              <input type="range" min="0.50" max="0.95" step="0.005" value={form.local_semantic_threshold} onChange={(e) => updateField('local_semantic_threshold', Number(e.target.value))} />
+              <span className="settings-muted-note">Calibré automatiquement selon le moteur actif — n'ajustez qu'en cas de faux positifs ou d'oublis répétés.</span>
             </label>
             <button type="button" className="vp-btn vp-btn--sm" onClick={() => prepareLocalEngine('semantic')} disabled={preparingLocal === 'semantic' || semanticStatus?.indexing}>
               {semanticStatus?.installed ? 'Réindexer' : semanticStatus?.indexing ? 'Indexation…' : 'Installer et indexer'}
