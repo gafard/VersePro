@@ -88,21 +88,20 @@ class LocalSemanticService:
         return self._normalize(np.asarray(list(vectors), dtype=np.float32))
 
     def _load_encoder(self, allow_download: bool) -> bool:
-        if self.encoder is not None:
+        if self.encoder is not None and getattr(self.encoder, "initialized", True):
             return True
         try:
-            if self.model_name == "e5-small":
-                from .e5_encoder import E5OnnxEncoder
-                encoder = E5OnnxEncoder(cache_dir=self.cache_dir / "models" / "e5-small")
-            else:
-                from .qwen_encoder import QwenOnnxEncoder
-                encoder = QwenOnnxEncoder(cache_dir=self.cache_dir / "models" / "qwen3")
+            from .e5_encoder import E5OnnxEncoder
+            encoder = E5OnnxEncoder(cache_dir=self.cache_dir / "models" / "e5-small")
+            
+            # Affectation anticipée pour que status() puisse lire la progression
+            self.encoder = encoder
             
             if not encoder.is_downloaded:
                 if not allow_download:
-                    self.last_error = "Modèle Qwen ONNX non téléchargé."
+                    self.last_error = "Modèle sémantique e5-small local non téléchargé."
                     return False
-                logger.info("Modèle Qwen ONNX manquant, lancement du téléchargement...")
+                logger.info("Modèle sémantique e5-small local manquant, lancement du téléchargement...")
                 success = encoder.download_model()
                 if not success:
                     self.last_error = f"Échec du téléchargement: {encoder.last_error}"
@@ -113,11 +112,10 @@ class LocalSemanticService:
                 self.last_error = f"Échec du chargement: {encoder.last_error}"
                 return False
                 
-            self.encoder = encoder
             return True
         except Exception as exc:
             self.last_error = str(exc)
-            logger.warning(f"Recherche sémantique locale Qwen indisponible: {exc}")
+            logger.warning(f"Recherche sémantique locale e5-small indisponible: {exc}")
             return False
 
     def initialize(self, allow_download: bool = False) -> bool:

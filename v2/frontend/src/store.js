@@ -43,8 +43,8 @@ export const useStore = create((set, get) => ({
   micError: null,
   currentTranscript: '',
   detectedReferences: [],
-  asrMode: 'deepgram', // deepgram, whisper ou vosk
-  selectedEngine: 'auto', // auto, local_auto, deepgram, whisper ou vosk
+  asrMode: 'deepgram', // deepgram ou vosk
+  selectedEngine: 'auto', // auto, deepgram ou vosk
   aiActive: false, // Disponibilité de l'Agent IA sémantique
   
   // Traduction simultanée
@@ -698,16 +698,6 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  prepareWhisper: async (model = 'auto') => {
-    const response = await fetch('/api/v1/asr/prepare', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model })
-    })
-    const data = await response.json()
-    get().fetchIntelligenceStatus()
-    return data
-  },
 
   prepareSemanticIndex: async () => {
     const response = await fetch('/api/v1/semantic/prepare', { method: 'POST' })

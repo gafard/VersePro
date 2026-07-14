@@ -1,8 +1,7 @@
-import os
 import pytest
 import numpy as np
-from unittest.mock import MagicMock, patch
-from app.services.qwen_encoder import QwenOnnxEncoder
+from unittest.mock import MagicMock
+from app.services.e5_encoder import E5OnnxEncoder
 from app.services.semantic_search import LocalSemanticService
 from app.services.verse_parser import BibleLoader
 
@@ -85,8 +84,8 @@ def test_semantic_service_search_similarity(mock_bible_loader):
     assert results[0]["score"] > 0.0
     assert "mer" in results[0]["text"]
 
-def test_qwen_encoder_download_methods():
-    # Tester que les propriétés de téléchargement renvoient des valeurs cohérentes
-    encoder = QwenOnnxEncoder()
+def test_e5_encoder_download_methods():
+    # Tester que les propriétés de téléchargement renvoient des valeurs cohérentes pour E5OnnxEncoder
+    encoder = E5OnnxEncoder()
     assert isinstance(encoder.is_downloaded, bool)
     assert encoder.downloading is False

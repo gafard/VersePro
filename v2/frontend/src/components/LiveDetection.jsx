@@ -20,7 +20,6 @@ const QUICK_REFS = [
 
 const ASR_LABELS = {
   deepgram: 'Deepgram cloud',
-  whisper: 'Whisper local',
   vosk: 'Vosk local'
 }
 
@@ -644,10 +643,8 @@ export default function LiveDetection({ setActiveTab }) {
             <div className="flex flex-col gap-1">
               <span className="vp-label">Moteur Vocal</span>
               <select className="vp-select text-xs py-1" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
-                <option value="auto">Auto hybride</option>
-                <option value="local_auto">Auto 100 % local</option>
+                <option value="auto">Auto (Deepgram + secours Vosk)</option>
                 <option value="deepgram">Deepgram cloud</option>
-                <option value="whisper">Whisper local robuste</option>
                 <option value="vosk">Vosk local (hors-ligne)</option>
               </select>
             </div>

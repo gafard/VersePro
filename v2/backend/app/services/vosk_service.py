@@ -24,6 +24,8 @@ class VoskService:
         self.model = None
         self.initialized = False
         self.downloading = False
+        self.download_progress = 0.0
+        self.last_error = ""
         
     def initialize(self) -> bool:
         """Initialise le modèle Vosk (lance le téléchargement en tâche de fond si nécessaire)"""
@@ -39,6 +41,7 @@ class VoskService:
         if not os.path.exists(self.model_dir):
             if not self.downloading:
                 self.downloading = True
+                self.last_error = ""
                 logger.info(f"📥 Modèle Vosk {self.model_type} absent. Lancement du téléchargement en arrière-plan...")
                 threading.Thread(target=self._bg_download_and_init, daemon=True).start()
             return False
@@ -64,6 +67,7 @@ class VoskService:
                 self.initialized = True
                 logger.info(f"✅ Modèle Vosk local ({self.model_type}) chargé et prêt en arrière-plan")
         except Exception as e:
+            self.last_error = f"Chargement du modèle impossible : {e}"
             logger.error(f"❌ Échec chargement du modèle Vosk téléchargé: {e}")
         finally:
             self.downloading = False
@@ -84,10 +88,12 @@ class VoskService:
                 nonlocal last_percent
                 readsofar = blocknum * blocksize
                 if totalsize > 0:
-                    percent = int(readsofar * 100 / totalsize)
-                    if percent % 5 == 0 and percent != last_percent: # Log toutes les 5 % pour éviter d'inonder les logs
-                        last_percent = percent
-                        logger.info(f"📥 Téléchargement Vosk: {percent}% ({readsofar / (1024**2):.1f} Mo / {totalsize / (1024**2):.1f} Mo)")
+                    percent = min(100.0, (readsofar * 100.0) / totalsize)
+                    self.download_progress = percent
+                    percent_int = int(percent)
+                    if percent_int % 5 == 0 and percent_int != last_percent: # Log toutes les 5 % pour éviter d'inonder les logs
+                        last_percent = percent_int
+                        logger.info(f"📥 Téléchargement Vosk: {percent_int}% ({readsofar / (1024**2):.1f} Mo / {totalsize / (1024**2):.1f} Mo)")
             
             urllib.request.urlretrieve(self.url, zip_path, progress_callback)
             
@@ -101,6 +107,7 @@ class VoskService:
             logger.info(f"✅ Modèle Vosk ({self.model_type}) prêt à l'emploi")
             return True
         except Exception as e:
+            self.last_error = f"Téléchargement interrompu : {e}"
             logger.error(f"❌ Échec du téléchargement du modèle Vosk: {e}")
             if os.path.exists(zip_path):
                 os.remove(zip_path)

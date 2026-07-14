@@ -4,7 +4,6 @@ import numpy as np
 
 from app.services.ai_service import AIService
 from app.services.semantic_search import LocalSemanticService
-from app.services.whisper_service import WhisperStreamingSession
 
 
 class FakeEncoder:
@@ -60,25 +59,3 @@ def test_ai_rejects_reference_outside_local_candidates():
     assert accepted["candidate_validated"] is True
 
 
-def test_whisper_streaming_batches_pcm_without_blocking():
-    emitted = []
-
-    class FakeWhisper:
-        def initialize(self, allow_download=True):
-            return True
-
-        def transcribe(self, audio):
-            return f"bloc-{len(audio)}"
-
-    async def scenario():
-        async def callback(text, is_final):
-            emitted.append((text, is_final))
-
-        session = WhisperStreamingSession(FakeWhisper(), callback, sample_rate=10, chunk_seconds=1.0)
-        assert await session.start(allow_download=False)
-        await session.send_audio(b"\x00" * 10)
-        await session.send_audio(b"\x00" * 10)
-        await session.close()
-
-    asyncio.run(scenario())
-    assert emitted == [("bloc-20", True)]

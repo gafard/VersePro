@@ -67,7 +67,6 @@ class SettingsUpdate(BaseModel):
     ai_filtering_mode: Optional[str] = None
     voice_gate_enabled: Optional[bool] = None
     asr_default_engine: Optional[str] = None
-    whisper_model: Optional[str] = None
     local_semantic_enabled: Optional[bool] = None
     local_semantic_threshold: Optional[float] = None
 
@@ -339,8 +338,10 @@ async def get_vosk_status():
     return {
         "installed": installed,
         "downloading": vosk_service.downloading,
+        "download_progress": getattr(vosk_service, "download_progress", 0.0),
         "model_name": vosk_service.model_name,
-        "model_type": vosk_service.model_type
+        "model_type": vosk_service.model_type,
+        "last_error": getattr(vosk_service, "last_error", "")
     }
 
 
@@ -368,12 +369,11 @@ async def download_vosk_model():
 @router.get("/asr/status")
 async def get_asr_status():
     """Capacites locales et recommandation adaptee a la machine."""
-    from ..main import whisper_service, vosk_service
+    from ..main import vosk_service
     from ..core.config import settings
 
     return {
         "default_engine": settings.ASR_DEFAULT_ENGINE,
-        "whisper": whisper_service.status() if whisper_service else {"available": False},
         "vosk": {
             "available": bool(vosk_service and vosk_service.initialized),
             "model": getattr(vosk_service, "model_name", ""),
@@ -382,25 +382,6 @@ async def get_asr_status():
 
 
 @router.post("/asr/prepare")
-async def prepare_whisper(request: PrepareModelRequest):
-    """Telecharge et charge Whisper hors de la boucle temps reel."""
-    from ..main import whisper_service
-    if not whisper_service:
-        raise HTTPException(status_code=503, detail="Service Whisper indisponible")
-    if request.model:
-        try:
-            whisper_service.configure_model(request.model)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    import threading
-    if not whisper_service.loading:
-        threading.Thread(
-            target=whisper_service.initialize,
-            kwargs={"allow_download": True},
-            daemon=True,
-        ).start()
-    return {"status": "preparing", **whisper_service.status()}
-
 
 @router.get("/semantic/status")
 async def get_semantic_status():
@@ -438,7 +419,7 @@ async def semantic_search(request: SemanticSearchRequest):
 async def get_settings():
     """Récupère la configuration"""
     from ..core.config import settings
-    from ..main import ai_service, output_manager, whisper_service, semantic_service
+    from ..main import ai_service, output_manager, semantic_service
     
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
@@ -465,8 +446,6 @@ async def get_settings():
         "voice_gate_enabled": settings.VOICE_GATE_ENABLED,
         "voice_gate_available": _vad_available(),
         "asr_default_engine": settings.ASR_DEFAULT_ENGINE,
-        "whisper_model": settings.WHISPER_MODEL,
-        "whisper_status": whisper_service.status() if whisper_service else {},
         "local_semantic_enabled": settings.LOCAL_SEMANTIC_ENABLED,
         "local_semantic_threshold": settings.LOCAL_SEMANTIC_THRESHOLD,
         "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
@@ -478,7 +457,7 @@ async def get_settings():
 async def update_settings(settings_update: SettingsUpdate):
     """Met à jour la configuration et la persiste dans SQLite"""
     from ..core.config import settings
-    from ..main import output_manager, verse_parser, ai_service, deepgram_service, whisper_service, semantic_service
+    from ..main import output_manager, verse_parser, ai_service, deepgram_service, semantic_service
     from ..services.database import get_database
     
     db = get_database()
@@ -576,20 +555,10 @@ async def update_settings(settings_update: SettingsUpdate):
 
     if update.get("asr_default_engine"):
         engine = str(update["asr_default_engine"])
-        if engine not in {"auto", "local_auto", "deepgram", "whisper", "vosk"}:
+        if engine not in {"auto", "deepgram", "vosk"}:
             raise HTTPException(status_code=400, detail="Moteur ASR invalide")
         settings.ASR_DEFAULT_ENGINE = engine
         await db.set_setting("asr_default_engine", engine)
-
-    if update.get("whisper_model"):
-        model = str(update["whisper_model"])
-        try:
-            if whisper_service:
-                whisper_service.configure_model(model)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        settings.WHISPER_MODEL = model
-        await db.set_setting("whisper_model", model)
 
     if "local_semantic_enabled" in update:
         settings.LOCAL_SEMANTIC_ENABLED = bool(update["local_semantic_enabled"])
@@ -828,3 +797,90 @@ async def export_json(session_id: Optional[int] = None):
         filename="versepro_export.json",
         background=BackgroundTask(os.remove, output_path)
     )
+
+
+# ── HTTP CONTROL API (STREAM DECK / PHYSICAL CONTROLLERS) ──
+
+class ControlProjectRequest(BaseModel):
+    reference: str
+    text: Optional[str] = None
+    version: Optional[str] = None
+
+@router.post("/control/project")
+async def control_project(req: ControlProjectRequest):
+    """Projette une référence directement à l'antenne à distance"""
+    from ..main import output_manager, verse_parser, broadcast_projection
+    
+    parsed = None
+    if verse_parser:
+        parsed = await verse_parser.parse(req.reference)
+        
+    ref_name = parsed.get("reference") if parsed else req.reference
+    ref_text = parsed.get("text") if parsed else (req.text or "")
+    translations = parsed.get("translations") if parsed else None
+    
+    await broadcast_projection(ref_text, ref_name, translations=translations)
+    if output_manager:
+        await output_manager.project(ref_text, ref_name, translations=translations)
+        
+    return {
+        "success": True, 
+        "reference": ref_name, 
+        "text": ref_text
+    }
+
+@router.post("/control/clear")
+async def control_clear():
+    """Efface toutes les projections de l'écran (black screen)"""
+    from ..main import output_manager, broadcast_projection
+    await broadcast_projection("", "")
+    if output_manager:
+        await output_manager.clear()
+    return {"success": True}
+
+@router.post("/control/next")
+async def control_next():
+    """Navigue vers le verset suivant dans le passage en cours"""
+    from ..main import output_manager, broadcast_projection, current_projection_slide
+    if current_projection_slide and current_projection_slide.get("next_reference"):
+        next_ref = current_projection_slide["next_reference"]
+        next_text = current_projection_slide["next_text"]
+        await broadcast_projection(next_text, next_ref)
+        if output_manager:
+            await output_manager.project(next_text, next_ref)
+        return {"success": True, "reference": next_ref, "text": next_text}
+    return {"success": False, "detail": "Aucun verset suivant disponible"}
+
+@router.post("/control/prev")
+async def control_prev():
+    """Navigue vers le verset précédent dans le passage en cours"""
+    from ..main import output_manager, broadcast_projection, current_projection_slide, verse_parser
+    ref = current_projection_slide.get("reference")
+    if ref and verse_parser:
+        try:
+            parsed = await verse_parser.parse(ref, skip_text_search=True)
+            if parsed and parsed.get("verse_start") is not None:
+                prev_v = parsed["verse_start"] - 1
+                if prev_v > 0:
+                    prev_text = verse_parser.bible_loader.get_verse_text(parsed["book_abbr"], parsed["chapter"], prev_v)
+                    if prev_text:
+                        prev_ref = f"{parsed['book_abbr']} {parsed['chapter']}:{prev_v}"
+                        await broadcast_projection(prev_text, prev_ref)
+                        if output_manager:
+                            await output_manager.project(prev_text, prev_ref)
+                        return {"success": True, "reference": prev_ref, "text": prev_text}
+        except Exception:
+            pass
+    return {"success": False, "detail": "Aucun verset précédent disponible"}
+
+@router.get("/control/status")
+async def control_status():
+    """Renvoie l'état courant de la projection"""
+    from ..main import current_projection_slide
+    return {
+        "on_air": bool(current_projection_slide.get("reference")),
+        "reference": current_projection_slide.get("reference", ""),
+        "text": current_projection_slide.get("text", ""),
+        "next_reference": current_projection_slide.get("next_reference", ""),
+        "next_text": current_projection_slide.get("next_text", "")
+    }

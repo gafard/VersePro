@@ -52,25 +52,19 @@ class Settings(BaseSettings):
     # Audio
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_CHUNK_SIZE: int = 4096
-    ASR_DEFAULT_ENGINE: str = "auto"  # auto, local_auto, deepgram, whisper, vosk
+    ASR_DEFAULT_ENGINE: str = "auto"  # auto (deepgram + secours vosk), deepgram, vosk
     
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # secondes
     
     # Vosk
-    VOSK_MODEL_TYPE: str = "small"  # 'small' ou 'large' pour le modèle français plus précis de 1.4 Go
-
-    # Whisper local. "auto" choisit un modèle selon la machine.
-    WHISPER_MODEL: str = "auto"  # auto, base, small, turbo
-    WHISPER_CHUNK_SECONDS: float = 2.4
-    WHISPER_BEAM_SIZE: int = 1
+    VOSK_MODEL_TYPE: str = "large"  # 'small' (45 Mo) par défaut pour la rapidité et légèreté hors-ligne
 
     # Recherche sémantique locale. Le moteur ONNX est optionnel et retombe
     # automatiquement sur l'index lexical si le runtime n'est pas disponible.
     LOCAL_SEMANTIC_ENABLED: bool = True
-    LOCAL_SEMANTIC_MODEL: str = "e5-small"  # léger 118 Mo ; "qwen3" = palier qualité 640 Mo
+    LOCAL_SEMANTIC_MODEL: str = "e5-small"  # modèle par défaut et unique (~118 Mo)
     # Calibré sur mesures réelles e5-small (signal >= 0.877, bruit <= 0.830).
-    # Pour "qwen3" (scores plus étalés) : threshold ~0.72, margin ~0.04.
     LOCAL_SEMANTIC_THRESHOLD: float = 0.865
     LOCAL_SEMANTIC_MARGIN: float = 0.012
     LOCAL_SEMANTIC_TOP_K: int = 5
@@ -84,6 +78,13 @@ class Settings(BaseSettings):
     VMIX_HOST: str = "127.0.0.1"
     VMIX_PORT: int = 8088
     VMIX_INPUT_ID: str = "VerseProTitle"
+    
+    # NDI
+    NDI_ENABLED: bool = False
+
+    # OSC
+    OSC_ENABLED: bool = False
+    OSC_PORT: int = 8000
     
     @property
     def cors_origins(self) -> List[str]:

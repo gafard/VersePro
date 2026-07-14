@@ -3,17 +3,80 @@ import { useStore } from '../store.js'
 import { Icon } from './ui.jsx'
 
 /*
- * Assistant de premier lancement — installe VersePro comme un vrai produit :
- * micro testé, reconnaissance vocale locale (Vosk) et intelligence (index
- * sémantique e5 · clé cloud · ou rien) téléchargées AVEC progression,
- * depuis les endpoints existants. Tout est optionnel, tout est repassable.
+ * Installateur de premier lancement — trois étapes, comme un vrai setup :
+ * 1. INSTALLATION : scan automatique des composants IA, un seul bouton
+ *    installe tout ce qui manque (vosk 1,4 Go + index sémantique e5 118 Mo)
+ *    avec progression et erreurs visibles. L'index lexical est déjà inclus.
+ * 2. MICRO : test du signal.
+ * 3. PRÊT : récapitulatif + clé Deepgram optionnelle pour le cloud.
  */
 
-const STEPS = ['bienvenue', 'micro', 'voix', 'intelligence', 'pret']
+const STEPS = ['installation', 'micro', 'pret']
 
 export default function FirstRunWizard({ onDone }) {
   const { updateSettings } = useStore()
   const [step, setStep] = useState(0)
+
+  // ── Scan + téléchargement des composants IA ──
+  const [vosk, setVosk] = useState(null)
+  const [sem, setSem] = useState(null)
+  const [scanned, setScanned] = useState(false)
+  const [backendDown, setBackendDown] = useState(false)
+  const [launched, setLaunched] = useState(false)
+  const autoAdvanced = useRef(false)
+
+  const pollStatuses = async () => {
+    try {
+      const [vr, sr] = await Promise.all([
+        fetch('/api/v1/vosk/status'),
+        fetch('/api/v1/semantic/status')
+      ])
+      setVosk(await vr.json())
+      setSem(await sr.json())
+      setBackendDown(false)
+    } catch {
+      setBackendDown(true)
+    } finally {
+      setScanned(true)
+    }
+  }
+
+  // Le sondage tourne tant que l'installateur est ouvert : les téléchargements
+  // lancés à l'étape 1 restent visibles même si l'utilisateur avance.
+  useEffect(() => {
+    pollStatuses()
+    const id = setInterval(pollStatuses, 2000)
+    return () => clearInterval(id)
+  }, [])
+
+  const voskReady = Boolean(vosk?.installed)
+  const semReady = Boolean(sem?.installed)
+  const voskBusy = Boolean(vosk?.downloading)
+  const semBusy = Boolean(sem && (sem.downloading || sem.indexing))
+  const allReady = voskReady && semReady
+  const anyBusy = voskBusy || semBusy
+  const missing = [!voskReady && 'vosk', !semReady && 'sem'].filter(Boolean)
+
+  const installVosk = async () => {
+    try { await fetch('/api/v1/vosk/download', { method: 'POST' }) } catch { setBackendDown(true) }
+  }
+  const installSem = async () => {
+    try { await fetch('/api/v1/semantic/prepare', { method: 'POST' }) } catch { setBackendDown(true) }
+  }
+  const installMissing = async () => {
+    setLaunched(true)
+    await Promise.all([!voskReady && installVosk(), !semReady && installSem()].filter(Boolean))
+    pollStatuses()
+  }
+
+  // Quand l'installation lancée ici se termine, on passe au micro tout seul.
+  useEffect(() => {
+    if (launched && allReady && !autoAdvanced.current && STEPS[step] === 'installation') {
+      autoAdvanced.current = true
+      const t = setTimeout(() => setStep(1), 1400)
+      return () => clearTimeout(t)
+    }
+  }, [launched, allReady, step])
 
   // ── Micro : test local (VU) sans toucher aux moteurs ──
   const [micState, setMicState] = useState('idle') // idle | asking | live | denied
@@ -55,49 +118,15 @@ export default function FirstRunWizard({ onDone }) {
   useEffect(() => () => stopMicTest(), [])
   useEffect(() => { if (STEPS[step] !== 'micro') stopMicTest() }, [step])
 
-  // ── Vosk : statut + téléchargement avec progression ──
-  const [vosk, setVosk] = useState(null)
-  const pollVosk = async () => {
-    try {
-      const r = await fetch('/api/v1/vosk/status')
-      setVosk(await r.json())
-    } catch { setVosk(null) }
-  }
-  useEffect(() => {
-    if (STEPS[step] !== 'voix') return
-    pollVosk()
-    const id = setInterval(pollVosk, 2500)
-    return () => clearInterval(id)
-  }, [step])
-
-  // ── Sémantique : statut + préparation (téléchargement 118 Mo + index) ──
-  const [sem, setSem] = useState(null)
-  const [aiChoice, setAiChoice] = useState(null) // 'local' | 'cloud' | 'none'
+  // ── Clé cloud optionnelle (étape finale) ──
   const [cloudKey, setCloudKey] = useState('')
   const [cloudSaved, setCloudSaved] = useState(false)
-  const pollSem = async () => {
-    try {
-      const r = await fetch('/api/v1/semantic/status')
-      setSem(await r.json())
-    } catch { setSem(null) }
-  }
-  useEffect(() => {
-    if (STEPS[step] !== 'intelligence') return
-    pollSem()
-    const id = setInterval(pollSem, 2500)
-    return () => clearInterval(id)
-  }, [step])
-
-  const prepareSemantic = async () => {
-    setAiChoice('local')
-    try { await fetch('/api/v1/semantic/prepare', { method: 'POST' }); pollSem() } catch { /* bannière backend */ }
-  }
   const saveCloudKey = async () => {
     const key = cloudKey.trim()
     if (!key) return
     const payload = key.startsWith('sk-or-') ? { openrouter_api_key: key } : { deepgram_api_key: key }
     const res = await updateSettings(payload)
-    if (res) { setCloudSaved(true); setAiChoice('cloud') }
+    if (res) setCloudSaved(true)
   }
 
   const finish = () => {
@@ -110,13 +139,36 @@ export default function FirstRunWizard({ onDone }) {
     onDone()
   }
 
-  const stepLabel = ['ACCUEIL', 'MICRO', 'VOIX LOCALE', 'INTELLIGENCE', 'PRÊT'][step]
-  const voskReady = Boolean(vosk?.installed)
-  const semReady = Boolean(sem?.installed)
-  const semBusy = Boolean(sem && (sem.downloading || sem.indexing))
+  const stepLabel = ['INSTALLATION', 'MICRO', 'PRÊT'][step]
+
+  const componentRow = (label, size, ready, busy, busyLabel, progress, error, retry) => (
+    <div className={`fw-comp ${ready ? 'is-ready' : ''}`}>
+      <div className="fw-comp-head">
+        <strong>{label}</strong>
+        <span className="fw-comp-size">{size}</span>
+      </div>
+      {ready ? (
+        <span className="fw-ok"><Icon name="check" size={12} /> installé</span>
+      ) : busy ? (
+        <div className="fw-dl">
+          <span className="fw-dl-label">{busyLabel}</span>
+          <div className={`fw-bar ${progress == null ? 'is-indeterminate' : ''}`}>
+            <div style={progress == null ? undefined : { width: `${progress}%`, height: '100%', background: 'var(--color-accent)' }} />
+          </div>
+        </div>
+      ) : error ? (
+        <div>
+          <p className="fw-warn">{error}</p>
+          <button className="vp-btn vp-btn--sm" onClick={retry}>réessayer</button>
+        </div>
+      ) : (
+        <span className="fw-comp-size">en attente d'installation</span>
+      )}
+    </div>
+  )
 
   return (
-    <div className="fw-backdrop" role="dialog" aria-modal="true" aria-label="Premier lancement">
+    <div className="fw-backdrop" role="dialog" aria-modal="true" aria-label="Installation de VersePro">
       <div className="fw-panel">
         <header className="fw-head">
           <span className="fw-brand">versepro</span>
@@ -128,20 +180,80 @@ export default function FirstRunWizard({ onDone }) {
         </div>
 
         <main className="fw-body">
-          {STEPS[step] === 'bienvenue' && (
+          {STEPS[step] === 'installation' && (
             <>
-              <h1 className="fw-title">la régie s'installe en trois minutes.</h1>
+              <h1 className="fw-title">installation des composants.</h1>
               <p className="fw-lede">
-                on teste votre micro, puis versepro télécharge ce qu'il lui faut pour
-                fonctionner <strong>sans internet le dimanche</strong> — reconnaissance
-                vocale et intelligence locales. chaque étape est optionnelle.
+                versepro vérifie ce qui est présent sur cette machine et télécharge
+                le reste — une seule fois. ensuite, tout fonctionne
+                <strong> sans internet le dimanche</strong>.
               </p>
+
+              {backendDown && (
+                <p className="fw-warn">
+                  le moteur versepro ne répond pas. lancez le backend puis{' '}
+                  <button className="vp-btn vp-btn--sm" onClick={pollStatuses}>réessayer</button>
+                </p>
+              )}
+
+              {!backendDown && !scanned && <p className="fw-hint">analyse de la machine…</p>}
+
+              {scanned && !backendDown && (
+                <div className="fw-comps">
+                  <div className="fw-comp is-ready">
+                    <div className="fw-comp-head">
+                      <strong>index lexical des citations</strong>
+                      <span className="fw-comp-size">inclus · 0 Mo</span>
+                    </div>
+                    <span className="fw-ok"><Icon name="check" size={12} /> « jean 3 verset 16 » fonctionne déjà</span>
+                  </div>
+
+                  {componentRow(
+                    'reconnaissance vocale hors-ligne (vosk)',
+                    '1,4 Go',
+                    voskReady,
+                    voskBusy,
+                    `TÉLÉCHARGEMENT ${Math.round(vosk?.download_progress || 0)} %`,
+                    Math.round(vosk?.download_progress || 0),
+                    vosk?.last_error,
+                    installVosk
+                  )}
+
+                  {componentRow(
+                    'intelligence sémantique (e5, paraphrases)',
+                    '118 Mo',
+                    semReady,
+                    semBusy,
+                    sem?.downloading
+                      ? `TÉLÉCHARGEMENT ${Math.round(sem?.download_progress || 0)} %`
+                      : `INDEXATION ${sem?.verses_indexed || 0} VERSETS…`,
+                    sem?.downloading ? Math.round(sem?.download_progress || 0) : null,
+                    sem?.last_error,
+                    installSem
+                  )}
+                </div>
+              )}
+
+              {scanned && !backendDown && (
+                allReady ? (
+                  <p className="fw-ok"><Icon name="check" size={13} /> tout est déjà installé — rien à télécharger.</p>
+                ) : anyBusy ? (
+                  <p className="fw-hint">
+                    téléchargement en cours — vous pouvez continuer, l'installation
+                    se poursuit en arrière-plan.
+                  </p>
+                ) : (
+                  <button className="vp-btn vp-btn--primary fw-install-all" onClick={installMissing}>
+                    tout installer ({missing.length === 2 ? '1,5 Go' : missing[0] === 'vosk' ? '1,4 Go' : '118 Mo'})
+                  </button>
+                )
+              )}
             </>
           )}
 
           {STEPS[step] === 'micro' && (
             <>
-              <h1 className="fw-title">le micro, d'abord.</h1>
+              <h1 className="fw-title">le micro, maintenant.</h1>
               <p className="fw-lede">autorisez l'accès et parlez : la barre doit bouger.</p>
               {micState !== 'live' ? (
                 <button className="vp-btn vp-btn--primary" onClick={startMicTest} disabled={micState === 'asking'}>
@@ -154,65 +266,9 @@ export default function FirstRunWizard({ onDone }) {
               )}
               {micState === 'live' && micLevel > 8 && <p className="fw-ok"><Icon name="check" size={13} /> signal reçu — micro opérationnel</p>}
               {micState === 'denied' && (
-                <p className="fw-warn">accès refusé — autorisez le micro dans les réglages du navigateur, ou continuez : vous pourrez le faire plus tard.</p>
+                <p className="fw-warn">accès refusé — autorisez le micro dans les réglages système, ou continuez : vous pourrez le faire plus tard.</p>
               )}
-            </>
-          )}
-
-          {STEPS[step] === 'voix' && (
-            <>
-              <h1 className="fw-title">la voix devient du texte, en local.</h1>
-              <p className="fw-lede">
-                le modèle vosk transcrit la prédication sans connexion. il se télécharge
-                une seule fois{vosk?.model_type ? ` (modèle ${vosk.model_type})` : ''}.
-              </p>
-              {voskReady ? (
-                <p className="fw-ok"><Icon name="check" size={13} /> modèle vocal installé et prêt</p>
-              ) : vosk?.downloading ? (
-                <div className="fw-dl">
-                  <span className="fw-dl-label">TÉLÉCHARGEMENT EN COURS…</span>
-                  <div className="fw-bar is-indeterminate"><div /></div>
-                </div>
-              ) : (
-                <button className="vp-btn vp-btn--primary" onClick={async () => { await fetch('/api/v1/vosk/download', { method: 'POST' }); pollVosk() }}>
-                  télécharger le modèle vocal
-                </button>
-              )}
-              <p className="fw-hint">vous utilisez deepgram cloud ? cette étape reste utile : vosk prend le relais si internet tombe en plein culte.</p>
-            </>
-          )}
-
-          {STEPS[step] === 'intelligence' && (
-            <>
-              <h1 className="fw-title">et quand le prédicateur ne cite pas ?</h1>
-              <p className="fw-lede">« il a marché sur l'eau » → matthieu 14. choisissez comment versepro comprend les paraphrases :</p>
-              <div className="fw-choices">
-                <button className={`fw-choice ${aiChoice === 'local' || semReady ? 'is-active' : ''}`} onClick={prepareSemantic} disabled={semBusy}>
-                  <span className="fw-choice-tag">RECOMMANDÉ · 118 MO</span>
-                  <strong>intelligence locale</strong>
-                  <p>index sémantique hors-ligne. privé, gratuit, 6 ms par phrase.</p>
-                  {semReady && <span className="fw-ok"><Icon name="check" size={12} /> prêt ({sem.verses_total} versets)</span>}
-                  {semBusy && (
-                    <span className="fw-dl-label">
-                      {sem.downloading ? `TÉLÉCHARGEMENT ${Math.round(sem.download_progress || 0)} %` : `INDEXATION ${sem.verses_indexed || 0} VERSETS…`}
-                    </span>
-                  )}
-                </button>
-                <div className={`fw-choice ${cloudSaved ? 'is-active' : ''}`}>
-                  <span className="fw-choice-tag">CLOUD · CLÉ REQUISE</span>
-                  <strong>clé deepgram / openrouter</strong>
-                  <div className="fw-key-row">
-                    <input className="vp-input" type="password" placeholder="dg_… ou sk-or-…" value={cloudKey} onChange={(e) => setCloudKey(e.target.value)} />
-                    <button className="vp-btn vp-btn--sm" onClick={saveCloudKey} disabled={!cloudKey.trim()}>ok</button>
-                  </div>
-                  {cloudSaved && <span className="fw-ok"><Icon name="check" size={12} /> clé enregistrée</span>}
-                </div>
-                <button className={`fw-choice ${aiChoice === 'none' ? 'is-active' : ''}`} onClick={() => setAiChoice('none')}>
-                  <span className="fw-choice-tag">MINIMAL</span>
-                  <strong>sans intelligence</strong>
-                  <p>les citations explicites (« jean 3 verset 16 ») marchent déjà parfaitement.</p>
-                </button>
-              </div>
+              {anyBusy && <p className="fw-hint">les téléchargements continuent : vosk {voskReady ? 'prêt' : `${Math.round(vosk?.download_progress || 0)} %`} · intelligence {semReady ? 'prête' : sem?.downloading ? `${Math.round(sem?.download_progress || 0)} %` : `indexation ${sem?.verses_indexed || 0}`}</p>}
             </>
           )}
 
@@ -220,11 +276,20 @@ export default function FirstRunWizard({ onDone }) {
             <>
               <h1 className="fw-title">c'est prêt.</h1>
               <ul className="fw-recap">
+                <li><Icon name={voskReady ? 'check' : 'alert'} size={13} /> voix hors-ligne {voskReady ? 'installée' : voskBusy ? 'en cours de téléchargement' : 'non installée'}</li>
+                <li><Icon name={semReady ? 'check' : 'alert'} size={13} /> intelligence sémantique {semReady ? 'prête' : semBusy ? 'en préparation' : 'non installée'}</li>
                 <li><Icon name={micState === 'live' ? 'check' : 'alert'} size={13} /> micro {micState === 'live' ? 'testé' : 'à tester dans la régie'}</li>
-                <li><Icon name={voskReady ? 'check' : 'alert'} size={13} /> voix locale {voskReady ? 'installée' : 'non installée (cloud requis)'}</li>
-                <li><Icon name={semReady || cloudSaved ? 'check' : 'alert'} size={13} /> intelligence {semReady ? 'locale prête' : cloudSaved ? 'cloud configurée' : 'désactivée'}</li>
               </ul>
-              <p className="fw-lede">tout se règle à nouveau dans <strong>paramètres</strong>, à tout moment.</p>
+              <div className="fw-choice">
+                <span className="fw-choice-tag">OPTIONNEL · CLOUD</span>
+                <strong>clé deepgram (transcription cloud plus précise)</strong>
+                <div className="fw-key-row">
+                  <input className="vp-input" type="password" placeholder="dg_… ou sk-or-…" value={cloudKey} onChange={(e) => setCloudKey(e.target.value)} />
+                  <button className="vp-btn vp-btn--sm" onClick={saveCloudKey} disabled={!cloudKey.trim()}>ok</button>
+                </div>
+                {cloudSaved && <span className="fw-ok"><Icon name="check" size={12} /> clé enregistrée</span>}
+              </div>
+              <p className="fw-hint">tout se règle à nouveau dans <strong>paramètres</strong>, à tout moment.</p>
             </>
           )}
         </main>

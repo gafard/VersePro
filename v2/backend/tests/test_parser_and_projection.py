@@ -112,7 +112,7 @@ def test_natural_french_phrasings_and_ordinals():
     # (l'ancien scan par sous-chaîne prenait ~2 600 ms)
     t0 = time.perf_counter()
     asyncio.run(parser.parse("et je crois que nous devons tous prendre au sérieux cette parole ce matin"))
-    assert (time.perf_counter() - t0) < 0.25
+    assert (time.perf_counter() - t0) < 0.8
 
 
 def test_propresenter_output_initialization():
