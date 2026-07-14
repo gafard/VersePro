@@ -42,12 +42,13 @@ pas de la décoration : ok `oklch(70% 0.12 155)` · danger `oklch(62% 0.19 25)`
 · ia = corde corail `--color-accent-2`.
 
 ## Typography
-- Display : Instrument Serif 400, style normal (JAMAIS italique),
-  **bas-de-casse** sur toute prose marketing
+- Display : Space Grotesk 600 (grotesk fort, registre « régie broadcast »),
+  **bas-de-casse** sur toute prose marketing. Remplace l'ancien serif éditorial
+  (Instrument Serif) jugé trop « plateforme IA ».
 - Body : Geist Sans 400/500/600
 - Mono (labels) : JetBrains Mono 400/500 — SEULE surface en MAJUSCULES
   (eyebrows `01 · RÉGIE`, callouts, labels de mètre, labels de stats)
-- Display tracking : -0.032em
+- Display tracking : -0.02em (grotesk : moins serré que l'ancien serif)
 - Ancre d'échelle : --text-display = clamp(2.75rem, 6vw + 1rem, 5.5rem)
 - Polices AUTO-HÉBERGÉES via @fontsource (contrainte produit : l'application
   doit fonctionner sans internet le dimanche). Jamais de CDN de polices.
@@ -91,9 +92,9 @@ Les labels de panneaux de l'app utilisent le registre mono-MAJUSCULES.
 - Écrans de diffusion : lisibilité absolue ; accents laiton/corail seulement.
 
 ## What pages MUST share
-- Le logotype bas-de-casse : `versepro` (serif) — plus de carré « VP ».
+- Le logotype bas-de-casse : `versepro` (Space Grotesk) — plus de carré « VP ».
 - L'accent laiton et sa discipline (≤ 5 % de la surface par viewport).
-- Instrument Serif + Geist + JetBrains Mono.
+- Space Grotesk + Geist + JetBrains Mono.
 - La voix CTA (formes, rayons, rythme de padding).
 - Le motif eyebrow mono `NN · RÔLE`.
 

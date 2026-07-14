@@ -1630,7 +1630,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .lp-title {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-style: normal;
   font-size: var(--text-display);
   line-height: 1.04;
@@ -1864,7 +1864,7 @@ input[type="range"]::-webkit-slider-thumb {
 .lp-stat strong {
   display: block;
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: clamp(2.5rem, 4vw + 1rem, 4.5rem);
   font-variant-numeric: tabular-nums;
   color: var(--color-ink);
@@ -1886,7 +1886,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .lp-h2 {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: var(--text-display-s);
   letter-spacing: var(--tracking-display);
   color: var(--color-ink);
@@ -1921,7 +1921,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .lp-card h3 {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: var(--text-xl);
   color: var(--color-ink);
   margin: 0 0 var(--space-xs);
@@ -1967,7 +1967,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .lp-footer-statement {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: var(--text-display-s);
   color: var(--color-ink);
   letter-spacing: var(--tracking-display);
@@ -2506,7 +2506,7 @@ select:focus-visible,
 .fw-progress span.is-done { background: var(--color-accent); }
 .fw-body { padding: var(--space-lg); flex: 1; }
 .fw-title {
-  font-family: var(--font-display); font-weight: 400; font-style: normal;
+  font-family: var(--font-display); font-weight: 600; font-style: normal;
   font-size: clamp(1.6rem, 3vw, 2.1rem); line-height: 1.15;
   letter-spacing: var(--tracking-display); color: var(--color-ink);
   margin: 0 0 var(--space-sm); text-transform: lowercase;
