@@ -62,7 +62,7 @@ STANDARD_BOOK_MAP = {
     "marc": "Mc",
     "luc": "Lc",
     "jean": "Jn",
-    "actes": "Ac", "actes des apôtres": "Ac",
+    "actes": "Ac", "actes des apotres": "Ac", "actes des apôtres": "Ac", "ac": "Ac",
     "romains": "Rm",
     "1 corinthiens": "1 Co",
     "2 corinthiens": "2 Co",
@@ -101,6 +101,54 @@ def get_full_book_name(book_abbr: str) -> str:
     return book_abbr.title()
 
 
+# Noms complets AVEC accents/casse propres, pour l'AFFICHAGE (jamais pour la
+# recherche). Clés = abréviations minuscules de bible.json (« mt », « 1 co »,
+# « és », « ac »…). L'interne garde les abréviations ; l'utilisateur voit les noms.
+BOOK_FULL_NAMES = {
+    "gen": "Genèse", "ex": "Exode", "lév": "Lévitique", "nb": "Nombres",
+    "dt": "Deutéronome", "jos": "Josué", "jg": "Juges", "rt": "Ruth",
+    "1 s": "1 Samuel", "2 s": "2 Samuel", "1 r": "1 Rois", "2 r": "2 Rois",
+    "1 ch": "1 Chroniques", "2 ch": "2 Chroniques", "esd": "Esdras", "neh": "Néhémie",
+    "est": "Esther", "job": "Job", "ps": "Psaumes", "pr": "Proverbes",
+    "ec": "Ecclésiaste", "ct": "Cantique des cantiques", "és": "Ésaïe", "jér": "Jérémie",
+    "lm": "Lamentations", "éz": "Ézéchiel", "dn": "Daniel", "os": "Osée",
+    "jl": "Joël", "am": "Amos", "abd": "Abdias", "jon": "Jonas", "mi": "Michée",
+    "na": "Nahum", "hab": "Habacuc", "so": "Sophonie", "ag": "Aggée", "za": "Zacharie",
+    "ml": "Malachie", "mt": "Matthieu", "mc": "Marc", "lc": "Luc", "jn": "Jean",
+    "ac": "Actes", "rm": "Romains", "1 co": "1 Corinthiens", "2 co": "2 Corinthiens",
+    "ga": "Galates", "éph": "Éphésiens", "ph": "Philippiens", "col": "Colossiens",
+    "1 th": "1 Thessaloniciens", "2 th": "2 Thessaloniciens", "1 tm": "1 Timothée",
+    "2 tm": "2 Timothée", "tt": "Tite", "phm": "Philémon", "he": "Hébreux",
+    "jc": "Jacques", "1 p": "1 Pierre", "2 p": "2 Pierre", "1 jn": "1 Jean",
+    "2 jn": "2 Jean", "3 jn": "3 Jean", "jude": "Jude", "ap": "Apocalypse",
+}
+
+
+def display_book_name(book_abbr: str) -> str:
+    """Nom d'affichage complet (accents propres) pour n'importe quelle casse
+    d'abréviation. Repli sur get_full_book_name puis titrecase."""
+    if not book_abbr:
+        return ""
+    key = book_abbr.strip().lower()
+    if key in BOOK_FULL_NAMES:
+        return BOOK_FULL_NAMES[key]
+    # abréviation « standard » (Mt, Ac…) : retrouver la clé minuscule équivalente
+    for k, full in BOOK_FULL_NAMES.items():
+        if k.replace(" ", "") == key.replace(" ", ""):
+            return full
+    return get_full_book_name(book_abbr)
+
+
+def format_reference(book_abbr: str, chapter, verse_start=None, verse_end=None) -> str:
+    """Référence d'AFFICHAGE : « Jean 3:16 », « Actes 2:38 », « Romains 8:28-30 »."""
+    name = display_book_name(book_abbr)
+    if verse_start is None:
+        return f"{name} {chapter}".strip()
+    if verse_end and verse_end != verse_start:
+        return f"{name} {chapter}:{verse_start}-{verse_end}"
+    return f"{name} {chapter}:{verse_start}"
+
+
 class BibleLoader:
     """Charge plusieurs versions de la Bible et gère la recherche textuelle multi-version"""
     _shared_versions = None
@@ -126,10 +174,14 @@ class BibleLoader:
             logger.info(f"📚 BibleLoader réutilisé en mémoire: {len(self.versions)} versions, {len(self.verse_index)} clés")
             return
         
-        # 1. Charge la version par défaut LSG (avec fallbacks)
+        # 1. Charge la version par défaut LSG (avec fallbacks).
+        #    RESOURCE_DIR d'abord : indispensable en application figée, où le
+        #    dossier de travail n'a plus de dossier data/ relatif.
+        from ..core.config import RESOURCE_DIR
         lsg_path = json_path or "data/bible.json"
         paths_to_try = [
             lsg_path,
+            str(RESOURCE_DIR / "data" / "bible.json"),
             "v2/backend/data/bible.json",
             "../data/bible.json",
             "../../data/bible.json"
@@ -143,8 +195,10 @@ class BibleLoader:
                     logger.info(f"📚 Bible LSG chargée avec succès depuis {p}")
                     break
             
-        # 2. Charge les autres versions converties
+        # 2. Charge les autres versions converties (celles présentes seulement :
+        #    l'app distribuée n'embarque que le domaine public — LSG + KJF).
         cache_dirs = [
+            str(RESOURCE_DIR / "data" / "bibles_cache"),
             "data/bibles_cache",
             "v2/backend/data/bibles_cache",
             "../data/bibles_cache",
@@ -219,7 +273,12 @@ class BibleLoader:
                     book_name = book.get("name", "").strip()
                     book_abbr = book.get("abbreviation", "").strip()
                     std_abbr = get_standard_abbr(book_name) or book_abbr
-                    
+                    # Garde-fou : un livre sans abréviation résolue créerait une
+                    # clé vide invisible (bug historique « Actes des Apôtres »).
+                    if not std_abbr or not std_abbr.strip():
+                        logger.warning(f"⚠️ Livre ignoré (abréviation introuvable) : {book_name!r}")
+                        continue
+
                     books_dict[std_abbr.lower()] = {}
                     
                     for ch in book.get("chapters", []):
@@ -354,7 +413,7 @@ class BibleLoader:
         }
 
     def _make_reference_result(self, book_abbr: str, chapter: int, verse: int, detected_from: str) -> Dict[str, Any]:
-        ref_text = f"{book_abbr} {chapter}:{verse}"
+        ref_text = format_reference(book_abbr, chapter, verse)
         translations = {}
         for v_name in self.versions.keys():
             text_v = self.get_verse_text(book_abbr, chapter, verse, version_id=v_name)
@@ -426,7 +485,7 @@ class BibleLoader:
                 phrase = " ".join(words[i : i + length])
                 if phrase in self.verse_index:
                     match = self.verse_index[phrase][0]
-                    ref_text = f"{match['book_abbr']} {match['chapter']}:{match['verse']}"
+                    ref_text = format_reference(match['book_abbr'], match['chapter'], match['verse'])
                     
                     # Récupération de toutes les traductions disponibles pour la comparaison
                     translations = {}
@@ -933,18 +992,12 @@ class VerseParserService:
             if not book_abbr:
                 return None
             
-            if verse_start is None:
-                ref_text = f"{book_abbr} {chapter}"
-            elif verse_end:
-                ref_text = f"{book_abbr} {chapter}:{verse_start}-{verse_end}"
-            else:
-                ref_text = f"{book_abbr} {chapter}:{verse_start}"
-
             if verse_end and verse_start is None:
                 verse_end = None
 
-            if verse_end:
-                ref_text = f"{book_abbr} {chapter}:{verse_start}-{verse_end}"
+            # Référence d'AFFICHAGE en nom complet (« Actes 2:38 »), l'abréviation
+            # reste dans book_abbr pour la recherche/les clés.
+            ref_text = format_reference(book_abbr, chapter, verse_start, verse_end)
             
             # Récupère le texte de la version active
             verse_text = self.bible_loader.get_verse_text(book_abbr, chapter, verse_start, verse_end)

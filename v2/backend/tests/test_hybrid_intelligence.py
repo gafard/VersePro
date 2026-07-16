@@ -38,7 +38,7 @@ def test_local_semantic_search_ranks_real_verse(tmp_path):
 
     results = service.search("Il a tellement aime le monde qu'il a donne son fils", top_k=2)
 
-    assert results[0]["reference"] == "Jn 3:16"
+    assert results[0]["reference"] == "Jean 3:16"
     assert results[0]["requires_review"] is True
     assert results[0]["detection_method"] == "semantic_local"
 

@@ -80,7 +80,7 @@ def test_semantic_service_search_similarity(mock_bible_loader):
     
     # Devrait retourner Matthieu 14:25 en premier à cause du mot "eaux" simulant le concept d'eau/mer
     assert len(results) > 0
-    assert results[0]["reference"] == "Mt 14:25"
+    assert results[0]["reference"] == "Matthieu 14:25"
     assert results[0]["score"] > 0.0
     assert "mer" in results[0]["text"]
 

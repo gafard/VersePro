@@ -17,20 +17,36 @@ def reset_projection_state():
         import asyncio
         asyncio.run(main.output_manager.initialize_defaults())
         
-    main.current_projection_slide = {
+    main.current_projection_slide.clear()
+    main.current_projection_slide.update({
         "text": "En attente d'affichage...",
         "reference": "",
         "background": "black",
         "translations": {},
-    }
+    })
     if main.output_manager and "browser" in main.output_manager.outputs:
         main.output_manager.outputs["browser"].connections.clear()
+        main.output_manager.outputs["browser"].current_scene = {
+            "type": "scripture",
+            "text": "En attente d'affichage...",
+            "reference": "",
+            "background": "black",
+            "theme": "presentation",
+            "translations": {}
+        }
     yield
     if main.output_manager and "browser" in main.output_manager.outputs:
         main.output_manager.outputs["browser"].connections.clear()
 
 
 def test_projection_websocket_sends_current_slide_on_connect():
+    main.current_projection_slide.clear()
+    main.current_projection_slide.update({
+        "text": "En attente d'affichage...",
+        "reference": "",
+        "background": "black",
+        "translations": {},
+    })
     client = TestClient(main.app)
 
     with client.websocket_connect("/ws/output") as websocket:

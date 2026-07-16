@@ -21,10 +21,8 @@ FRAME_SIZE = 512          # 32 ms à 16 kHz (imposé par Silero VAD v5)
 SPEECH_THRESHOLD = 0.5    # probabilité minimale pour ouvrir la porte
 HANGOVER_CHUNKS = 6       # ~1,5 s de grâce après la dernière parole (chunks de 256 ms)
 
-_MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "data", "silero_vad.onnx",
-)
+from ..core.config import DATA_DIR
+_MODEL_PATH = str(DATA_DIR / "silero_vad.onnx")
 
 _shared_session = None
 

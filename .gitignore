@@ -67,3 +67,11 @@ __pycache__/
 
 # Tauri
 v2/frontend/src-tauri/target/
+
+# Empaquetage backend (artefacts générés, jamais versionnés)
+v2/backend/.freeze-venv/
+v2/backend/build/
+v2/backend/dist/
+v2/backend/data/versepro.db
+v2/backend/*.db
+v2/frontend/src-tauri/binaries/

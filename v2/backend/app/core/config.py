@@ -2,6 +2,9 @@
 Configuration de VersePro v2
 """
 
+import os
+import sys
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import List
@@ -114,3 +117,36 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+# ── Résolution des chemins (dev ET application empaquetée) ──────────────────
+# Deux natures de dossiers, distinctes une fois l'app figée par PyInstaller :
+#   • RESOURCE_DIR : ressources LECTURE SEULE embarquées (bible.json, kjf.json).
+#     Figé : à côté de l'exécutable (sys._MEIPASS) ; sinon la racine du backend.
+#   • DATA_DIR : dossier INSCRIPTIBLE (modèles Vosk/e5, index, base). Fixé par
+#     le lanceur (VERSEPRO_DATA_DIR → ~/Library/Application Support/VersePro) ;
+#     en dev, le classique v2/backend/data. Ne JAMAIS écrire dans le bundle.
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resource_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return _BACKEND_ROOT
+
+
+def _data_dir() -> Path:
+    env = os.environ.get("VERSEPRO_DATA_DIR")
+    base = Path(env).expanduser() if env else (_BACKEND_ROOT / "data")
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+RESOURCE_DIR = _resource_dir()
+DATA_DIR = _data_dir()
+
+
+def db_path() -> Path:
+    """Chemin de la base SQLite (inscriptible)."""
+    env = os.environ.get("VERSEPRO_DB_PATH")
+    return Path(env).expanduser() if env else (DATA_DIR / "versepro.db")

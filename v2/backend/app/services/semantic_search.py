@@ -19,10 +19,12 @@ class LocalSemanticService:
     """Index vectoriel local; le LLM n'intervient qu'apres ce retrieval."""
 
     def __init__(self, bible_loader, encoder: Any = None, cache_dir: Optional[Path] = None):
+        from ..core.config import DATA_DIR
         self.bible_loader = bible_loader
         self.model_name = settings.LOCAL_SEMANTIC_MODEL
         self.active_model: Optional[str] = None if encoder is None else self.model_name
-        self.cache_dir = Path(cache_dir or Path(__file__).resolve().parents[2] / "data" / "semantic")
+        # Dossier inscriptible (modèle e5 + index téléchargés/construits au 1er lancement).
+        self.cache_dir = Path(cache_dir or (DATA_DIR / "semantic"))
         self.encoder = encoder
         self._injected_encoder = encoder is not None  # encodeur de test fourni au constructeur
         self.entries: List[Dict[str, Any]] = []
@@ -37,11 +39,17 @@ class LocalSemanticService:
     def _model_cache_dir(self) -> Path:
         return self.cache_dir / "models"
 
+    # Version du schéma d'index : à INCRÉMENTER quand le contenu/format des
+    # entrées change à nombre de versets constant (ex. correction « Actes »
+    # rangé sous une clé vide, passage aux références en nom complet). Force la
+    # reconstruction chez tous les postes, même si le compte n'a pas bougé.
+    INDEX_SCHEMA = 2
+
     def _fingerprint_for(self, model_name: str) -> str:
         version = self.bible_loader.active_version
         corpus = self.bible_loader.versions.get(version, {})
         count = sum(len(verses) for chapters in corpus.values() for verses in chapters.values())
-        raw = f"{version}:{count}:{model_name}".encode("utf-8")
+        raw = f"{version}:{count}:{model_name}:s{self.INDEX_SCHEMA}".encode("utf-8")
         return hashlib.sha256(raw).hexdigest()[:16]
 
     @property
@@ -73,6 +81,7 @@ class LocalSemanticService:
 
     def _iter_corpus(self) -> Iterable[Dict[str, Any]]:
         version = self.bible_loader.versions.get(self.bible_loader.active_version, {})
+        from .verse_parser import format_reference
         for book_abbr, chapters in version.items():
             if not book_abbr:
                 continue
@@ -80,7 +89,7 @@ class LocalSemanticService:
                 for verse, text in verses.items():
                     if text and len(text.strip()) >= 12:
                         yield {
-                            "reference": f"{book_abbr} {chapter}:{verse}",
+                            "reference": format_reference(book_abbr, chapter, verse),
                             "book_abbr": book_abbr,
                             "chapter": int(chapter),
                             "verse_start": int(verse),

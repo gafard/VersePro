@@ -4,14 +4,12 @@ import urllib.request
 import sys
 import threading
 from loguru import logger
-from ..core.config import settings
+from ..core.config import settings, DATA_DIR
 
 class VoskService:
     """Service asynchrone pour la transcription locale hors-ligne avec Vosk (supporte les modèles small et large)"""
-    
+
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
         self.model_type = getattr(settings, "VOSK_MODEL_TYPE", "small").lower()
         if self.model_type == "large":
             self.model_name = "vosk-model-fr-0.22"
@@ -19,8 +17,9 @@ class VoskService:
         else:
             self.model_name = "vosk-model-small-fr-0.22"
             self.url = "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip"
-            
-        self.model_dir = os.path.join(base_dir, "data", self.model_name)
+
+        # Dossier inscriptible (téléchargement du modèle au premier lancement).
+        self.model_dir = os.path.join(str(DATA_DIR), self.model_name)
         self.model = None
         self.initialized = False
         self.downloading = False

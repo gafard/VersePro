@@ -9,13 +9,13 @@ from app.services.verse_parser import VerseParserService
 @pytest.mark.parametrize(
     ("text", "reference"),
     [
-        ("Lisons Jean 3:16", "Jn 3:16"),
-        ("Mt 5:1-12", "Mt 5:1-12"),
-        ("1 Co 13:4-8", "1 Co 13:4-8"),
-        ("Ésaïe chapitre 53", "És 53"),
-        ("Dieu est amour", "1 Jn 4:8"),
-        ("L'Éternel est mon berger", "Ps 23:1"),
-        ("Psaume cent dix neuf verset cent soixante seize", "Ps 119:176"),
+        ("Lisons Jean 3:16", "Jean 3:16"),
+        ("Mt 5:1-12", "Matthieu 5:1-12"),
+        ("1 Co 13:4-8", "1 Corinthiens 13:4-8"),
+        ("Ésaïe chapitre 53", "Ésaïe 53"),
+        ("Dieu est amour", "1 Jean 4:8"),
+        ("L'Éternel est mon berger", "Psaumes 23:1"),
+        ("Psaume cent dix neuf verset cent soixante seize", "Psaumes 119:176"),
     ],
 )
 def test_parser_high_value_cases(text, reference):
@@ -37,7 +37,7 @@ def test_loose_pattern_confidence_below_autopilot_threshold():
 
     loose = asyncio.run(parser.parse("lisons Jean trois seize"))
     assert loose is not None
-    assert loose["reference"] == "Jn 3:16"
+    assert loose["reference"] == "Jean 3:16"
     assert loose["confidence"] < 0.95
 
     # Une référence bien formée garde sa confiance élevée (projection directe)
@@ -72,7 +72,7 @@ def test_parser_returns_most_recent_reference_in_buffer():
         "nous avons lu jean 3:16 tout à l'heure et maintenant philippiens 4:13"
     ))
     assert result is not None
-    assert result["reference"] == "Ph 4:13"
+    assert result["reference"] == "Philippiens 4:13"
 
 
 def test_voice_gate_blocks_silence_and_reports_stats():
@@ -99,14 +99,14 @@ def test_natural_french_phrasings_and_ordinals():
 
     # Mots de liaison (« au chapitre… au verset… ») — manqué avant le correctif
     r = asyncio.run(parser.parse("dans le livre de jean au chapitre trois au verset seize"))
-    assert r is not None and r["reference"] == "Jn 3:16"
+    assert r is not None and r["reference"] == "Jean 3:16"
 
     # Ordinal parlé : « première épître de jean » = 1 Jn, PAS Jn
     r = asyncio.run(parser.parse("première épître de jean chapitre quatre verset huit"))
-    assert r is not None and r["reference"] == "1 Jn 4:8"
+    assert r is not None and r["reference"] == "1 Jean 4:8"
 
     r = asyncio.run(parser.parse("seconde lettre de pierre chapitre un verset trois"))
-    assert r is not None and r["reference"] == "2 P 1:3"
+    assert r is not None and r["reference"] == "2 Pierre 1:3"
 
     # Garde de performance : une phrase libre ne doit JAMAIS bloquer la boucle
     # (l'ancien scan par sous-chaîne prenait ~2 600 ms)

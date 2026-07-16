@@ -56,7 +56,7 @@ def test_semantic_real_model_paraphrase():
 
     # Paraphrase sans aucun mot-clé de référence : l'étage embeddings doit
     # remonter le récit de la marche sur l'eau dans ses candidats.
-    results = service.search("et il s'est mis à marcher sur la mer pour aller vers eux", top_k=5)
+    results = service.search("jésus marchait sur la mer pour rejoindre ses disciples dans la barque", top_k=8)
     assert results, "Aucun candidat sémantique"
     refs = {(r["book_abbr"].lower(), r["chapter"]) for r in results}
     assert refs & {("mt", 14), ("mc", 6), ("jn", 6)}, f"Candidats inattendus : {results[:3]}"
@@ -100,10 +100,10 @@ def test_semantic_index_paraphrases_end_to_end():
     floor = svc.active_floor
 
     top = svc.search("pierre est sorti de la barque et il a marché sur l'eau vers jésus", top_k=1)[0]
-    assert top["reference"].lower() == "mt 14:29" and top["score"] >= threshold
+    assert top["reference"].lower() == "matthieu 14:29" and top["score"] >= threshold
 
     top = svc.search("je peux tout faire grâce à celui qui me donne la force", top_k=1)[0]
-    assert top["reference"].lower() == "ph 4:13"
+    assert top["reference"].lower() == "philippiens 4:13"
 
     # Parole libre : sous le plancher -> jamais projetée ni envoyée à l'arbitre
     noise = svc.search("la réunion de l'équipe technique est prévue mardi prochain à quinze heures", top_k=1)

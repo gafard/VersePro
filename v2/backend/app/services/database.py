@@ -22,12 +22,11 @@ class DatabaseService:
     - statistics: Statistiques agrégées
     """
     
-    # Ancré au dossier backend (parents[2] = v2/backend/) pour être indépendant
-    # du répertoire depuis lequel le serveur est lancé
-    DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "versepro.db"
-
     def __init__(self, db_path: str | Path | None = None):
-        self.db_path = Path(db_path) if db_path else self.DEFAULT_DB_PATH
+        # Chemin inscriptible résolu par la config (VERSEPRO_DB_PATH / DATA_DIR
+        # en app figée ; v2/backend/data/versepro.db en dev).
+        from ..core.config import db_path as resolved_db_path
+        self.db_path = Path(db_path) if db_path else resolved_db_path()
         self.db: Optional[aiosqlite.Connection] = None
         
         logger.info(f"📊 DatabaseService initialisé: {self.db_path}")
