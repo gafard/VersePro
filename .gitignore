@@ -75,3 +75,5 @@ v2/backend/dist/
 v2/backend/data/versepro.db
 v2/backend/*.db
 v2/frontend/src-tauri/binaries/
+v2/frontend/src-tauri/backend/
+v2/backend/dist-onefile/
