@@ -12,11 +12,14 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import './tokens.css'
 import './index.css'
+import { isTauri } from './env.js'
 
 
-// Sous Tauri, le frontend est servi en tauri://localhost : les appels relatifs
-// (/api, /ws) sont réécrits vers le backend local — zéro changement ailleurs.
-if (window.__TAURI__) {
+// Sous Tauri, le frontend est servi en tauri://localhost (ou https://tauri.localhost
+// sous Windows) : les appels relatifs (/api, /ws) sont réécrits vers le backend
+// local. Détection robuste par protocole/hôte (voir env.js) — sans quoi TOUTE
+// la console était muette dans l'app empaquetée (téléchargements, écrans, détection).
+if (isTauri) {
   const HTTP_BASE = 'http://127.0.0.1:8001'
   const WS_BASE = 'ws://127.0.0.1:8001'
   const origFetch = window.fetch.bind(window)

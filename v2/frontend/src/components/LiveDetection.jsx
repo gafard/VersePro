@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
 import TranscriptTicker from './TranscriptTicker.jsx'
+import { BACKEND_BASE, openExternal } from '../env.js'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -303,17 +304,12 @@ export default function LiveDetection({ setActiveTab }) {
     setShowOnboarding(false)
   }
 
-  const openProjectionWindow = () => {
-    window.open('/output', 'VerseProProjection', 'width=1024,height=768,menubar=no,toolbar=no')
-  }
-
-  const openObsWindow = () => {
-    window.open('/obs?theme=lower-third&bg=transparent', 'VerseProOBS', 'width=1280,height=720,menubar=no,toolbar=no')
-  }
-
-  const openStageWindow = () => {
-    window.open('/stage', 'VerseProStage', 'width=1280,height=720,menubar=no,toolbar=no')
-  }
+  // Les pages d'écran (/output, /stage, /obs) sont servies par le backend
+  // FastAPI (8001 en app, proxy Vite en navigateur). openExternal gère
+  // l'ouverture (navigateur système sous Tauri, où window.open est intercepté).
+  const openProjectionWindow = () => openExternal(`${BACKEND_BASE}/output`)
+  const openObsWindow = () => openExternal(`${BACKEND_BASE}/obs?theme=lower-third&bg=transparent`)
+  const openStageWindow = () => openExternal(`${BACKEND_BASE}/stage`)
 
   // ── Données dérivées ───────────────────────────────────────────
   // ── Lecture vivante côté console : progression AUTORITAIRE du serveur
@@ -639,7 +635,7 @@ export default function LiveDetection({ setActiveTab }) {
           </div>
 
           {/* Réglages Moteur vocal & Bible */}
-          <div className="vp-panel flex-1 flex flex-col gap-3 overflow-y-auto">
+          <div className="vp-panel flex flex-col gap-3">
             <div className="flex flex-col gap-1">
               <span className="vp-label">Moteur Vocal</span>
               <select className="vp-select text-xs py-1" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
@@ -658,7 +654,7 @@ export default function LiveDetection({ setActiveTab }) {
               </select>
             </div>
 
-            <div className="flex flex-col gap-2 mt-auto pt-2 border-t border-border-weak">
+            <div className="flex flex-col gap-2 pt-2 border-t border-border-weak">
               <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openProjectionWindow}>
                 Écran Secours
               </button>
