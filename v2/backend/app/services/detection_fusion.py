@@ -216,8 +216,12 @@ def fuse(
             "curated": in_lex and cand.get("detection_method") == "text_phrase" and lex_score >= 0.95,
         })
 
-    # Tri : accord d'abord, puis RRF, puis recouvrement lexical.
-    scored.sort(key=lambda s: (s["agreement"], s["rrf"], s["overlap"]), reverse=True)
+    # Tri : accord d'abord, puis RECOUVREMENT, puis RRF en départage.
+    # Le recouvrement prime sur le rang : un récupérateur peut classer premier un
+    # verset ADJACENT qui partage une tournure (Jn 3:15 vs 3:16 — « afin que
+    # quiconque croit en lui »). Les mots réellement prononcés tranchent mieux
+    # que le rang. Arrondi à 2 décimales pour laisser le RRF départager les ex æquo.
+    scored.sort(key=lambda s: (s["agreement"], round(s["overlap"], 2), s["rrf"]), reverse=True)
     best = scored[0]
 
     # ── Règles de décision (proposer un verset en validation) ──
