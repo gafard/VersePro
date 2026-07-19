@@ -151,7 +151,10 @@ async def lifespan(app: FastAPI):
                 else:
                     typed_val = expected_type(val)
                 setattr(settings, attr_name, typed_val)
-                logger.info(f"⚙️ Config chargée depuis SQLite : {attr_name} = {typed_val}")
+                # Les secrets ne doivent JAMAIS apparaître en clair dans les logs
+                # (fichiers de log, rapports de bug, captures d'écran…).
+                shown = "•••" if any(m in attr_name.upper() for m in ("KEY", "TOKEN", "SECRET", "PASSWORD")) else typed_val
+                logger.info(f"⚙️ Config chargée depuis SQLite : {attr_name} = {shown}")
             except Exception as e:
                 logger.error(f"Impossible de convertir {key}={val} en {expected_type}: {e}")
                 
