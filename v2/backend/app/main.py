@@ -1262,6 +1262,23 @@ async def select_bible_version(data: dict):
     return {"status": "success", "active": version}
 
 
+# Mots-indices de l'Écriture. L'arbitrage IA de dernier recours (étage C) ne se
+# déclenche qu'en leur présence en mode strict : inutile de solliciter le modèle
+# sur « le café est prêt après le culte ».
+BIBLE_KEYWORDS = {
+    "dieu", "seigneur", "jésus", "jesus", "christ", "esprit", "bible", "écriture",
+    "ecriture", "verset", "parole", "évangile", "evangile", "psaume", "apôtre",
+    "apotre", "prophète", "prophete", "épître", "epitre", "royaume", "salut",
+    "grâce", "grace", "péché", "peche", "foi", "prière", "priere", "alliance",
+    "testament", "saint", "messie", "croix", "résurrection", "resurrection",
+    "disciple", "éternel", "eternel", "amen", "béni", "beni", "sauveur",
+}
+
+# Une seule requête d'arbitrage IA en vol : évite d'empiler les appels au modèle
+# quand plusieurs fins de phrase s'enchaînent.
+_ai_last_resort_busy = False
+
+
 async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict | None:
     """Cascade de détection PARTAGÉE par le direct et le mode répétition.
 
@@ -1326,13 +1343,57 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
                 cand["book_abbr"], cand["chapter"], cand["verse_start"]
             )
 
-    return fuse_detection(
+    decision = fuse_detection(
         lexical, semantic, query,
         semantic_threshold=(semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD),
         semantic_margin=(semantic_service.active_margin if semantic_service else settings.LOCAL_SEMANTIC_MARGIN),
         overlap_min=settings.HYBRID_OVERLAP_MIN,
         top_n=settings.HYBRID_TOP_K,
     )
+    if decision:
+        return decision
+
+    # ── C. DERNIER RECOURS : arbitrage IA (Ollama local ou cloud) ────────────
+    #    Ne se déclenche QUE si toute la chaîne locale est muette : le cas normal
+    #    ne paie donc AUCUNE latence. Trois garde-fous : un indice biblique doit
+    #    être présent (mode strict), une seule requête en vol à la fois, et la
+    #    réponse est REVALIDÉE contre la Bible chargée — l'IA ne peut pas inventer
+    #    un verset. Le résultat part toujours en validation manuelle.
+    global _ai_last_resort_busy
+    if not (ai_service and ai_service.enabled and settings.AI_AGENT_ENABLED):
+        return None
+    if _ai_last_resort_busy:
+        return None
+    if settings.AI_FILTERING_MODE == "strict" and not any(k in query.lower() for k in BIBLE_KEYWORDS):
+        return None
+
+    _ai_last_resort_busy = True
+    try:
+        shortlist = (semantic[:3] + lexical[:3]) or None
+        res = await ai_service.detect_bible_reference(query, candidates=shortlist)
+    except Exception as exc:
+        logger.debug(f"Arbitrage IA de dernier recours indisponible : {exc}")
+        return None
+    finally:
+        _ai_last_resort_busy = False
+
+    if not res or not res.get("reference"):
+        return None
+    confidence = float(res.get("confidence") or 0)
+    if confidence < settings.AI_CONFIDENCE_THRESHOLD:
+        logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {settings.AI_CONFIDENCE_THRESHOLD} %)")
+        return None
+
+    grounded = await verse_parser.parse(res["reference"], skip_text_search=True)
+    if not grounded or not grounded.get("text"):
+        logger.info(f"🛡️ Suggestion IA écartée (référence introuvable dans la Bible) : {res['reference']!r}")
+        return None
+
+    grounded["confidence"] = confidence / 100.0
+    grounded["detection_method"] = "ai_semantic"
+    grounded["requires_review"] = True
+    logger.info(f"🤖 Dernier recours IA → {grounded['reference']} ({confidence:.0f} %)")
+    return grounded
 
 
 # WebSocket principal de réception audio avec Fallback Vosk local
@@ -1421,12 +1482,19 @@ async def websocket_audio(websocket: WebSocket):
             else:
                 raise RuntimeError("Modèle Vosk local non disponible")
         except Exception as we:
-            logger.error(f"❌ Échec démarrage Vosk forcé : {we}")
+            logger.warning(f"⚠️ Vosk indisponible ({we}), bascule automatique sur Deepgram…")
             try:
-                await websocket.close(code=1011, reason=f"Moteur Vosk local hors-service : {we}")
-            except Exception:
-                pass
-            return
+                transcription_session = await deepgram_service.create_session(on_transcript_received)
+                await websocket.send_json({"type": "status_update", "status": "fallback", "mode": "deepgram",
+                                           "reason": f"Vosk indisponible : {we}. Deepgram activé en secours."})
+                logger.info("🎙️ Deepgram activé en secours (Vosk indisponible)")
+            except Exception as dg_err:
+                logger.error(f"❌ Ni Vosk ni Deepgram disponibles : {dg_err}")
+                try:
+                    await websocket.close(code=1011, reason=f"Aucun moteur ASR disponible : Vosk ({we}), Deepgram ({dg_err})")
+                except Exception:
+                    pass
+                return
     elif engine == "deepgram":
         # Mode Deepgram cloud forcé
         try:
@@ -1691,8 +1759,12 @@ async def websocket_audio(websocket: WebSocket):
                     decision = await run_detection_cascade(analysis_text, final_state)
                     if not decision:
                         return
-                    if decision.get("detection_method") in ("explicit", "chapter_candidate"):
+                    method = decision.get("detection_method")
+                    if method in ("explicit", "chapter_candidate"):
                         await process_detected_reference(decision, analysis_text)
+                    elif method == "ai_semantic":
+                        # Dernier recours IA : toujours en validation manuelle.
+                        await process_detected_reference(decision, analysis_text, source="ai")
                     else:
                         fusion = decision.get("fusion")
                         if fusion:
