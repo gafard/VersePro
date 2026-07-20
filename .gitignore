@@ -58,6 +58,11 @@ v2/backend/data/whisper_models/
 v2/backend/data/semantic/*
 !v2/backend/data/semantic/index-*.npz
 !v2/backend/data/semantic/index-*.json
+# bibles_cache/ : les traductions sous copyright (Semeur, TOB/oecuménique, NBS,
+# Français courant) restent LOCALES — jamais publiées. Seule la KJF (domaine
+# public) est versionnée ; `python cache_bibles.py` régénère les autres.
+v2/backend/data/bibles_cache/*
+!v2/backend/data/bibles_cache/kjf.json
 v2/backend/venv/
 v2/frontend/node_modules/
 v2/frontend/dist/
