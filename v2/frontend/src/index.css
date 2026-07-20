@@ -4,7 +4,7 @@
 
 /* Hallmark · macrostructure: Marquee Hero (marketing) / Workbench (app)
  * tone: austere technical · theme: Lumen Night Foundry · anchor hue: brass
- * Hallmark · pre-emit critique: P5 H4 E4 S5 R5 V4 */
+ * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 
 /* ════════════════════════════════════════════════════════════════
    VERSEPRO — DESIGN SYSTEM "RÉGIE SOMBRE"
@@ -283,6 +283,99 @@ body {
 /* ─────────────────────────── SHELL / SIDEBAR ─────────────────────────── */
 
 .app-shell { min-height: 100vh; background: var(--vp-bg); max-width: 100%; overflow-x: clip; }
+
+/* ─────────────────────────── LANCEMENT ─────────────────────────── */
+
+.launch-intro {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-launch);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--color-paper-deep);
+  opacity: 1;
+  transition: opacity var(--dur-med) var(--ease-soft);
+}
+
+.launch-intro.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.launch-intro-media {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.launch-intro-media video,
+.launch-intro-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  /* Zoom léger pour rogner les coins (watermark Gemini) */
+  transform: scale(1.08);
+  background: var(--color-paper-deep);
+}
+
+.launch-intro-skip {
+  position: absolute;
+  right: max(var(--space-md), env(safe-area-inset-right));
+  bottom: max(var(--space-md), env(safe-area-inset-bottom));
+  min-width: 76px;
+  min-height: 36px;
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--color-rule-2);
+  border-radius: var(--radius-input);
+  background: color-mix(in oklch, var(--color-paper-2) 88%, transparent);
+  color: var(--color-ink-2);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  opacity: 0;
+  transform: translateY(var(--space-2xs));
+  pointer-events: none;
+  cursor: pointer;
+  transition:
+    opacity var(--dur-short) var(--ease-out),
+    transform var(--dur-short) var(--ease-out),
+    color var(--dur-short) var(--ease-out),
+    border-color var(--dur-short) var(--ease-out);
+}
+
+.launch-intro-skip.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.launch-intro-skip:hover {
+  color: var(--color-ink);
+  border-color: var(--color-focus);
+}
+
+.launch-intro-skip:active { transform: scale(0.98); }
+
+.launch-intro-status {
+  position: absolute;
+  left: 50%;
+  bottom: max(var(--space-lg), env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-intro { transition: opacity 120ms linear; }
+  .launch-intro-skip { display: none; }
+}
 
 .app-sidebar {
   background: var(--vp-bg-raised);
@@ -2266,7 +2359,7 @@ select:focus-visible,
 
 .live-main-grid {
   display: grid;
-  grid-template-columns: 220px 1fr 320px;
+  grid-template-columns: 210px minmax(360px, 1fr) minmax(340px, 380px);
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -2294,6 +2387,37 @@ select:focus-visible,
   gap: 12px;
   min-height: 0;
   overflow: hidden;
+}
+
+.live-onair {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: clamp(300px, 46vh, 500px);
+}
+
+.live-onair-text {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: var(--space-sm) 0;
+  padding: 0 var(--space-2xs) var(--space-2xs) 0;
+  overflow-y: auto;
+  color: var(--vp-text-dim);
+  font-size: 14px;
+  line-height: 1.65;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+  scrollbar-gutter: stable;
+}
+
+.live-onair-text:focus-visible {
+  outline: 1px solid var(--color-focus);
+  outline-offset: var(--space-2xs);
+}
+
+.live-onair-controls {
+  flex: 0 0 auto;
 }
 
 /* Console Audio et VU-mètre vertical */
@@ -2417,8 +2541,9 @@ select:focus-visible,
 .live-transcript-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 clamp(96px, 14vh, 130px);
+  min-height: 96px;
+  max-height: 130px;
   overflow: hidden;
 }
 
@@ -2430,6 +2555,22 @@ select:focus-visible,
   line-height: 1.6;
   color: var(--vp-text-dim);
   font-family: var(--vp-font-sans);
+}
+
+@media (max-width: 1100px) {
+  .live-shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .live-main-grid {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .live-col-right {
+    min-height: 560px;
+  }
 }
 
 .vp-text-gold {

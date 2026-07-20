@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useStore } from '../store.js'
 import { Icon } from './ui.jsx'
+import { BACKEND_BASE } from '../env.js'
 
 const METHOD_LABELS = {
   explicit: 'Référence',
@@ -47,7 +48,7 @@ export default function CommandPalette({ open, onClose }) {
       const seq = ++requestSeq.current
       setSearching(true)
       try {
-        const response = await fetch(`/api/v1/bible/search?q=${encodeURIComponent(q.trim())}`)
+        const response = await fetch(`${BACKEND_BASE}/api/v1/bible/search?q=${encodeURIComponent(q.trim())}`)
         const data = await response.json()
         if (seq === requestSeq.current) {
           setResults(data.results || [])

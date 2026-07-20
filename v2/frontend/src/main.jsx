@@ -12,7 +12,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import './tokens.css'
 import './index.css'
-import { isTauri } from './env.js'
+import { BACKEND_BASE, BACKEND_WS_BASE, isTauri } from './env.js'
 
 
 // Sous Tauri, le frontend est servi en tauri://localhost (ou https://tauri.localhost
@@ -20,19 +20,17 @@ import { isTauri } from './env.js'
 // local. Détection robuste par protocole/hôte (voir env.js) — sans quoi TOUTE
 // la console était muette dans l'app empaquetée (téléchargements, écrans, détection).
 if (isTauri) {
-  const HTTP_BASE = 'http://127.0.0.1:8001'
-  const WS_BASE = 'ws://127.0.0.1:8001'
   const origFetch = window.fetch.bind(window)
   window.fetch = (input, init) => {
-    if (typeof input === 'string' && input.startsWith('/')) input = HTTP_BASE + input
+    if (typeof input === 'string' && input.startsWith('/')) input = BACKEND_BASE + input
     return origFetch(input, init)
   }
   const OrigWebSocket = window.WebSocket
   window.WebSocket = class extends OrigWebSocket {
     constructor(url, protocols) {
       if (typeof url === 'string') {
-        if (url.startsWith('/')) url = WS_BASE + url
-        else url = url.replace(/^wss?:\/\/[^/]+/, WS_BASE)
+        if (url.startsWith('/')) url = BACKEND_WS_BASE + url
+        else url = url.replace(/^wss?:\/\/[^/]+/, BACKEND_WS_BASE)
       }
       super(url, protocols)
     }

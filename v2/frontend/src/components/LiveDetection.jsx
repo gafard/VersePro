@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
 import TranscriptTicker from './TranscriptTicker.jsx'
-import { BACKEND_BASE, openExternal } from '../env.js'
+import { BACKEND_BASE, BACKEND_WS_BASE, openExternal } from '../env.js'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -305,7 +305,7 @@ export default function LiveDetection({ setActiveTab }) {
   }
 
   // Les pages d'écran (/output, /stage, /obs) sont servies par le backend
-  // FastAPI (8001 en app, proxy Vite en navigateur). openExternal gère
+  // FastAPI (port dédié en app, proxy Vite en navigateur). openExternal gère
   // l'ouverture (navigateur système sous Tauri, où window.open est intercepté).
   const openProjectionWindow = () => openExternal(`${BACKEND_BASE}/output`)
   const openObsWindow = () => openExternal(`${BACKEND_BASE}/obs?theme=lower-third&bg=transparent`)
@@ -321,8 +321,8 @@ export default function LiveDetection({ setActiveTab }) {
     let retryTimer = null
     let closed = false
     const connectOutput = () => {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(`${proto}//${window.location.host}/ws/output`)
+      const wsBase = BACKEND_WS_BASE || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+      socket = new WebSocket(`${wsBase}/ws/output`)
       socket.onopen = () => { serverWsUp.current = true }
       socket.onmessage = (event) => {
         const data = JSON.parse(event.data)
@@ -774,7 +774,11 @@ export default function LiveDetection({ setActiveTab }) {
               </span>
             </div>
             <div className="live-onair-ref font-bold text-lg">{onAirDisplay?.reference || '—'}</div>
-            <p className="live-onair-text text-xs line-clamp-3 min-h-[48px] my-2">
+            <p
+              className="live-onair-text"
+              tabIndex={0}
+              aria-label="Texte du verset projeté, zone défilable"
+            >
               {onAirDisplay?.text || 'Aucun verset projeté.'}
             </p>
             
@@ -784,22 +788,26 @@ export default function LiveDetection({ setActiveTab }) {
               </div>
             )}
             
-            <div className="grid grid-cols-2 gap-2">
+            <div className="live-onair-controls grid grid-cols-2 gap-2">
               <button className="vp-btn vp-btn--sm py-1" onClick={() => handleShiftVerse(-1)} disabled={!canShift}>
                 ← Préc.
               </button>
               <button className="vp-btn vp-btn--sm py-1" onClick={() => handleShiftVerse(1)} disabled={!canShift}>
                 Suiv. →
               </button>
-              <button className="vp-btn vp-btn--ghost vp-btn--sm col-span-2 py-1" onClick={clearProjectionScreen} disabled={!onAirDisplay}>
-                Effacer l'écran
+              <button className="vp-btn vp-btn--ghost vp-btn--sm py-1" onClick={clearProjectionScreen} disabled={!onAirDisplay}>
+                Effacer
               </button>
               <button
-                className={`vp-btn vp-btn--sm col-span-2 py-1 ${followMode ? 'vp-btn--primary' : 'vp-btn--ghost'}`}
+                className={`vp-btn vp-btn--sm py-1 ${followMode ? 'vp-btn--primary' : 'vp-btn--ghost'}`}
                 onClick={() => { lastAdvancedRef.current = null; setFollowMode((v) => !v) }}
                 disabled={!canShift}
+                aria-pressed={followMode}
+                title={followMode
+                  ? 'Désactiver l’avancement automatique à la fin du verset lu'
+                  : 'Avancer automatiquement au verset suivant quand la lecture atteint la fin'}
               >
-                Suivi lecture {followMode ? 'ON' : 'OFF'}
+                Avance auto · {followMode ? 'ON' : 'OFF'}
               </button>
             </div>
           </section>

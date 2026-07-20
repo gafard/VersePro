@@ -1,7 +1,7 @@
 """Point d'entrée du backend EMPAQUETÉ (sidecar Tauri).
 
 Lance uvicorn en programmatique. Le lanceur Tauri fixe l'environnement :
-  VERSEPRO_PORT      port d'écoute (défaut 8001, aligné sur le shim de l'app)
+  VERSEPRO_PORT      port d'écoute (17871 dans l'app, 8001 par défaut en dev)
   VERSEPRO_HOST      hôte (défaut 127.0.0.1)
   VERSEPRO_DATA_DIR  dossier inscriptible (modèles, index, base) — voir config
 

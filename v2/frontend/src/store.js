@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { BACKEND_BASE, BACKEND_WS_BASE } from './env.js'
 
 // Variables non-réactives de module privées pour la capture audio globale
 let audioContext = null
@@ -30,6 +31,7 @@ const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
 export const useStore = create((set, get) => ({
   // État de connexion
   connected: false,
+  connectionStatus: 'starting', // starting | connected | reconnecting | disconnected
   websocket: null,
   
   // État de détection et ASR
@@ -80,10 +82,10 @@ export const useStore = create((set, get) => ({
   hydrateQueueFromSession: async () => {
     if (get().projectionQueue.length > 0) return
     try {
-      const sessionRes = await fetch('/api/v1/session/current')
+      const sessionRes = await fetch(`${BACKEND_BASE}/api/v1/session/current`)
       const { session_id } = await sessionRes.json()
       if (!session_id) return
-      const versesRes = await fetch(`/api/v1/history/verses?limit=10&session_id=${session_id}`)
+      const versesRes = await fetch(`${BACKEND_BASE}/api/v1/history/verses?limit=10&session_id=${session_id}`)
       const { verses } = await versesRes.json()
       const cutoff = Date.now() - 10 * 60 * 1000
       const recent = (verses || []).filter((v) => {
@@ -114,7 +116,7 @@ export const useStore = create((set, get) => ({
   // Récupère l'état de projection courant (survit au rechargement de la page)
   fetchProjectionState: async () => {
     try {
-      const response = await fetch('/api/v1/projection/current')
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/current`)
       if (!response.ok) return
       const data = await response.json()
       // Une référence vide = écran noir ou message d'attente : rien à restaurer
@@ -161,7 +163,10 @@ export const useStore = create((set, get) => ({
   semanticStatus: null,
   
   // Actions
-  setConnected: (connected) => set({ connected }),
+  setConnected: (connected) => set({
+    connected,
+    connectionStatus: connected ? 'connected' : 'disconnected'
+  }),
   
   setWebsocket: (ws) => set({ websocket: ws }),
   
@@ -235,7 +240,7 @@ export const useStore = create((set, get) => ({
   setAutoSend: async (autoSend) => {
     set({ autoSend, autopilotMode: autoSend })
     try {
-      const response = await fetch('/api/v1/settings', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ auto_send: autoSend })
@@ -265,14 +270,18 @@ export const useStore = create((set, get) => ({
   setAiActive: (aiActive) => set({ aiActive }),
   
   setSelectedEngine: (selectedEngine) => {
-    set({ selectedEngine })
+    set({ selectedEngine, _switchingEngine: true })
     const { websocket } = get()
     if (websocket) {
       get().disconnectWebSocket()
       // Un court délai permet de s'assurer de la fermeture propre avant reconnexion
       setTimeout(() => {
         get().connectWebSocket()
+        // Laisse le temps au onopen de se déclencher avant de lever le flag
+        setTimeout(() => set({ _switchingEngine: false }), 1500)
       }, 200)
+    } else {
+      set({ _switchingEngine: false })
     }
   },
   
@@ -290,6 +299,8 @@ export const useStore = create((set, get) => ({
   // WebSocket
   _manualDisconnect: false,
   _reconnectTimer: null,
+  _connectionAttempts: 0,
+  _everConnected: false,
 
   connectWebSocket: () => {
     // Annule une éventuelle reconnexion programmée (évite les connexions en double)
@@ -297,12 +308,19 @@ export const useStore = create((set, get) => ({
     if (pendingTimer) {
       clearTimeout(pendingTimer)
     }
-    set({ _manualDisconnect: false, _reconnectTimer: null })
+    const { _everConnected, _connectionAttempts } = get()
+    set({
+      _manualDisconnect: false,
+      _reconnectTimer: null,
+      connectionStatus: _everConnected
+        ? 'reconnecting'
+        : (_connectionAttempts >= 8 ? 'disconnected' : 'starting')
+    })
 
     const { selectedEngine, translationLang } = get()
-    // Utilise une URL de WebSocket relative et dynamique avec le moteur sélectionné et la traduction
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    let wsUrl = `${proto}//${window.location.host}/ws/audio?engine=${selectedEngine}`
+    // En mode Tauri, le host est tauri.localhost → on pointe sur le backend
+    const wsBase = BACKEND_WS_BASE || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+    let wsUrl = `${wsBase}/ws/audio?engine=${selectedEngine}`
     if (translationLang) {
       wsUrl += `&translation_lang=${translationLang}`
     }
@@ -311,7 +329,13 @@ export const useStore = create((set, get) => ({
     
     ws.onopen = () => {
       console.log('WebSocket connecté')
-      set({ connected: true, backendUnreachable: false })
+      set({
+        connected: true,
+        connectionStatus: 'connected',
+        backendUnreachable: false,
+        _connectionAttempts: 0,
+        _everConnected: true
+      })
       // Récupère les traductions, réglages et l'état de projection courant
       get().fetchBibles()
       get().fetchSettings()
@@ -385,7 +409,17 @@ export const useStore = create((set, get) => ({
     
     ws.onclose = () => {
       console.log('WebSocket déconnecté')
-      set({ connected: false, aiActive: false, currentTranslation: '' })
+      const attempts = get()._connectionAttempts + 1
+      const everConnected = get()._everConnected
+      set({
+        connected: false,
+        connectionStatus: everConnected
+          ? 'reconnecting'
+          : (attempts >= 8 ? 'disconnected' : 'starting'),
+        aiActive: false,
+        currentTranslation: '',
+        _connectionAttempts: attempts
+      })
       // Reconnexion automatique après une coupure involontaire (réseau, redémarrage backend)
       if (!get()._manualDisconnect) {
         console.log('Reconnexion automatique dans 2s...')
@@ -409,7 +443,11 @@ export const useStore = create((set, get) => ({
     set({ _manualDisconnect: true, _reconnectTimer: null })
     if (websocket) {
       websocket.close()
-      set({ websocket: null, connected: false })
+      set({
+        websocket: null,
+        connected: false,
+        connectionStatus: get()._everConnected ? 'reconnecting' : 'starting'
+      })
     }
   },
   
@@ -423,7 +461,7 @@ export const useStore = create((set, get) => ({
   // API calls
   fetchBibles: async () => {
     try {
-      const response = await fetch('/api/v1/bibles')
+      const response = await fetch(`${BACKEND_BASE}/api/v1/bibles`)
       const data = await response.json()
       set({ 
         activeBible: data.active || 'LSG', 
@@ -437,7 +475,7 @@ export const useStore = create((set, get) => ({
 
   fetchSettings: async () => {
     try {
-      const response = await fetch('/api/v1/settings')
+      const response = await fetch(`${BACKEND_BASE}/api/v1/settings`)
       const data = await response.json()
       set({
         settings: data,
@@ -462,7 +500,7 @@ export const useStore = create((set, get) => ({
 
   updateSettings: async (patch) => {
     try {
-      const response = await fetch('/api/v1/settings', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
@@ -491,7 +529,7 @@ export const useStore = create((set, get) => ({
   
   selectBible: async (version) => {
     try {
-      const response = await fetch('/api/v1/bibles/select', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/bibles/select`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version })
@@ -499,7 +537,7 @@ export const useStore = create((set, get) => ({
       const data = await response.json()
       if (data.status === 'success') {
         set({ activeBible: version })
-        await fetch('/api/v1/settings', {
+        await fetch(`${BACKEND_BASE}/api/v1/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ bible_version: version })
@@ -513,7 +551,7 @@ export const useStore = create((set, get) => ({
   fetchHistory: async () => {
     if (get().history.length === 0) set({ historyLoading: true })
     try {
-      const response = await fetch('/api/v1/history/verses?limit=50')
+      const response = await fetch(`${BACKEND_BASE}/api/v1/history/verses?limit=50`)
       const data = await response.json()
       set({ history: data.verses || [], backendUnreachable: false })
     } catch (error) {
@@ -527,7 +565,7 @@ export const useStore = create((set, get) => ({
   fetchStatistics: async (days = 30) => {
     if (!get().statistics) set({ statsLoading: true })
     try {
-      const response = await fetch(`/api/v1/statistics?days=${days}`)
+      const response = await fetch(`${BACKEND_BASE}/api/v1/statistics?days=${days}`)
       const data = await response.json()
       set({ statistics: data, backendUnreachable: false })
     } catch (error) {
@@ -540,7 +578,7 @@ export const useStore = create((set, get) => ({
   
   sendReference: async (reference) => {
     try {
-      const response = await fetch('/api/v1/references/send', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/references/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference })
@@ -566,12 +604,12 @@ export const useStore = create((set, get) => ({
   clearProjectionScreen: async () => {
     try {
       // Efface l'écran autonome + ProPresenter (meilleur effort)
-      await fetch('/api/v1/project', {
+      await fetch(`${BACKEND_BASE}/api/v1/project`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: '', reference: '' })
       })
-      fetch('/api/v1/propresenter/clear', { method: 'POST' }).catch(() => {})
+      fetch(`${BACKEND_BASE}/api/v1/propresenter/clear`, { method: 'POST' }).catch(() => {})
       set({ onAir: null })
       get().addToast({ message: 'Écran effacé', kind: 'success' })
     } catch (error) {
@@ -581,7 +619,7 @@ export const useStore = create((set, get) => ({
   
   startSession: async () => {
     try {
-      const response = await fetch('/api/v1/history/sessions/start', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/history/sessions/start`, {
         method: 'POST'
       })
       const data = await response.json()
@@ -595,7 +633,7 @@ export const useStore = create((set, get) => ({
   
   endSession: async (sessionId) => {
     try {
-      await fetch(`/api/v1/history/sessions/${sessionId}/end`, {
+      await fetch(`${BACKEND_BASE}/api/v1/history/sessions/${sessionId}/end`, {
         method: 'POST'
       })
       set({ sessionId: null })
@@ -608,7 +646,7 @@ export const useStore = create((set, get) => ({
   fetchSessions: async (limit = 15) => {
     if (get().sessionsList.length === 0) set({ sessionsLoading: true })
     try {
-      const response = await fetch(`/api/v1/history/sessions?limit=${limit}`)
+      const response = await fetch(`${BACKEND_BASE}/api/v1/history/sessions?limit=${limit}`)
       const data = await response.json()
       set({ sessionsList: data.sessions || [] })
     } catch (error) {
@@ -620,7 +658,7 @@ export const useStore = create((set, get) => ({
   
   fetchSessionDetails: async (sessionId) => {
     try {
-      const response = await fetch(`/api/v1/history/sessions/${sessionId}`)
+      const response = await fetch(`${BACKEND_BASE}/api/v1/history/sessions/${sessionId}`)
       if (response.ok) {
         const data = await response.json()
         set({ activeSessionDetails: data })
@@ -634,7 +672,7 @@ export const useStore = create((set, get) => ({
   
   generateSessionSummary: async (sessionId) => {
     try {
-      const response = await fetch(`/api/v1/history/sessions/${sessionId}/summary`, {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/history/sessions/${sessionId}/summary`, {
         method: 'POST'
       })
       if (response.ok) {
@@ -654,7 +692,7 @@ export const useStore = create((set, get) => ({
   
   fetchVoskStatus: async () => {
     try {
-      const response = await fetch('/api/v1/vosk/status')
+      const response = await fetch(`${BACKEND_BASE}/api/v1/vosk/status`)
       const data = await response.json()
       set({ voskStatus: data })
       return data
@@ -666,7 +704,7 @@ export const useStore = create((set, get) => ({
   
   downloadVoskModel: async () => {
     try {
-      const response = await fetch('/api/v1/vosk/download', { method: 'POST' })
+      const response = await fetch(`${BACKEND_BASE}/api/v1/vosk/download`, { method: 'POST' })
       const data = await response.json()
       get().fetchVoskStatus()
       const interval = setInterval(async () => {
@@ -685,8 +723,8 @@ export const useStore = create((set, get) => ({
   fetchIntelligenceStatus: async () => {
     try {
       const [asrResponse, semanticResponse] = await Promise.all([
-        fetch('/api/v1/asr/status'),
-        fetch('/api/v1/semantic/status')
+        fetch(`${BACKEND_BASE}/api/v1/asr/status`),
+        fetch(`${BACKEND_BASE}/api/v1/semantic/status`)
       ])
       const asrStatus = asrResponse.ok ? await asrResponse.json() : null
       const semanticStatus = semanticResponse.ok ? await semanticResponse.json() : null
@@ -700,7 +738,7 @@ export const useStore = create((set, get) => ({
 
 
   prepareSemanticIndex: async () => {
-    const response = await fetch('/api/v1/semantic/prepare', { method: 'POST' })
+    const response = await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' })
     const data = await response.json()
     get().fetchIntelligenceStatus()
     return data
@@ -708,7 +746,7 @@ export const useStore = create((set, get) => ({
   
   setOutputTheme: async (theme) => {
     try {
-      const response = await fetch('/api/v1/projection/theme', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/theme`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ theme })
@@ -723,7 +761,7 @@ export const useStore = create((set, get) => ({
 
   updateVMixConfig: async (config) => {
     try {
-      const response = await fetch('/api/v1/projection/vmix', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/vmix`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

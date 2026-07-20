@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useStore } from './store.js'
 import LiveDetection from './components/LiveDetection.jsx'
 import History from './components/History.jsx'
@@ -8,6 +8,7 @@ import Settings from './components/Settings.jsx'
 import { ToastHost } from './components/ui.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import FirstRunWizard from './components/FirstRunWizard.jsx'
+import LaunchIntro from './components/LaunchIntro.jsx'
 
 const NAV_ITEMS = [
   {
@@ -54,6 +55,14 @@ const NAV_ITEMS = [
 ]
 
 function App() {
+  const [showLaunchIntro, setShowLaunchIntro] = useState(() => {
+    try { return sessionStorage.getItem('versepro_launch_intro_seen') !== 'true' } catch { return true }
+  })
+  const closeLaunchIntro = useCallback(() => {
+    try { sessionStorage.setItem('versepro_launch_intro_seen', 'true') } catch { /* stockage privé */ }
+    setShowLaunchIntro(false)
+  }, [])
+
   // Reprend l'onglet de la dernière session : l'opérateur retrouve sa régie, pas la page d'accueil
   const [activeTab, setActiveTabState] = useState(() => localStorage.getItem('versepro_last_tab') || 'home')
   const setActiveTab = (tab) => {
@@ -67,6 +76,7 @@ function App() {
     connectWebSocket, 
     disconnectWebSocket, 
     connected,
+    connectionStatus,
     asrMode,
     aiActive,
     propresenterConnected,
@@ -75,6 +85,14 @@ function App() {
     volume,
     onAir
   } = useStore()
+
+  const serverStatus = connected
+    ? { label: 'Serveur', tooltip: 'Serveur connecté', tone: 'is-ok', color: 'var(--success)' }
+    : connectionStatus === 'starting'
+      ? { label: 'Démarrage', tooltip: 'Initialisation du serveur', tone: 'is-warn', color: 'var(--warning)' }
+      : connectionStatus === 'reconnecting'
+        ? { label: 'Reconnexion', tooltip: 'Reconnexion au serveur', tone: 'is-warn', color: 'var(--warning)' }
+        : { label: 'Hors ligne', tooltip: 'Serveur déconnecté', tone: 'is-bad', color: 'var(--danger)' }
   
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [firstRun, setFirstRun] = useState(() => {
@@ -152,9 +170,9 @@ function App() {
             <div className="app-nav-wrap">
               <div
                 className="w-2.5 h-2.5 rounded-full transition-all"
-                style={{ background: connected ? 'var(--success)' : 'var(--danger)' }}
+                style={{ background: serverStatus.color }}
               />
-              <span className="app-nav-tooltip">{connected ? 'Serveur connecté' : 'Serveur déconnecté'}</span>
+              <span className="app-nav-tooltip">{serverStatus.tooltip}</span>
             </div>
           </div>
         </aside>
@@ -176,8 +194,8 @@ function App() {
             </div>
 
             <div className="global-header-right">
-              <span className={`vp-chip ${connected ? 'is-ok' : 'is-bad'}`}>
-                <span className="dot" />{connected ? 'Serveur' : 'Hors ligne'}
+              <span className={`vp-chip ${serverStatus.tone}`}>
+                <span className="dot" />{serverStatus.label}
               </span>
               <span className={`vp-chip ${asrMode === 'vosk' ? 'is-warn' : 'is-accent'}`}>
                 <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram'}
@@ -234,6 +252,7 @@ function App() {
       <ToastHost />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {firstRun && <FirstRunWizard onDone={() => { setFirstRun(false); setActiveTab('live') }} />}
+      {showLaunchIntro && <LaunchIntro onDone={closeLaunchIntro} />}
     </div>
   )
 }

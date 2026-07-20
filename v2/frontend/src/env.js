@@ -10,9 +10,12 @@ export const isTauri =
     window.location.hostname === 'tauri.localhost'
   )
 
-// Dans l'app, le backend FastAPI sert les pages d'écran et l'API sur 8001 ;
-// dans le navigateur, Vite fait proxy → chemins relatifs.
-export const BACKEND_BASE = isTauri ? 'http://127.0.0.1:8001' : ''
+// L'application empaquetée utilise un port dédié, volontairement distinct des
+// ports de développement courants. Dans le navigateur, Vite continue de faire
+// proxy vers le port choisi par VITE_BACKEND_PORT.
+export const TAURI_BACKEND_PORT = '17871'
+export const BACKEND_BASE = isTauri ? `http://127.0.0.1:${TAURI_BACKEND_PORT}` : ''
+export const BACKEND_WS_BASE = isTauri ? `ws://127.0.0.1:${TAURI_BACKEND_PORT}` : ''
 
 // Ouvre une URL EXTERNE (écran de projection sur le vidéoprojecteur). Sous Tauri,
 // window.open est intercepté → on passe par le navigateur système via l'API
