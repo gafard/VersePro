@@ -20,8 +20,8 @@
     },
     "bundle": {
       "active": true,
-      "category": "DeveloperTool",
-      "copyright": "",
+      "category": "Productivity",
+      "copyright": "© 2026 Selah Studios",
       "deb": {
         "depends": []
       },
@@ -36,7 +36,7 @@
         "icons/icon.ico"
       ],
       "identifier": "app.versepro.regie",
-      "longDescription": "",
+      "longDescription": "VersePro écoute la prédication, détecte les références et citations bibliques en temps réel et pilote la projection (écran secours, OBS, vMix, ProPresenter). Un produit Selah Studios.",
       "macOS": {
         "entitlements": null,
         "exceptionDomain": "",
@@ -44,7 +44,7 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "shortDescription": "",
+      "shortDescription": "Régie de projection biblique en direct — Selah Studios",
       "targets": "all",
       "windows": {
         "certificateThumbprint": null,
