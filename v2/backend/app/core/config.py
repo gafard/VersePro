@@ -74,14 +74,21 @@ class Settings(BaseSettings):
     # (0,6 Md, ~585 Mo) puis écarté : sur le corpus biblique il ne séparait pas
     # proprement signal et bruit (chevauchement des scores) — e5 fait mieux et
     # reste léger.
-    LOCAL_SEMANTIC_MODEL: str = "e5-small"
+    # e5-BASE par défaut, e5-small en repli s'il n'est pas encore téléchargé.
+    # Mesuré sur le corpus de référence (17 énoncés vrais / 8 de bruit) :
+    #   e5-small : signal min 0.8682 < bruit max 0.8758 → SÉPARATION -0.0076,
+    #              aucun seuil ne peut trancher proprement ;
+    #   e5-base  : signal min 0.8411 > bruit max 0.8360 → SÉPARATION +0.0051.
+    # C'est le pouvoir de séparation, pas la taille, qui était le plafond :
+    # Qwen (0,6 Md, génératif détourné) faisait PIRE qu'e5-small.
+    LOCAL_SEMANTIC_MODEL: str = "e5-base"
     LOCAL_SEMANTIC_FALLBACK: str = "e5-small"
-    # Calibré sur mesures réelles e5-small (signal >= 0.877, bruit <= 0.830).
     LOCAL_SEMANTIC_CALIBRATION: dict = {
+        "e5-base": {"threshold": 0.8385, "margin": 0.005},   # milieu de la bande mesurée
         "e5-small": {"threshold": 0.865, "margin": 0.012},
     }
-    LOCAL_SEMANTIC_THRESHOLD: float = 0.865
-    LOCAL_SEMANTIC_MARGIN: float = 0.012
+    LOCAL_SEMANTIC_THRESHOLD: float = 0.8385
+    LOCAL_SEMANTIC_MARGIN: float = 0.005
     LOCAL_SEMANTIC_TOP_K: int = 5
     LOCAL_SEMANTIC_AUTO_DOWNLOAD: bool = False
     # Fusion hybride (détection des paraphrases) : recouvrement lexical minimal

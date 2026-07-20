@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store.js'
 import { Icon } from './ui.jsx'
+import { BACKEND_BASE } from '../env.js'
 
 /*
  * Premier lancement — séquence cinématique « préparation de la régie ».
@@ -54,7 +55,7 @@ export default function FirstRunWizard({ onDone }) {
 
   const pollStatuses = async () => {
     try {
-      const [vr, sr] = await Promise.all([fetch('/api/v1/vosk/status'), fetch('/api/v1/semantic/status')])
+      const [vr, sr] = await Promise.all([fetch(`${BACKEND_BASE}/api/v1/vosk/status`), fetch(`${BACKEND_BASE}/api/v1/semantic/status`)])
       setVosk(await vr.json()); setSem(await sr.json()); setBackendDown(false)
     } catch { setBackendDown(true) } finally { setScanned(true) }
   }
@@ -68,8 +69,8 @@ export default function FirstRunWizard({ onDone }) {
   const anyBusy = voskBusy || semBusy
   const missing = [!voskReady && 'vosk', !semReady && 'sem'].filter(Boolean)
 
-  const installVosk = async () => { try { await fetch('/api/v1/vosk/download', { method: 'POST' }) } catch { setBackendDown(true) } }
-  const installSem = async () => { try { await fetch('/api/v1/semantic/prepare', { method: 'POST' }) } catch { setBackendDown(true) } }
+  const installVosk = async () => { try { await fetch(`${BACKEND_BASE}/api/v1/vosk/download`, { method: 'POST' }) } catch { setBackendDown(true) } }
+  const installSem = async () => { try { await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' }) } catch { setBackendDown(true) } }
   const installMissing = async () => {
     setLaunched(true)
     await Promise.all([!voskReady && installVosk(), !semReady && installSem()].filter(Boolean))
@@ -208,8 +209,8 @@ export default function FirstRunWizard({ onDone }) {
                   <li className={`fw-comp ${semReady ? 'is-ready' : semBusy ? 'is-busy' : ''}`}>
                     {semReady ? <Icon name="check" size={15} /> : semBusy ? <span className="fw-mini-pct">{Math.round(semPct)}%</span> : <span className="fw-dot" />}
                     <div><strong>intelligence sémantique (paraphrases)</strong>
-                      <small>{sem?.last_error ? sem.last_error : semReady ? 'prête' : sem?.downloading ? 'téléchargement…' : sem?.indexing ? `indexation ${sem?.verses_indexed || 0} versets…` : 'e5 — à installer'}</small></div>
-                    <span className="fw-comp-size">118 Mo</span>
+                      <small>{sem?.last_error ? sem.last_error : semReady ? 'prête' : sem?.downloading ? 'téléchargement…' : sem?.indexing ? `indexation ${sem?.verses_indexed || 0} versets…` : 'e5-base — à installer'}</small></div>
+                    <span className="fw-comp-size">265 Mo</span>
                   </li>
                 </ul>
               )}
@@ -222,7 +223,7 @@ export default function FirstRunWizard({ onDone }) {
                     : (vosk?.last_error || sem?.last_error)
                       ? <button className="vp-btn vp-btn--primary fw-cta" onClick={installMissing}>réessayer l'installation</button>
                       : <button className="vp-btn vp-btn--primary fw-cta" onClick={installMissing}>
-                          tout installer ({missing.length === 2 ? '1,5 Go' : missing[0] === 'vosk' ? '1,4 Go' : '118 Mo'})
+                          tout installer ({missing.length === 2 ? '1,7 Go' : missing[0] === 'vosk' ? '1,4 Go' : '265 Mo'})
                         </button>
               )}
             </div>

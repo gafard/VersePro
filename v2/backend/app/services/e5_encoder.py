@@ -22,14 +22,23 @@ from loguru import logger
 
 
 class E5OnnxEncoder:
-    REPO_URL = "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main"
+    # Variantes de la MÊME famille e5 (mêmes préfixes query:/passage:, même mean
+    # pooling masqué) : seule la capacité change. Permet de comparer à variable
+    # isolée — small (118 Mo, dim 384) vs base (265 Mo, dim 768).
+    VARIANTS = {
+        "e5-small": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main",
+        "e5-base": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/main",
+    }
+    REPO_URL = VARIANTS["e5-small"]
     REQUIRED_FILES = {
         "model_quantized.onnx": "onnx/model_quantized.onnx",
         "tokenizer.json": "tokenizer.json",
     }
 
-    def __init__(self, cache_dir: Optional[Path] = None):
-        self.cache_dir = cache_dir or Path(__file__).resolve().parents[2] / "data" / "semantic" / "models" / "e5-small"
+    def __init__(self, cache_dir: Optional[Path] = None, variant: str = "e5-small"):
+        self.variant = variant if variant in self.VARIANTS else "e5-small"
+        self.REPO_URL = self.VARIANTS[self.variant]
+        self.cache_dir = cache_dir or Path(__file__).resolve().parents[2] / "data" / "semantic" / "models" / self.variant
         self.model_path = self.cache_dir / "model_quantized.onnx"
         self.tokenizer_path = self.cache_dir / "tokenizer.json"
 
@@ -57,7 +66,7 @@ class E5OnnxEncoder:
             for idx, (local_name, remote_path) in enumerate(self.REQUIRED_FILES.items()):
                 dest = self.cache_dir / local_name
                 if not dest.exists():
-                    logger.info(f"📥 Téléchargement e5-small : {local_name}")
+                    logger.info(f"📥 Téléchargement {self.variant} : {local_name}")
                     
                     def progress_hook(count, block_size, total_size):
                         if total_size > 0:

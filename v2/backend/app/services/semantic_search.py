@@ -124,7 +124,8 @@ class LocalSemanticService:
 
     def _make_encoder(self, model_name: str) -> Any:
         from .e5_encoder import E5OnnxEncoder
-        return E5OnnxEncoder(cache_dir=self._model_cache_dir / "e5-small")
+        variant = model_name if model_name in E5OnnxEncoder.VARIANTS else "e5-small"
+        return E5OnnxEncoder(cache_dir=self._model_cache_dir / variant, variant=variant)
 
     def _resolve_encoder(self, allow_download: bool) -> bool:
         """Choisit l'encodeur actif : Qwen préféré, e5-small en secours.
