@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<!--
+  Régénérer les captures (img/) : lancer backend (8002) + vite (3010), puis
+  Chrome headless --remote-debugging-port=9333 et scratchpad/capture.py.
+  Pour sauter l'onboarding : une page qui pose versepro_first_run_done=true et
+  versepro_last_tab dans localStorage puis redirige vers /.
+-->
+
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>VersePro — Guide d'utilisation</title>
+<style>
+  /* ── Polices du produit (auto-hébergées) ── */
+  @font-face { font-family:"Space Grotesk"; font-weight:500; src:url("../../v2/frontend/node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Space Grotesk"; font-weight:700; src:url("../../v2/frontend/node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Geist Sans"; font-weight:400; src:url("../../v2/frontend/node_modules/@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Geist Sans"; font-weight:500; src:url("../../v2/frontend/node_modules/@fontsource/geist-sans/files/geist-sans-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family:"Geist Sans"; font-weight:600; src:url("../../v2/frontend/node_modules/@fontsource/geist-sans/files/geist-sans-latin-600-normal.woff2") format("woff2"); }
+  @font-face { font-family:"JetBrains Mono"; font-weight:400; src:url("../../v2/frontend/node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+  @font-face { font-family:"JetBrains Mono"; font-weight:600; src:url("../../v2/frontend/node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+
+  /* ── Système Lumen Night Foundry ── */
+  :root {
+    --paper:   oklch(13% 0.014 265);
+    --paper-2: oklch(16% 0.015 265);
+    --paper-3: oklch(19% 0.016 265);
+    --ink:     oklch(96% 0.006 262);
+    --ink-2:   oklch(80% 0.010 262);
+    --muted:   oklch(62% 0.012 262);
+    --rule:    oklch(96% 0.006 262 / 0.10);
+    --rule-2:  oklch(96% 0.006 262 / 0.18);
+    --accent:  oklch(74% 0.14 275);
+    --accent-warm: oklch(76% 0.17 50);
+    --ok:      oklch(72% 0.12 155);
+    --warn:    oklch(75% 0.14 70);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { background:#0b0d13; }
+  body { font-family:"Geist Sans",-apple-system,sans-serif; color:var(--ink-2); font-size:10.5pt; line-height:1.62; }
+
+  /* ── Pagination A4 ── */
+  @page { size: A4; margin: 0; }
+  .page {
+    width:210mm; height:296mm; overflow:hidden; position:relative;
+    background: var(--paper);
+    padding: 16mm 17mm 14mm;
+    page-break-after: always;
+    display:flex; flex-direction:column;
+  }
+  .page:last-child { page-break-after:auto; }
+  .page::before { /* grille blueprint discrète */
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:
+      linear-gradient(oklch(96% 0.006 262 / 0.028) 1px, transparent 1px) 0 0 / 13mm 13mm,
+      linear-gradient(90deg, oklch(96% 0.006 262 / 0.028) 1px, transparent 1px) 0 0 / 13mm 13mm;
+  }
+  .page > * { position:relative; }
+
+  /* ── Typo ── */
+  h1,h2,h3 { font-family:"Space Grotesk"; color:var(--ink); letter-spacing:-0.02em; text-transform:lowercase; }
+  h2 { font-size:23pt; font-weight:700; line-height:1.08; margin-bottom:4mm; }
+  h3 { font-size:12.5pt; font-weight:700; margin:6mm 0 2mm; }
+  p  { margin-bottom:2.8mm; max-width:64ch; }
+  strong { color:var(--ink); font-weight:600; }
+  .eyebrow {
+    font-family:"JetBrains Mono"; font-size:7.5pt; font-weight:600; letter-spacing:0.14em;
+    color:var(--accent); text-transform:uppercase; margin-bottom:2.5mm;
+  }
+  .lede { color:var(--ink-2); font-size:11pt; max-width:70ch; }
+  kbd {
+    font-family:"JetBrains Mono"; font-size:8pt; color:var(--ink);
+    background:var(--paper-3); border:1px solid var(--rule-2); border-bottom-width:2px;
+    border-radius:3px; padding:0.4mm 1.6mm;
+  }
+  code, .mono { font-family:"JetBrains Mono"; font-size:8.5pt; color:var(--accent-warm); }
+  .url {
+    display:block; font-family:"JetBrains Mono"; font-size:9pt; color:var(--accent-warm);
+    background:var(--paper-2); border:1px solid var(--rule-2); border-radius:3mm;
+    padding:3mm 4mm; margin:2.5mm 0; letter-spacing:0;
+  }
+
+  /* ── Composants ── */
+  .shot { border:1px solid var(--rule-2); border-radius:3.5mm; overflow:hidden; background:var(--paper-2);
+          box-shadow:0 6mm 14mm oklch(0% 0 0 / 0.45); }
+  .shot img { width:100%; display:block; }
+  .caption { font-family:"JetBrains Mono"; font-size:7.2pt; letter-spacing:0.08em; color:var(--muted);
+             text-transform:uppercase; margin-top:2mm; }
+  .card {
+    background:var(--paper-2); border:1px solid var(--rule); border-radius:3.5mm;
+    padding:4.5mm 5.5mm; margin:3mm 0;
+  }
+  .card.accent { border-left:2.5px solid var(--accent); }
+  .card.warm   { border-left:2.5px solid var(--accent-warm); }
+  .steps { counter-reset:step; margin:3mm 0; }
+  .step { display:flex; gap:4mm; margin-bottom:3.2mm; align-items:flex-start; }
+  .step::before {
+    counter-increment:step; content:counter(step);
+    font-family:"Space Grotesk"; font-weight:700; font-size:10.5pt; color:var(--accent);
+    background:var(--paper-3); border:1px solid var(--rule-2); border-radius:50%;
+    min-width:7.2mm; height:7.2mm; display:flex; align-items:center; justify-content:center;
+    margin-top:0.3mm;
+  }
+  .step b { color:var(--ink); font-weight:600; display:block; margin-bottom:0.5mm; }
+  .step p { margin:0; font-size:9.8pt; }
+  table { border-collapse:collapse; width:100%; margin:3mm 0; font-size:9.6pt; }
+  th { font-family:"JetBrains Mono"; font-size:7.5pt; letter-spacing:0.1em; text-transform:uppercase;
+       color:var(--muted); text-align:left; padding:2mm 3mm; border-bottom:1px solid var(--rule-2); }
+  td { padding:2.4mm 3mm; border-bottom:1px solid var(--rule); vertical-align:top; }
+  td:first-child { color:var(--ink); font-weight:500; white-space:nowrap; }
+  .footer {
+    margin-top:auto; padding-top:4mm; border-top:1px solid var(--rule);
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-family:"JetBrains Mono"; font-size:7pt; letter-spacing:0.12em; color:var(--muted);
+    text-transform:uppercase;
+  }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:6mm; align-items:start; }
+
+  /* ── Couverture ── */
+  .cover { justify-content:space-between; background:
+      radial-gradient(70% 55% at 75% 12%, oklch(74% 0.14 275 / 0.10) 0%, transparent 65%),
+      radial-gradient(50% 40% at 15% 90%, oklch(76% 0.17 50 / 0.07) 0%, transparent 60%),
+      var(--paper); }
+  .cover-brand { font-family:"Space Grotesk"; font-weight:700; font-size:14pt; color:var(--ink); }
+  .cover h1 { font-size:46pt; font-weight:700; line-height:1.02; margin:4mm 0 6mm; }
+  .cover h1 .hl { color:var(--accent); }
+  .cover .shot { transform:rotate(-0.6deg); }
+  .toc-item { display:flex; justify-content:space-between; align-items:baseline; padding:2.6mm 0;
+              border-bottom:1px solid var(--rule); font-size:10.5pt; }
+  .toc-item b { color:var(--ink); font-weight:600; }
+  .toc-item .n { font-family:"JetBrains Mono"; color:var(--accent); font-size:9pt; }
+
+  /* ── Schéma SVG ── */
+  .diagram { margin:4mm 0; }
+  .diagram text { font-family:"Geist Sans"; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ COUVERTURE ══════════ -->
+<section class="page cover">
+  <div style="display:flex; justify-content:space-between; align-items:baseline;">
+    <span class="cover-brand">versepro</span>
+    <span class="eyebrow" style="margin:0;">Guide d'utilisation · v2.0</span>
+  </div>
+  <div>
+    <div class="eyebrow">la régie de projection qui écoute la prédication</div>
+    <h1>la parole <span class="hl">s'affiche</span><br>pendant qu'elle<br>se prêche.</h1>
+    <p class="lede">Installer VersePro, préparer la régie, projeter les versets détectés en direct,
+    et brancher vos écrans — OBS, ProPresenter, vMix — en moins d'une heure.</p>
+  </div>
+  <div class="shot"><img src="img/regie.png" alt="La régie VersePro en direct"></div>
+  <div class="footer"><span>Selah Studios</span><span>© 2026 · versepro 2.0</span></div>
+</section>
+
+<!-- ══════════ SOMMAIRE ══════════ -->
+<section class="page">
+  <div class="eyebrow">sommaire</div>
+  <h2>trois étapes, puis le direct.</h2>
+  <p class="lede" style="margin-bottom:6mm;">Ce guide suit l'ordre réel d'une mise en service :
+  on installe, l'assistant prépare la machine, on apprend la régie — puis on branche les écrans.</p>
+  <div class="toc-item"><b>Installer VersePro</b><span class="n">01</span></div>
+  <div class="toc-item"><b>Le premier lancement — l'assistant prépare tout</b><span class="n">02</span></div>
+  <div class="toc-item"><b>La régie en direct</b><span class="n">03</span></div>
+  <div class="toc-item"><b>Comment la détection fonctionne (et qui décide)</b><span class="n">04</span></div>
+  <div class="toc-item"><b>Les écrans de projection intégrés</b><span class="n">05</span></div>
+  <div class="toc-item"><b>Brancher OBS</b><span class="n">06</span></div>
+  <div class="toc-item"><b>Brancher ProPresenter</b><span class="n">07</span></div>
+  <div class="toc-item"><b>vMix, réglages utiles &amp; dépannage</b><span class="n">08</span></div>
+  <div class="card accent" style="margin-top:8mm;">
+    <p style="margin:0;"><strong>Le principe en une phrase :</strong> VersePro écoute le prédicateur,
+    reconnaît les références (« Jean 3 verset 16 ») comme les versets cités ou paraphrasés,
+    et vous laisse <strong>valider d'un geste</strong> ce qui part à l'écran.</p>
+  </div>
+  <div class="footer"><span>versepro · guide</span><span>sommaire</span></div>
+</section>
+
+<!-- ══════════ 01 INSTALLATION ══════════ -->
+<section class="page">
+  <div class="eyebrow">01 · installation</div>
+  <h2>installer versepro.</h2>
+  <div class="two-col">
+    <div>
+      <h3>sur mac</h3>
+      <div class="steps">
+        <div class="step"><div><b>Ouvrez le fichier <span class="mono">VersePro_2.0.0.dmg</span></b>
+          <p>Glissez VersePro vers le dossier Applications, comme d'habitude.</p></div></div>
+        <div class="step"><div><b>Premier lancement : clic droit → Ouvrir</b>
+          <p>macOS affiche un avertissement pour les applications hors App Store.
+          Le clic droit puis « Ouvrir » ne se fait qu'une seule fois.</p></div></div>
+        <div class="step"><div><b>Autorisez le micro</b>
+          <p>À la première écoute, macOS demande l'accès au microphone : acceptez —
+          c'est l'oreille de la régie.</p></div></div>
+      </div>
+    </div>
+    <div>
+      <h3>sur windows</h3>
+      <div class="steps">
+        <div class="step"><div><b>Lancez <span class="mono">VersePro_2.0.0.msi</span></b>
+          <p>Suivez l'installeur. Un raccourci apparaît dans le menu Démarrer.</p></div></div>
+        <div class="step"><div><b>SmartScreen : « Informations » → « Exécuter quand même »</b>
+          <p>Windows prévient pour les applications récentes. L'avertissement disparaît
+          une fois l'application signée par Selah Studios.</p></div></div>
+        <div class="step"><div><b>Autorisez le micro</b>
+          <p>Windows demande l'accès au microphone au premier démarrage de l'écoute.</p></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="card warm">
+    <p style="margin:0;"><strong>Ce que l'installation contient déjà :</strong> la Bible Louis Segond 1910
+    et King James Française, l'index de recherche complet des 31 102 versets, et le moteur de régie.
+    Aucun terminal, aucune installation technique : tout est dans l'application.</p>
+  </div>
+  <h3>ce qu'il faudra télécharger ensuite</h3>
+  <p>Au premier lancement, l'assistant propose deux téléchargements — une seule fois,
+  puis tout fonctionne <strong>sans internet le dimanche</strong> :</p>
+  <table>
+    <tr><th>composant</th><th>rôle</th><th>poids</th></tr>
+    <tr><td>Reconnaissance vocale</td><td>transcrit la prédication hors-ligne (Vosk)</td><td>1,4 Go</td></tr>
+    <tr><td>Intelligence sémantique</td><td>reconnaît les versets paraphrasés</td><td>265 Mo</td></tr>
+  </table>
+  <div class="footer"><span>versepro · guide</span><span>01 · installation</span></div>
+</section>
+
+<!-- ══════════ 02 PREMIER LANCEMENT ══════════ -->
+<section class="page">
+  <div class="eyebrow">02 · premier lancement</div>
+  <h2>l'assistant prépare tout.</h2>
+  <p class="lede">Au premier démarrage, VersePro analyse la machine et affiche ce qui est prêt
+  et ce qui manque. Un seul bouton lance tous les téléchargements.</p>
+  <div class="shot" style="margin:4mm 0;"><img src="img/onboarding.png" alt="Assistant de premier lancement"></div>
+  <div class="caption">l'étape préparation : l'assistant a détecté que tout est installé</div>
+  <div class="steps" style="margin-top:5mm;">
+    <div class="step"><div><b>Préparation</b>
+      <p>L'assistant scanne le poste. S'il manque un composant, cliquez
+      <strong>« tout installer »</strong> : un anneau de progression suit les téléchargements.
+      Vous pouvez continuer — ils se poursuivent en arrière-plan.</p></div></div>
+    <div class="step"><div><b>Micro</b>
+      <p>Cliquez « tester le micro » et parlez : l'onde doit danser. Si l'accès est refusé,
+      autorisez le micro dans les réglages système puis revenez.</p></div></div>
+    <div class="step"><div><b>Prêt</b>
+      <p>Le récapitulatif confirme l'état de chaque composant. La clé Deepgram (transcription
+      cloud plus précise) est <strong>optionnelle</strong> — la régie fonctionne entièrement en local sans elle.</p></div></div>
+  </div>
+  <div class="card accent">
+    <p style="margin:0;">Tout se règle à nouveau plus tard dans <strong>Paramètres</strong> :
+    moteurs, téléchargements, clés, écrans. L'assistant n'est qu'un raccourci du premier jour.</p>
+  </div>
+  <div class="footer"><span>versepro · guide</span><span>02 · premier lancement</span></div>
+</section>
+
+<!-- ══════════ 03 LA RÉGIE ══════════ -->
+<section class="page">
+  <div class="eyebrow">03 · la régie en direct</div>
+  <h2>votre poste de pilotage.</h2>
+  <div class="shot" style="margin:3mm 0;"><img src="img/regie.png" alt="La régie en direct"></div>
+  <div class="caption">jean 3:16 à l'antenne — la colonne de droite montre toujours ce que l'assemblée voit</div>
+  <table style="margin-top:4mm;">
+    <tr><th>zone</th><th>ce qu'elle fait</th></tr>
+    <tr><td>Console audio</td><td><strong>Démarrer Micro</strong> lance l'écoute ; le vumètre confirme que le signal arrive.</td></tr>
+    <tr><td>À valider</td><td>Les versets détectés attendent ici. <kbd>Espace</kbd> projette,
+        <kbd>Échap</kbd> ignore, <kbd>↑</kbd><kbd>↓</kbd> navigue, <kbd>/</kbd> ouvre la recherche.</td></tr>
+    <tr><td>À l'antenne</td><td>Ce qui est projeté maintenant. <strong>Préc. / Suiv.</strong> naviguent verset par
+        verset, <strong>Effacer</strong> rend l'écran noir — la sortie de secours pendant le direct.</td></tr>
+    <tr><td>Recherche</td><td>Tapez une référence (« Jn 3:16 », « Romains 8 28 ») ou un bout de texte,
+        puis <strong>Projeter</strong>. Le clavier reste plus rapide que le prédicateur.</td></tr>
+    <tr><td>Transcript direct</td><td>La transcription défile en continu : vous voyez ce que la régie entend.</td></tr>
+    <tr><td>Moteur vocal</td><td><strong>Auto</strong> : Deepgram (cloud) quand internet va bien, bascule
+        seule sur Vosk (local) s'il tombe. Forcez « Vosk local » pour un culte 100 % hors-ligne.</td></tr>
+  </table>
+  <div class="card warm">
+    <p style="margin:0;"><strong>Rituel d'avant-culte (2 min) :</strong> Démarrer Micro → dire
+    « lisons Jean chapitre trois verset seize » → vérifier que la carte apparaît → <kbd>Espace</kbd> →
+    le verset s'affiche sur l'écran de secours. La chaîne complète est validée.</p>
+  </div>
+  <div class="footer"><span>versepro · guide</span><span>03 · la régie</span></div>
+</section>
+
+<!-- ══════════ 04 DÉTECTION ══════════ -->
+<section class="page">
+  <div class="eyebrow">04 · comprendre la détection</div>
+  <h2>qui décide de ce qui s'affiche ?</h2>
+  <p class="lede">Trois oreilles écoutent en même temps. Une seule règle d'or :
+  <strong>rien d'incertain ne part à l'écran sans vous.</strong></p>
+  <table style="margin-top:4mm;">
+    <tr><th>ce que dit le prédicateur</th><th>ce que fait versepro</th><th>à l'écran ?</th></tr>
+    <tr><td>« Jean 3 verset 16 »</td>
+        <td>Référence explicite — reconnue instantanément, formulations orales comprises
+        (« première épître de Jean », « Actes des Apôtres chapitre 2 »).</td>
+        <td><strong>Direct</strong> si la diffusion auto est activée, sinon file à valider.</td></tr>
+    <tr><td>« Car Dieu a tant aimé le monde… »</td>
+        <td>Verset lu ou paraphrasé — deux moteurs indépendants (texte + sens) doivent
+        être d'accord avant de proposer.</td>
+        <td>File <strong>à valider</strong>. Un geste : <kbd>Espace</kbd>.</td></tr>
+    <tr><td>« Souvenez-vous de Philippe avec l'eunuque… »</td>
+        <td>Allusion à un récit — si les moteurs locaux sèchent, l'IA (locale ou cloud) propose
+        en <em>dernier recours</em>, revalidée contre la Bible : elle ne peut rien inventer.</td>
+        <td>File <strong>à valider</strong>, jamais direct.</td></tr>
+    <tr><td>« Pensez au café après le culte »</td>
+        <td>Parole du quotidien — écartée par le filtre de recouvrement des mots.</td>
+        <td>Rien.</td></tr>
+  </table>
+  <h3>deux réglages qui comptent</h3>
+  <div class="shot"><img src="img/reglages_ia.png" alt="Réglage : quand consulter l'IA"></div>
+  <div class="caption">paramètres → analyse intelligente : quand consulter l'ia, et son seuil de confiance</div>
+  <p style="margin-top:3mm;"><strong>Diffusion en direct</strong> (Paramètres → Projection) : quand elle est active,
+  seules les références <em>explicites et très fiables</em> partent seules à l'écran. Tout le reste
+  passe par vous. Désactivée, <em>tout</em> passe par la file à valider.</p>
+  <div class="footer"><span>versepro · guide</span><span>04 · détection</span></div>
+</section>
+
+<!-- ══════════ 05 LES ÉCRANS ══════════ -->
+<section class="page">
+  <div class="eyebrow">05 · les écrans intégrés</div>
+  <h2>projeter sans rien installer d'autre.</h2>
+  <p class="lede">Trois boutons dans la colonne gauche de la régie ouvrent les écrans.
+  Glissez la fenêtre sur le vidéoprojecteur et passez en plein écran.</p>
+  <h3>écran secours — l'écran de l'assemblée</h3>
+  <div class="shot"><img src="img/ecran_secours.png" alt="Écran de secours"></div>
+  <div class="caption">le texte s'illumine mot à mot en suivant la voix du prédicateur (lecture vivante)</div>
+  <p style="margin-top:3mm;">C'est la sortie par défaut, toujours prête même sans OBS ni ProPresenter.
+  Elle suit l'antenne en temps réel : projection, navigation Préc./Suiv., écran noir.</p>
+  <h3 style="margin-top:5mm;">moniteur scène — pour le prédicateur</h3>
+  <div class="shot"><img src="img/moniteur_scene.png" alt="Moniteur de scène"></div>
+  <div class="caption">verset courant, verset suivant et horloge — pensé pour être lu de loin</div>
+  <p style="margin-top:3mm;">Un retour discret côté scène : le prédicateur voit où en est la projection
+  sans se retourner vers le grand écran.</p>
+  <div class="footer"><span>versepro · guide</span><span>05 · écrans</span></div>
+</section>
+
+<!-- ══════════ 06 OBS ══════════ -->
+<section class="page">
+  <div class="eyebrow">06 · brancher obs</div>
+  <h2>le bandeau verset dans votre direct.</h2>
+  <p class="lede">Pour le streaming, VersePro fournit un habillage « bas-tiers » à fond transparent
+  qui se pose sur votre réalisation OBS.</p>
+  <div class="shot" style="background:#f2f2f2;"><img src="img/obs_overlay.png" alt="Overlay OBS bas-tiers"></div>
+  <div class="caption">l'habillage bas-tiers : fond transparent, il se superpose à vos caméras</div>
+  <div class="steps" style="margin-top:4mm;">
+    <div class="step"><div><b>OBS, sur le même ordinateur que VersePro</b>
+      <p>Le moteur n'écoute qu'en local : la source doit être ajoutée dans l'OBS
+      qui tourne sur ce poste.</p></div></div>
+    <div class="step"><div><b>Sources → + → « Navigateur »</b>
+      <p>Nommez-la <em>VersePro — Bandeau</em>.</p></div></div>
+    <div class="step"><div><b>Collez l'URL, taille 1920 × 1080</b>
+      <span class="url">http://127.0.0.1:17871/obs?theme=lower-third&amp;bg=transparent</span>
+      <p>Largeur 1920, hauteur 1080, et cochez « Actualiser le navigateur quand la scène devient active ».</p></div></div>
+    <div class="step"><div><b>C'est branché</b>
+      <p>Le bandeau apparaît quand un verset est à l'antenne, disparaît quand vous effacez.
+      Le bouton <strong>Source OBS/vMix</strong> de la régie ouvre cette même page pour vérifier.</p></div></div>
+  </div>
+  <div class="card accent">
+    <p style="margin:0;"><strong>Astuce :</strong> sans <span class="mono">&amp;bg=transparent</span>,
+    la page affiche un fond noir — pratique pour tester dans un navigateur avant OBS.</p>
+  </div>
+  <div class="footer"><span>versepro · guide</span><span>06 · obs</span></div>
+</section>
+
+<!-- ══════════ 07 PROPRESENTER ══════════ -->
+<section class="page">
+  <div class="eyebrow">07 · brancher propresenter</div>
+  <h2>versepro pilote vos diapos.</h2>
+  <p class="lede">Si votre église projette déjà avec ProPresenter, VersePro lui envoie les versets :
+  vous gardez vos thèmes, VersePro apporte la détection.</p>
+  <div class="steps" style="margin-top:4mm;">
+    <div class="step"><div><b>Dans ProPresenter : activer le réseau</b>
+      <p>ProPresenter → Réglages → <strong>Réseau</strong> : cochez « Activer le réseau »,
+      notez le <strong>port</strong> affiché (ex. 12345) et l'adresse IP de la machine
+      (visible dans les réglages réseau du système).</p></div></div>
+    <div class="step"><div><b>Dans VersePro : Paramètres → ProPresenter</b>
+      <p>Renseignez l'<strong>hôte</strong> (IP de la machine ProPresenter — <span class="mono">127.0.0.1</span>
+      si c'est le même ordinateur) et le <strong>port</strong> noté, puis sauvegardez.</p></div></div>
+    <div class="step"><div><b>Vérifiez la pastille d'état</b>
+      <p>En haut de la régie, la pastille <strong>PP</strong> passe au vert quand la connexion est établie.
+      VersePro se reconnecte seul si ProPresenter redémarre.</p></div></div>
+  </div>
+  <div class="shot"><img src="img/reglages_pp.png" alt="Réglages ProPresenter"></div>
+  <div class="caption">paramètres : diffusion en direct, version biblique et connexion propresenter</div>
+  <div class="card warm" style="margin-top:4mm;">
+    <p style="margin:0;"><strong>Bon à savoir :</strong> c'est VersePro qui se connecte à ProPresenter
+    (connexion sortante) — ProPresenter peut donc tourner sur <strong>un autre ordinateur du même
+    réseau</strong>. En cas de coupure, l'écran de secours prend le relais automatiquement :
+    le bandeau jaune « Projection locale active » vous le signale dans la régie.</p>
+  </div>
+  <div class="footer"><span>versepro · guide</span><span>07 · propresenter</span></div>
+</section>
+
+<!-- ══════════ 08 VMIX + DÉPANNAGE ══════════ -->
+<section class="page">
+  <div class="eyebrow">08 · vmix · réglages · dépannage</div>
+  <h2>le reste de la régie.</h2>
+  <h3>vmix en deux lignes</h3>
+  <p>Paramètres → <strong>vMix</strong> : hôte, port (8088 par défaut) et nom de l'entrée titre.
+  VersePro y pousse référence et texte à chaque projection. L'habillage navigateur du chapitre 06
+  fonctionne aussi dans vMix (entrée « Web Browser », même URL).</p>
+  <h3>les moteurs, en un coup d'œil</h3>
+  <div class="shot"><img src="img/reglages_moteurs.png" alt="Réglages des moteurs"></div>
+  <div class="caption">paramètres → intelligence locale : moteur vocal et index sémantique (31 102 versets)</div>
+  <h3 style="margin-top:5mm;">dépannage express</h3>
+  <table>
+    <tr><th>symptôme</th><th>remède</th></tr>
+    <tr><td>Rien ne se détecte</td><td>Le vumètre bouge-t-il ? Sinon : mauvaise source audio
+        (Paramètres → Audio) ou micro non autorisé dans le système.</td></tr>
+    <tr><td>« Le moteur ne répond pas »</td><td>Quittez complètement l'application et relancez-la —
+        le moteur redémarre avec elle (comptez ~10 secondes).</td></tr>
+    <tr><td>Détection lente ou absente hors-ligne</td><td>Vérifiez que le modèle vocal (1,4 Go) est
+        installé : Paramètres → Intelligence locale. Sinon l'application attend Deepgram (internet).</td></tr>
+    <tr><td>Trop de propositions douteuses</td><td>Paramètres → Analyse intelligente : mode
+        <strong>Prudent</strong>, et remontez le seuil de confiance.</td></tr>
+    <tr><td>Des versets connus manqués</td><td>Baissez légèrement le seuil sémantique
+        (Paramètres → Intelligence locale) — par petits pas.</td></tr>
+    <tr><td>OBS n'affiche rien</td><td>L'URL doit pointer sur <span class="mono">127.0.0.1:17871</span>
+        et OBS tourner sur le même poste. Testez l'URL dans un navigateur d'abord.</td></tr>
+    <tr><td>Pastille PP orange</td><td>IP/port erronés ou réseau différent. Testez depuis le poste :
+        les deux machines doivent se voir sur le même réseau local.</td></tr>
+  </table>
+  <div class="footer"><span>versepro · guide — © 2026 selah studios</span><span>08 · dépannage</span></div>
+</section>
+
+</body>
+</html>
