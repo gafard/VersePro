@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.js'
+import { BACKEND_BASE } from '../env.js'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -92,7 +93,7 @@ export default function Settings() {
     setRehearsing(true)
     setRehearseResults(null)
     try {
-      const response = await fetch('/api/v1/rehearse', {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/rehearse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript: rehearseText })
@@ -476,25 +477,33 @@ export default function Settings() {
 
           <div className="settings-divider">
             <label>
-              <small>Tamis sémantique (Sensibilité d'écoute IA)</small>
+              <small>Quand consulter l'IA (dernier recours)</small>
               <div className="live-segmented settings-segmented">
                 <button
                   type="button"
                   className={form.ai_filtering_mode === 'strict' ? 'is-active' : ''}
                   onClick={() => updateField('ai_filtering_mode', 'strict')}
                 >
-                  Strict — filtre par mots-clés
+                  Prudent — si le sujet est biblique
                 </button>
                 <button
                   type="button"
                   className={form.ai_filtering_mode === 'open' ? 'is-active' : ''}
                   onClick={() => updateField('ai_filtering_mode', 'open')}
                 >
-                  Ouvert — analyse tout
+                  Large — à chaque phrase non résolue
                 </button>
               </div>
               <span className="settings-muted-note">
-                Le <strong>Mode Strict</strong> filtre les phrases d'après une liste de mots-clés théologiques pour économiser les performances. Le <strong>Mode Ouvert</strong> analyse tout (recommandé pour capturer des récits ou des phrases implicites comme "il a marché sur l'eau").
+                Ce réglage ne change <strong>rien</strong> à la détection locale : citations, versets lus et
+                paraphrases sont toujours analysés. Il décide seulement quand l'IA est sollicitée, et
+                uniquement <strong>si le moteur local n'a rien trouvé</strong>.
+                <br />
+                <strong>Prudent</strong> — l'IA n'est appelée que si la phrase contient un mot du registre
+                biblique. <strong>Large</strong> — elle est appelée sur chaque phrase non résolue : quelques
+                versets implicites en plus, au prix d'un appel de 10 à 20 s (modèle local) qui charge le
+                processeur pendant le direct. Dans les deux cas, une suggestion de l'IA passe toujours par
+                votre validation, jamais directement à l'écran.
               </span>
             </label>
           </div>
