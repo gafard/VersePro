@@ -55,9 +55,9 @@ def mock_bible_loader():
     }
     return loader
 
-def test_semantic_service_initialization_with_mock(mock_bible_loader):
+def test_semantic_service_initialization_with_mock(mock_bible_loader, tmp_path):
     encoder = MockEncoder()
-    service = LocalSemanticService(mock_bible_loader, encoder=encoder)
+    service = LocalSemanticService(mock_bible_loader, encoder=encoder, cache_dir=tmp_path)
     
     # Act
     success = service.initialize(allow_download=False)
@@ -69,9 +69,9 @@ def test_semantic_service_initialization_with_mock(mock_bible_loader):
     assert len(service.entries) == 2
     assert service.matrix.shape == (2, 1536)
 
-def test_semantic_service_search_similarity(mock_bible_loader):
+def test_semantic_service_search_similarity(mock_bible_loader, tmp_path):
     encoder = MockEncoder()
-    service = LocalSemanticService(mock_bible_loader, encoder=encoder)
+    service = LocalSemanticService(mock_bible_loader, encoder=encoder, cache_dir=tmp_path)
     service.initialize(allow_download=False)
     
     # Recherche sémantique

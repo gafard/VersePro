@@ -23,9 +23,14 @@ fn main() {
             // Backend empaqueté (PyInstaller onedir) : l'exécutable et son dossier
             // _internal/ sont embarqués comme ressources. onedir = démarrage rapide
             // (pas de ré-extraction ni de re-scan Gatekeeper à chaque lancement).
+            // Le nom diffère par OS : PyInstaller produit un .exe sous Windows.
+            #[cfg(windows)]
+            let backend_name = "backend/versepro-backend.exe";
+            #[cfg(not(windows))]
+            let backend_name = "backend/versepro-backend";
             let backend_exe = app
                 .path_resolver()
-                .resolve_resource("backend/versepro-backend")
+                .resolve_resource(backend_name)
                 .expect("backend embarqué introuvable dans les ressources");
 
             // Garantit le bit exécutable (les ressources peuvent le perdre à la copie).
@@ -39,11 +44,19 @@ fn main() {
                 }
             }
 
-            let child = Command::new(&backend_exe)
-                .env("VERSEPRO_DATA_DIR", data_dir.to_string_lossy().to_string())
+            let mut cmd = Command::new(&backend_exe);
+            cmd.env("VERSEPRO_DATA_DIR", data_dir.to_string_lossy().to_string())
                 .env("VERSEPRO_DB_PATH", db_path.to_string_lossy().to_string())
                 .env("VERSEPRO_HOST", "127.0.0.1")
-                .env("VERSEPRO_PORT", "8001")
+                .env("VERSEPRO_PORT", "17871");
+            // Sous Windows, un exécutable console lancé par une app graphique
+            // ouvre une fenêtre de terminal à chaque démarrage : CREATE_NO_WINDOW.
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
+            let child = cmd
                 .spawn()
                 .expect("échec du lancement du backend VersePro");
 

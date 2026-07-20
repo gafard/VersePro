@@ -53,7 +53,11 @@ v2/backend/*.db
 v2/backend/*.sqlite*
 v2/backend/data/vosk-model*/
 v2/backend/data/whisper_models/
-v2/backend/data/semantic/
+# semantic/ : modèles et caches ignorés, SAUF les index pré-calculés livrés
+# avec l'application (actifs produit, requis par le build CI).
+v2/backend/data/semantic/*
+!v2/backend/data/semantic/index-*.npz
+!v2/backend/data/semantic/index-*.json
 v2/backend/venv/
 v2/frontend/node_modules/
 v2/frontend/dist/
