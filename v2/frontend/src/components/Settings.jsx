@@ -291,7 +291,7 @@ export default function Settings() {
                 <small>Embeddings bibliques ONNX</small>
                 <p>
                   {semanticStatus?.verses_indexed || 0} versets indexés localement
-                  {semanticStatus?.model ? ` · moteur ${semanticStatus.model === 'qwen3' ? 'Qwen (haute précision)' : 'e5 (léger)'}` : ''}
+                  {semanticStatus?.model ? ` · moteur ${semanticStatus.model === 'e5-base' ? 'e5-base (précis)' : semanticStatus.model === 'e5-small' ? 'e5-small (léger, repli)' : semanticStatus.model}` : ''}
                   {semanticStatus?.using_fallback ? ' · secours' : ''}
                 </p>
               </div>
