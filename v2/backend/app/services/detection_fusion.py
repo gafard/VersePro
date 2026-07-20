@@ -87,16 +87,25 @@ _STOPWORDS = {
     "voici", "voilà", "puis", "ici", "là",
 }
 
-# Noms d'auteurs / personnages bibliques : le prédicateur les emploie en
-# ENCADREMENT (« Paul dit… », « selon Jean… »), et ils apparaissent dans quantité
-# de versets — ils confirment donc mal un verset précis. Exclus du recouvrement
-# lexical (mais laissés au sémantique, qui les gère). Ne PAS y mettre Dieu /
-# Seigneur / Jésus / Christ : ceux-là sont souvent le mot distinctif.
-_WEAK_NAMES = {
-    "paul", "jean", "pierre", "jacque", "matth", "marc", "luc", "david",
+# Radicaux FAIBLES : trop répandus pour confirmer un verset précis. Deux familles.
+#
+# 1. Noms d'auteurs / personnages, employés en ENCADREMENT (« Paul dit… »).
+# 2. Vocabulaire religieux ultra-courant : « la parole de Dieu », « le Seigneur »
+#    traversent des centaines de versets. Sans cette exclusion, « tout n'est pas
+#    évident dans la parole de Dieu » se faisait confirmer par 1 Timothée 4:5
+#    (« sanctifiée par la parole de Dieu ») sur deux mots creux.
+#
+# Les versets où ces mots comptent vraiment gardent assez de mots distinctifs
+# (« au commencement / créa / cieux / terre » pour Genèse 1:1).
+# Radicaux tronqués à 5 caractères — au-delà, ils ne peuvent jamais s'apparier.
+_WEAK_STEMS = {
+    # personnages
+    "paul", "jean", "pierr", "jacqu", "matth", "marc", "luc", "david",
     "moise", "salom", "esaie", "jerem", "ezech", "danie", "timot", "tite",
-    "philem", "abrah", "isaac", "jacob", "josep", "samue", "elie", "elise",
-    "apotr", "prophe", "disci", "frere",
+    "phile", "abrah", "isaac", "jacob", "josep", "samue", "elie", "elise",
+    "apotr", "proph", "disci", "frere",
+    # vocabulaire religieux passe-partout
+    "dieu", "seign", "jesus", "chris", "espri", "parol", "saint",
 }
 
 
@@ -117,7 +126,7 @@ def content_stems(text: str) -> set:
         if len(word) < 4 or word in _STOPWORDS:
             continue
         stem = word[:5]
-        if stem in _WEAK_NAMES:  # nom d'auteur / personnage : encadrement, non distinctif
+        if stem in _WEAK_STEMS:  # trop répandu pour confirmer un verset précis
             continue
         out.add(stem)
     return out

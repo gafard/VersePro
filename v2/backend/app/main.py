@@ -1281,6 +1281,28 @@ BIBLE_KEYWORDS = {
 # quand plusieurs fins de phrase s'enchaînent.
 _ai_last_resort_busy = False
 
+# Frontières de clause : le prédicateur enchâsse souvent l'allusion dans du
+# commentaire (« y a Philippe qui va s'asseoir avec lui… POURQUOI est-ce si
+# important ? PARCE QUE tout n'est pas évident… »).
+_CLAUSE_SPLIT = re.compile(
+    r"[.!?;:,]|\bparce que\b|\bpourquoi\b|\bmais\b|\bdonc\b|\balors\b|\bensuite\b|\bet puis\b",
+    re.IGNORECASE,
+)
+
+
+def _retrieval_windows(text: str) -> list[str]:
+    """Fenêtre(s) de récupération.
+
+    Le découpage en clauses a été ESSAYÉ puis retiré : mesuré sur le corpus de
+    référence, il faisait passer le rappel des paraphrases de 12/12 à 11/12 (une
+    fenêtre voisine remportait un quasi ex æquo — Ésaïe 40:29 volait Philippiens
+    4:13) sans rattraper le cas qui l'avait motivé (l'allusion narrative
+    « Philippe va s'asseoir avec lui »). Les allusions à un RÉCIT ne se résolvent
+    pas par appariement de texte : c'est le rôle de l'arbitrage IA (étage C).
+    On garde donc une fenêtre unique, la plus récente.
+    """
+    return [" ".join(text.split()[-settings.HYBRID_WINDOW_WORDS:])]
+
 
 async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict | None:
     """Cascade de détection PARTAGÉE par le direct et le mode répétition.
@@ -1324,37 +1346,52 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
     if semantic_service and not semantic_service.initialized and not semantic_service.indexing:
         await asyncio.to_thread(semantic_service.initialize, False)
 
-    async def _lexical():
-        return await asyncio.to_thread(
-            verse_parser.bible_loader.search_candidates, query, settings.HYBRID_TOP_K
-        )
-
-    async def _semantic():
-        if not (semantic_service and semantic_service.initialized):
-            return []
-        return await asyncio.to_thread(
-            semantic_service.search, query, settings.HYBRID_TOP_K, 0.0
-        )
-
-    lexical, semantic = await asyncio.gather(_lexical(), _semantic())
-
-    # Enrichit les candidats sémantiques de leurs traductions : le recouvrement
-    # lexical peut alors confirmer une paraphrase de n'importe quelle version.
-    for cand in semantic:
-        if "translations" not in cand and cand.get("verse_start") is not None:
-            cand["translations"] = verse_parser.bible_loader.translations_for(
-                cand["book_abbr"], cand["chapter"], cand["verse_start"]
+    async def _decide(window: str) -> dict | None:
+        """Récupération + fusion sur UNE fenêtre."""
+        async def _lexical():
+            return await asyncio.to_thread(
+                verse_parser.bible_loader.search_candidates, window, settings.HYBRID_TOP_K
             )
 
-    decision = fuse_detection(
-        lexical, semantic, query,
-        semantic_threshold=(semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD),
-        semantic_margin=(semantic_service.active_margin if semantic_service else settings.LOCAL_SEMANTIC_MARGIN),
-        overlap_min=settings.HYBRID_OVERLAP_MIN,
-        top_n=settings.HYBRID_TOP_K,
-    )
-    if decision:
-        return decision
+        async def _semantic():
+            if not (semantic_service and semantic_service.initialized):
+                return []
+            return await asyncio.to_thread(
+                semantic_service.search, window, settings.HYBRID_TOP_K, 0.0
+            )
+
+        lexical, semantic = await asyncio.gather(_lexical(), _semantic())
+
+        # Enrichit les candidats sémantiques de leurs traductions : le recouvrement
+        # lexical peut alors confirmer une paraphrase de n'importe quelle version.
+        for cand in semantic:
+            if "translations" not in cand and cand.get("verse_start") is not None:
+                cand["translations"] = verse_parser.bible_loader.translations_for(
+                    cand["book_abbr"], cand["chapter"], cand["verse_start"]
+                )
+
+        return fuse_detection(
+            lexical, semantic, window,
+            semantic_threshold=(semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD),
+            semantic_margin=(semantic_service.active_margin if semantic_service else settings.LOCAL_SEMANTIC_MARGIN),
+            overlap_min=settings.HYBRID_OVERLAP_MIN,
+            top_n=settings.HYBRID_TOP_K,
+        )
+
+    # Plusieurs découpes en parallèle : la meilleure décision l'emporte.
+    windows = _retrieval_windows(query)
+    found = [d for d in await asyncio.gather(*[_decide(w) for w in windows]) if d]
+    if found:
+        # Accord entre récupérateurs d'abord, puis recouvrement, puis confiance.
+        found.sort(
+            key=lambda d: (
+                bool((d.get("fusion") or {}).get("agreement")),
+                float((d.get("fusion") or {}).get("overlap") or 0),
+                float(d.get("confidence") or 0),
+            ),
+            reverse=True,
+        )
+        return found[0]
 
     # ── C. DERNIER RECOURS : arbitrage IA (Ollama local ou cloud) ────────────
     #    Ne se déclenche QUE si toute la chaîne locale est muette : le cas normal
@@ -1372,8 +1409,13 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
 
     _ai_last_resort_busy = True
     try:
-        shortlist = (semantic[:3] + lexical[:3]) or None
-        res = await ai_service.detect_bible_reference(query, candidates=shortlist)
+        # Vivier ancré : l'IA choisit parmi des versets RÉELS du corpus.
+        shortlist = await asyncio.to_thread(
+            verse_parser.bible_loader.search_candidates, query, 3
+        )
+        if semantic_service and semantic_service.initialized:
+            shortlist += await asyncio.to_thread(semantic_service.search, query, 3, 0.0)
+        res = await ai_service.detect_bible_reference(query, candidates=shortlist or None)
     except Exception as exc:
         logger.debug(f"Arbitrage IA de dernier recours indisponible : {exc}")
         return None

@@ -233,7 +233,12 @@ class AIService:
                 },
                 {"role": "user", "content": prompt}
             ],
-            "response_format": {"type": "json_object"}
+            "response_format": {"type": "json_object"},
+            # La réponse attendue est un JSON minuscule ({"reference","confidence"}).
+            # Sans cette borne, OpenRouter réserve le MAXIMUM du modèle (65 535
+            # jetons) : le contrôle de crédit refusait la requête (HTTP 402) alors
+            # qu'il n'y avait rien à générer, et chaque appel était facturé large.
+            "max_tokens": 200,
         }
         
         try:
@@ -342,7 +347,12 @@ class AIService:
         }
         
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
+            # Un modèle local 8B met 10–15 s à répondre (chargement + génération),
+            # bien plus que les 6 s d'origine : TOUS les appels expiraient et
+            # l'arbitrage local ne rendait jamais rien. Il tourne en tâche de fond,
+            # en dernier recours, et sa suggestion part en validation manuelle —
+            # il peut donc prendre son temps.
+            async with httpx.AsyncClient(timeout=settings.OLLAMA_TIMEOUT) as client:
                 response = await client.post(url, json=payload)
                 if response.status_code == 200:
                     res_json = response.json()

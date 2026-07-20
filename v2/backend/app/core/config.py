@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.0-flash"
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
+    # Un 8B local répond en 10–15 s (chargement + génération). L'ancien délai de
+    # 6 s faisait expirer TOUS les appels : l'arbitrage local ne rendait jamais
+    # rien. Il ne tourne qu'en dernier recours, en tâche de fond.
+    OLLAMA_TIMEOUT: float = 30.0
     
     # ProPresenter
     PROPRESENTER_HOST: str = "127.0.0.1"
