@@ -26,6 +26,25 @@ for src, dst in (
     if os.path.exists(src):
         datas.append((src, dst))
 
+# Index sémantique PRÉ-CALCULÉ (e5-base, float16, ~49 Mo npz+json) : identique
+# pour tous les postes (même Bible, même modèle), il est livré avec l'app et
+# copié vers le dossier utilisateur au premier lancement (_seed_bundled_index).
+# L'onboarding passe de « télécharger 265 Mo PUIS indexer ~8 min » à
+# « télécharger 265 Mo, terminé ». Sélection par dimension (768 = e5-base) pour
+# ne pas embarquer les index périmés d'autres modèles.
+import glob
+import numpy as _np
+for npz in glob.glob(os.path.join(SPECPATH, "data", "semantic", "index-*.npz")):
+    try:
+        if _np.load(npz)["matrix"].shape[1] != 768:
+            continue
+    except Exception:
+        continue
+    meta = npz[:-4] + ".json"
+    if os.path.exists(meta):
+        datas.append((npz, os.path.join("data", "semantic")))
+        datas.append((meta, os.path.join("data", "semantic")))
+
 for pkg in ("onnxruntime", "tokenizers", "vosk"):
     d, b, h = collect_all(pkg)
     datas += d
@@ -59,14 +78,22 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
+    [],                # NE PAS inliner binaries/datas → mode onedir
     name="versepro-backend",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     console=True,
+    exclude_binaries=True,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="versepro-backend",
 )

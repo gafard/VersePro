@@ -122,7 +122,33 @@ class LocalSemanticService:
                 continue
         return self._normalize(np.asarray(list(vectors), dtype=np.float32))
 
+    def _seed_bundled_index(self) -> None:
+        """Copie l'index sémantique livré avec l'application (ressources en
+        lecture seule) vers le dossier utilisateur, s'il n'y est pas déjà.
+
+        L'empreinte du nom de fichier (corpus + modèle + schéma) fait foi : un
+        index embarqué qui ne correspond plus (autre Bible, autre modèle) est
+        simplement ignoré au chargement, et l'indexation locale reprend la main."""
+        if self._injected_encoder:
+            return  # encodeur de test : l'index embarqué (e5 réel) le contredirait
+        try:
+            from ..core.config import RESOURCE_DIR
+            bundled = RESOURCE_DIR / "data" / "semantic"
+            if not bundled.is_dir() or bundled.resolve() == self.cache_dir.resolve():
+                return
+            import shutil
+            for src in bundled.glob("index-*"):
+                dst = self.cache_dir / src.name
+                if not dst.exists():
+                    shutil.copy2(src, dst)
+                    logger.info(f"📦 Index sémantique pré-calculé installé : {src.name}")
+        except Exception as exc:  # jamais bloquant : au pire on réindexe
+            logger.debug(f"Seed d'index embarqué ignoré : {exc}")
+
     def _make_encoder(self, model_name: str) -> Any:
+        if model_name.startswith("arctic"):
+            from .arctic_encoder import ArcticOnnxEncoder
+            return ArcticOnnxEncoder(cache_dir=self._model_cache_dir / model_name, variant=model_name)
         from .e5_encoder import E5OnnxEncoder
         variant = model_name if model_name in E5OnnxEncoder.VARIANTS else "e5-small"
         return E5OnnxEncoder(cache_dir=self._model_cache_dir / variant, variant=variant)
@@ -200,6 +226,12 @@ class LocalSemanticService:
             try:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+                # 0. Index PRÉ-CALCULÉ livré avec l'application : copié une fois
+                #    vers le dossier utilisateur. L'index est identique pour tous
+                #    (même Bible, même modèle) — le recalculer sur chaque poste
+                #    coûtait ~7,5 min d'onboarding pour rien.
+                self._seed_bundled_index()
+
                 # 1. Choix de l'encodeur actif AVANT tout : il fixe self.model_name,
                 #    donc le chemin d'index (chaque modèle a son propre index).
                 if not self._resolve_encoder(allow_download):
@@ -235,7 +267,13 @@ class LocalSemanticService:
 
                 self.matrix = self._encode(texts, progress=_on_progress)
                 self.indexed_count = len(self.entries)
-                np.savez_compressed(self._index_path, matrix=self.matrix)
+                # Stocké en float16 : les vecteurs sont normalisés, la demi-précision
+                # suffit largement. Mesuré sur l'index e5-base (31 102 × 768) :
+                # écart max sur un score 0,0001 — 50 fois moins que notre marge de
+                # séparation (0,0051) —, 0/200 changement de meilleur candidat,
+                # 200/200 top-5 identiques. Et le fichier passe de 84 à 42 Mo.
+                # Au chargement, _normalize repasse en float32.
+                np.savez_compressed(self._index_path, matrix=self.matrix.astype(np.float16))
                 self._metadata_path.write_text(
                     json.dumps(self.entries, ensure_ascii=False), encoding="utf-8"
                 )
