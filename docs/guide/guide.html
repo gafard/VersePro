@@ -166,7 +166,8 @@
   <div class="toc-item"><b>Les écrans de projection intégrés</b><span class="n">05</span></div>
   <div class="toc-item"><b>Brancher OBS</b><span class="n">06</span></div>
   <div class="toc-item"><b>Brancher ProPresenter</b><span class="n">07</span></div>
-  <div class="toc-item"><b>vMix, réglages utiles &amp; dépannage</b><span class="n">08</span></div>
+  <div class="toc-item"><b>vMix &amp; réglages des moteurs</b><span class="n">08</span></div>
+  <div class="toc-item"><b>Fiche réflexe — ça coince en plein direct</b><span class="n">09</span></div>
   <div class="card accent" style="margin-top:8mm;">
     <p style="margin:0;"><strong>Le principe en une phrase :</strong> VersePro écoute le prédicateur,
     reconnaît les références (« Jean 3 verset 16 ») comme les versets cités ou paraphrasés,
@@ -293,20 +294,45 @@
         être d'accord avant de proposer.</td>
         <td>File <strong>à valider</strong>. Un geste : <kbd>Espace</kbd>.</td></tr>
     <tr><td>« Souvenez-vous de Philippe avec l'eunuque… »</td>
-        <td>Allusion à un récit — si les moteurs locaux sèchent, l'IA (locale ou cloud) propose
-        en <em>dernier recours</em>, revalidée contre la Bible : elle ne peut rien inventer.</td>
+        <td>Allusion à un récit — les moteurs locaux sèchent souvent ici : ils comparent du
+        <em>texte</em>, pas des histoires. L'IA (locale ou cloud) prend le relais en
+        <em>dernier recours</em>.</td>
         <td>File <strong>à valider</strong>, jamais direct.</td></tr>
     <tr><td>« Pensez au café après le culte »</td>
         <td>Parole du quotidien — écartée par le filtre de recouvrement des mots.</td>
         <td>Rien.</td></tr>
   </table>
-  <h3>deux réglages qui comptent</h3>
-  <div class="shot"><img src="img/reglages_ia.png" alt="Réglage : quand consulter l'IA"></div>
+  <div class="card warm">
+    <p style="margin:0;"><strong>Ce que l'IA ne peut pas faire, et ce qu'elle peut rater.</strong>
+    Sa réponse est relue contre le texte biblique : elle ne peut pas <em>fabriquer</em> un verset
+    qui n'existe pas. En revanche elle peut proposer le <em>mauvais</em> verset — un passage réel,
+    mais pas celui qu'on citait. C'est exactement pour cela qu'une proposition d'IA
+    n'atteint jamais l'écran toute seule : <kbd>Espace</kbd> pour accepter,
+    <kbd>Échap</kbd> pour écarter. Le dernier mot vous revient, toujours.</p>
+  </div>
+
+  <div class="footer"><span>versepro · guide</span><span>04 · détection</span></div>
+</section>
+
+<!-- ══════════ 04 (suite) LES DEUX RÉGLAGES ══════════ -->
+<section class="page">
+  <div class="eyebrow">04 · comprendre la détection</div>
+  <h2>deux réglages qui comptent.</h2>
+  <p class="lede">Tout le reste peut rester par défaut. Ces deux-là décident du tempérament
+  de votre régie.</p>
+  <div class="shot" style="margin-top:4mm;"><img src="img/reglages_ia.png" alt="Réglage : quand consulter l'IA"></div>
   <div class="caption">paramètres → analyse intelligente : quand consulter l'ia, et son seuil de confiance</div>
-  <p style="margin-top:3mm;"><strong>Diffusion en direct</strong> (Paramètres → Projection) : quand elle est active,
+  <p style="margin-top:4mm;"><strong>Diffusion en direct</strong> (Paramètres → Projection) : quand elle est active,
   seules les références <em>explicites et très fiables</em> partent seules à l'écran. Tout le reste
   passe par vous. Désactivée, <em>tout</em> passe par la file à valider.</p>
-  <div class="footer"><span>versepro · guide</span><span>04 · détection</span></div>
+  <p><strong>Seuil de confiance</strong> (Paramètres → Analyse intelligente, 95 % par défaut) :
+  ce curseur n'est pas un réglage de précision, c'est un choix de tempérament.
+  <em>Au-dessus de 95 %</em>, VersePro ne vous propose que des quasi-certitudes : peu
+  d'interruptions, charge mentale légère, mais les allusions les plus fines passeront à la trappe.
+  <em>En dessous</em>, il ose davantage sur les paraphrases et les récits — vous rattrapez plus de
+  choses, au prix de quelques <kbd>Échap</kbd> de plus dans le culte. Bougez-le par pas de 1 ou 2 %,
+  jamais en pleine prédication.</p>
+  <div class="footer"><span>versepro · guide</span><span>04 · réglages</span></div>
 </section>
 
 <!-- ══════════ 05 LES ÉCRANS ══════════ -->
@@ -387,7 +413,7 @@
 
 <!-- ══════════ 08 VMIX + DÉPANNAGE ══════════ -->
 <section class="page">
-  <div class="eyebrow">08 · vmix · réglages · dépannage</div>
+  <div class="eyebrow">08 · vmix &amp; moteurs</div>
   <h2>le reste de la régie.</h2>
   <h3>vmix en deux lignes</h3>
   <p>Paramètres → <strong>vMix</strong> : hôte, port (8088 par défaut) et nom de l'entrée titre.
@@ -396,25 +422,52 @@
   <h3>les moteurs, en un coup d'œil</h3>
   <div class="shot"><img src="img/reglages_moteurs.png" alt="Réglages des moteurs"></div>
   <div class="caption">paramètres → intelligence locale : moteur vocal et index sémantique (31 102 versets)</div>
-  <h3 style="margin-top:5mm;">dépannage express</h3>
-  <table>
-    <tr><th>symptôme</th><th>remède</th></tr>
-    <tr><td>Rien ne se détecte</td><td>Le vumètre bouge-t-il ? Sinon : mauvaise source audio
-        (Paramètres → Audio) ou micro non autorisé dans le système.</td></tr>
-    <tr><td>« Le moteur ne répond pas »</td><td>Quittez complètement l'application et relancez-la —
-        le moteur redémarre avec elle (comptez ~10 secondes).</td></tr>
-    <tr><td>Détection lente ou absente hors-ligne</td><td>Vérifiez que le modèle vocal (1,4 Go) est
-        installé : Paramètres → Intelligence locale. Sinon l'application attend Deepgram (internet).</td></tr>
-    <tr><td>Trop de propositions douteuses</td><td>Paramètres → Analyse intelligente : mode
-        <strong>Prudent</strong>, et remontez le seuil de confiance.</td></tr>
-    <tr><td>Des versets connus manqués</td><td>Baissez légèrement le seuil sémantique
-        (Paramètres → Intelligence locale) — par petits pas.</td></tr>
-    <tr><td>OBS n'affiche rien</td><td>L'URL doit pointer sur <span class="mono">127.0.0.1:17871</span>
-        et OBS tourner sur le même poste. Testez l'URL dans un navigateur d'abord.</td></tr>
-    <tr><td>Pastille PP orange</td><td>IP/port erronés ou réseau différent. Testez depuis le poste :
-        les deux machines doivent se voir sur le même réseau local.</td></tr>
+  <div class="card accent" style="margin-top:5mm;">
+    <p style="margin:0;">Quelque chose cloche <strong>pendant</strong> le culte ? N'explorez pas ce
+    chapitre — la <strong>fiche réflexe</strong> de la page suivante est faite pour être lue en
+    dix secondes, une main sur le clavier.</p>
+  </div>
+  <div class="footer"><span>versepro · guide — © 2026 selah studios</span><span>08 · vmix &amp; moteurs</span></div>
+</section>
+
+<!-- ══════════ 09 FICHE RÉFLEXE (urgence direct) ══════════ -->
+<section class="page">
+  <div class="eyebrow">09 · fiche réflexe — à garder en régie</div>
+  <h2>ça coince en plein direct.</h2>
+  <p class="lede">Ce que vous <em>voyez</em> à gauche, ce que vous <em>faites</em> à droite.
+  Rien à comprendre, juste à exécuter.</p>
+
+  <div class="card warm" style="margin-top:4mm;">
+    <p style="margin:0;"><strong>Avant tout — le réflexe qui sauve :</strong> <kbd>Échap</kbd>
+    écarte la proposition en cours, <strong>Effacer</strong> vide l'écran de l'assemblée.
+    Aucune de ces deux touches ne casse quoi que ce soit. Reprenez votre souffle, puis diagnostiquez.</p>
+  </div>
+
+  <table style="margin-top:4mm;">
+    <tr><th>ce que vous voyez</th><th>action immédiate</th></tr>
+    <tr><td>Rien ne se détecte</td><td>Le vumètre bouge-t-il ? <strong>Non</strong> → Paramètres → Audio,
+        mauvaise source ou micro non autorisé. <strong>Oui</strong> → voir la ligne suivante.</td></tr>
+    <tr><td>Le vumètre bouge,<br>mais rien ne remonte</td><td>Vous êtes hors-ligne sans modèle local.
+        Paramètres → Intelligence locale : le modèle vocal (1,4 Go) doit être installé.</td></tr>
+    <tr><td>« Le moteur ne répond pas »</td><td>Quittez complètement l'application et relancez-la.
+        Le moteur repart avec elle — comptez ~10 secondes.</td></tr>
+    <tr><td>Pastille ProPresenter<br><strong>orange</strong></td><td>Projetez avec l'écran de secours intégré
+        (chapitre 05) pour finir le culte. Puis : IP/port et même réseau local.</td></tr>
+    <tr><td>OBS n'affiche rien</td><td>L'URL doit pointer sur <span class="mono">127.0.0.1:17871</span>,
+        OBS sur le même poste. Testez-la dans un navigateur.</td></tr>
+    <tr><td>Trop de propositions<br>douteuses</td><td>Paramètres → Analyse intelligente : mode
+        <strong>Prudent</strong>, seuil de confiance vers le haut.</td></tr>
+    <tr><td>Des versets évidents<br>sont manqués</td><td>Baissez le seuil sémantique par pas de 1 ou 2 %
+        (Paramètres → Intelligence locale). Jamais en pleine prédication.</td></tr>
   </table>
-  <div class="footer"><span>versepro · guide — © 2026 selah studios</span><span>08 · dépannage</span></div>
+
+  <div class="card" style="margin-top:4mm;">
+    <p style="margin:0;"><strong>La sortie de secours universelle :</strong> coupez la diffusion
+    automatique (Paramètres → Projection) et pilotez à la main depuis la recherche —
+    tapez « Jn 3:16 », <strong>Projeter</strong>. Le clavier reste plus rapide que le prédicateur.</p>
+  </div>
+
+  <div class="footer"><span>versepro · guide — © 2026 selah studios</span><span>09 · fiche réflexe</span></div>
 </section>
 
 </body>

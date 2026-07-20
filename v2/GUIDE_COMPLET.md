@@ -1,5 +1,15 @@
 # 🚀 VersePro v2 - Guide Complet d'Installation
 
+> **Document historique — ne pas suivre ces instructions.**
+> Il décrit l'application telle qu'elle était avant l'empaquetage Tauri : port
+> 8000, lancement manuel du backend, ni Vosk ni moteur sémantique local. Rien de
+> tout cela n'est encore vrai. Les « prochaines améliorations » listées à la fin
+> (capture audio, Tauri, streaming WebSocket) sont livrées depuis longtemps.
+>
+> Pour installer et utiliser VersePro : [guide d'utilisation](../docs/GUIDE-UTILISATION.pdf).
+> Pour développer : [v2/README.md](README.md) et [l'architecture](EXPLICATION_ARCHITECTURE.md).
+> Conservé uniquement comme trace de la genèse du projet.
+
 ## ✅ Ce Qui a Été Créé
 
 ### Backend (FastAPI + WebSocket)

@@ -2,6 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "versepro-backend",
+      "cwd": "v2/backend",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["VERSEPRO_PORT=8002", "venv/bin/python", "run_server.py"],
+      "port": 8002
+    },
+    {
       "name": "versepro-frontend",
       "cwd": "v2/frontend",
       "runtimeExecutable": "env",
