@@ -32,10 +32,10 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ── 1. Geler le backend Python (PyInstaller onedir) ──
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -72,9 +72,9 @@ jobs:
           cp -R v2/backend/dist/versepro-backend v2/frontend/src-tauri/backend
 
       # ── 3. Construire l'application Tauri ──
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: v2/frontend/package-lock.json
 
@@ -159,7 +159,7 @@ jobs:
           ls -lh dmg/
 
       # ── 4. Publier les installeurs ──
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: versepro-${{ matrix.os }}
           if-no-files-found: error
