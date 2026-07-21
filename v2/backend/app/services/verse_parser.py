@@ -149,6 +149,27 @@ def format_reference(book_abbr: str, chapter, verse_start=None, verse_end=None) 
     return f"{name} {chapter}:{verse_start}"
 
 
+# Nom d'édition en toutes lettres. « LSG » ne dit rien à une assemblée : ce
+# sigle est un code d'initié, et c'est lui qui s'affichait jusqu'ici sous les
+# versets projetés. La forme courte reste utile en régie, où la place manque.
+BIBLE_VERSION_LABELS = {
+    "LSG": ("Louis Segond 1910", "Segond 1910"),
+    "KJF": ("King James Française", "King James fr."),
+    "NBS": ("Nouvelle Bible Segond", "Nouvelle Segond"),
+    "SEM": ("Bible du Semeur", "Semeur"),
+    "TOB": ("Traduction œcuménique de la Bible", "TOB"),
+    "FC": ("Bible en français courant", "Français courant"),
+}
+
+
+def version_label(code: str, short: bool = False) -> str:
+    """Libellé lisible d'une version ; retombe sur le sigle si inconnue."""
+    entry = BIBLE_VERSION_LABELS.get((code or "").upper())
+    if not entry:
+        return code or ""
+    return entry[1] if short else entry[0]
+
+
 class BibleLoader:
     """Charge plusieurs versions de la Bible et gère la recherche textuelle multi-version"""
     _shared_versions = None

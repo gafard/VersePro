@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     BIBLE_VERSION: str = "LSG"  # Louis Segond 1910
     VALIDATE_REFERENCES: bool = True  # Valider les références (chapitres/versets existants)
     
+    # Projection & Themes
+    PROJECTION_THEME: str = "presentation"
+    PROJECTION_STYLE: str = "default"
+    SHOW_BIBLE_VERSION: bool = True
+    DUAL_TRANSLATIONS: str = "LSG,KJF"
+    
     # Audio
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_CHUNK_SIZE: int = 4096

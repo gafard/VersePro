@@ -41,7 +41,11 @@ export default function Settings() {
     voice_gate_enabled: false,
     asr_default_engine: 'auto',
     local_semantic_enabled: true,
-    local_semantic_threshold: 0.865
+    local_semantic_threshold: 0.865,
+    projection_theme: 'presentation',
+    projection_style: 'default',
+    show_bible_version: true,
+    dual_translations: 'LSG,KJF'
   })
   const [secretForm, setSecretForm] = useState({
     deepgram_api_key: '',
@@ -135,7 +139,11 @@ export default function Settings() {
       voice_gate_enabled: Boolean(settings.voice_gate_enabled),
       asr_default_engine: settings.asr_default_engine || 'auto',
       local_semantic_enabled: settings.local_semantic_enabled !== false,
-      local_semantic_threshold: Number(settings.local_semantic_threshold || 0.865)
+      local_semantic_threshold: Number(settings.local_semantic_threshold || 0.865),
+      projection_theme: settings.projection_theme || 'presentation',
+      projection_style: settings.projection_style || 'default',
+      show_bible_version: settings.show_bible_version !== false,
+      dual_translations: settings.dual_translations || 'LSG,KJF'
     })
   }, [settings, activeBible])
 
@@ -163,6 +171,17 @@ export default function Settings() {
 
   const updateSecret = (field, value) => {
     setSecretForm((current) => ({ ...current, [field]: value }))
+  }
+
+  const handleDualBibleToggle = (code) => {
+    let current = form.dual_translations ? form.dual_translations.split(',').map(s => s.trim()) : []
+    if (current.includes(code)) {
+      current = current.filter(c => c !== code)
+    } else {
+      current.push(code)
+    }
+    if (current.length === 0) current = ['LSG']
+    updateField('dual_translations', current.join(','))
   }
 
   const save = async () => {
@@ -333,6 +352,120 @@ export default function Settings() {
             Active uniquement la projection directe des references explicites et tres fiables.
             Les deductions IA restent en validation manuelle.
           </p>
+        </div>
+
+        <div className="settings-card is-wide">
+          <span>Projection & Rendu</span>
+          <h2>Thèmes & Personnalisation</h2>
+          
+          <div className="settings-form-grid" style={{ marginTop: '16px' }}>
+            <div className="settings-two-cols">
+              <label>
+                <small>Thème d'affichage</small>
+                <select 
+                  value={form.projection_theme} 
+                  onChange={(e) => updateField('projection_theme', e.target.value)}
+                >
+                  <option value="presentation">presentation (Plein écran classique)</option>
+                  <option value="broadcast">broadcast (Incrustation / Lower-third)</option>
+                  <option value="confidence">confidence (Moniteur retour scène)</option>
+                  <option value="elegant">elegant (Cérémonie, Serif Doré)</option>
+                  <option value="minimal">minimal (Typographie géante épurée)</option>
+                  <option value="dual">dual (Comparatif multi-versions)</option>
+                  <option value="poster">poster (Cadre vertical)</option>
+                  <option value="souffle">souffle (Adoration — texte seul, aucun décor)</option>
+                  <option value="story">story (Format vertical avec fond)</option>
+                </select>
+              </label>
+
+              {form.projection_theme === 'broadcast' ? (
+                <label>
+                  <small>Style de Lower-Third</small>
+                  <select 
+                    value={form.projection_style} 
+                    onChange={(e) => updateField('projection_style', e.target.value)}
+                  >
+                    <option value="filet">filet (Recommandé — règle laiton, sans cadre)</option>
+                    <option value="default">default (Classique translucide)</option>
+                    <option value="glass">✨ glass (Aero Dépoli Acrylique)</option>
+                    <option value="neon-glow">✨ neon-glow (Cyberpunk épuré)</option>
+                    <option value="elegant-serif">✨ elegant-serif (Georgia & Or)</option>
+                    <option value="pill">pill (Capsule arrondie)</option>
+                    <option value="sage">sage (Sauge & Terracotta)</option>
+                    <option value="split">split (Barre complète divisée)</option>
+                  </select>
+                </label>
+              ) : (
+                <div style={{ opacity: 0.4, pointerEvents: 'none' }}>
+                  <label>
+                    <small>Style de Lower-Third</small>
+                    <select disabled value="default">
+                      <option value="default">Indisponible avec ce thème</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.show_bible_version}
+                  onChange={(e) => updateField('show_bible_version', e.target.checked)}
+                  style={{ width: '16px', height: '16px' }}
+                />
+                <span className="text-xs text-[var(--text)]">
+                  Afficher la version de la Bible à côté de la référence (ex: <strong>Jean 3:16 (LSG)</strong>)
+                </span>
+              </label>
+            </div>
+
+            {form.projection_theme === 'dual' && (
+              <div className="flex flex-col gap-2 pt-3 border-t border-border-weak">
+                <small className="block font-semibold mb-1 text-[var(--text-dim)]">Traductions à projeter en parallèle (Duo / Trio) :</small>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {availableBibles.map((code) => {
+                    const isChecked = form.dual_translations?.split(',').map(s => s.trim()).includes(code);
+                    return (
+                      <label key={code} className="flex items-center gap-2 cursor-pointer text-xs select-none">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleDualBibleToggle(code)}
+                          style={{ width: '14px', height: '14px' }}
+                        />
+                        <span>{code} ({BIBLE_NAMES[code] || code})</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-border-weak">
+              <small className="block font-semibold mb-1 text-[var(--text-dim)]">Lien d'intégration OBS / vMix :</small>
+              <div className="flex gap-2 items-center bg-[var(--color-paper-deep)] border border-border-weak rounded-lg p-2 font-mono text-[10px] text-accent truncate select-all">
+                <span>
+                  {`${BACKEND_BASE || 'http://127.0.0.1:8001'}/output?theme=${form.projection_theme}&style=${form.projection_style}&versions=${form.dual_translations}&subtitle=off`}
+                </span>
+                <button
+                  type="button"
+                  className="vp-btn vp-btn--ghost vp-btn--2xs ml-auto flex-shrink-0"
+                  onClick={() => {
+                    const url = `${BACKEND_BASE || 'http://127.0.0.1:8001'}/output?theme=${form.projection_theme}&style=${form.projection_style}&versions=${form.dual_translations}&subtitle=off`;
+                    navigator.clipboard.writeText(url);
+                    addToast({ message: 'URL copiée !', kind: 'success' });
+                  }}
+                >
+                  Copier
+                </button>
+              </div>
+              <span className="settings-muted-note mt-1 block">
+                Ajoutez ce lien comme source navigateur (Browser Source) dans OBS Studio ou vMix (1920x1080, fond transparent).
+              </span>
+            </div>
+          </div>
         </div>
 
         <label className="settings-card">

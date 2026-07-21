@@ -45,6 +45,15 @@ for npz in glob.glob(os.path.join(SPECPATH, "data", "semantic", "index-*.npz")):
         datas.append((npz, os.path.join("data", "semantic")))
         datas.append((meta, os.path.join("data", "semantic")))
 
+# Polices servies aux écrans de diffusion (/fonts). 152 Ko, indispensables :
+# sans elles l'application empaquetée projette en police système et les
+# bandeaux perdent l'identité du produit.
+_fonts = os.path.join(SPECPATH, "data", "fonts")
+if os.path.isdir(_fonts):
+    for _f in os.listdir(_fonts):
+        if _f.endswith(".woff2"):
+            datas.append((os.path.join(_fonts, _f), os.path.join("data", "fonts")))
+
 for pkg in ("onnxruntime", "tokenizers", "vosk"):
     d, b, h = collect_all(pkg)
     datas += d

@@ -69,6 +69,10 @@ class SettingsUpdate(BaseModel):
     asr_default_engine: Optional[str] = None
     local_semantic_enabled: Optional[bool] = None
     local_semantic_threshold: Optional[float] = None
+    projection_theme: Optional[str] = None
+    projection_style: Optional[str] = None
+    show_bible_version: Optional[bool] = None
+    dual_translations: Optional[str] = None
 
 
 class PrepareModelRequest(BaseModel):
@@ -453,6 +457,10 @@ async def get_settings():
         "local_semantic_threshold": semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD,
         "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
         "semantic_status": semantic_service.status() if semantic_service else {},
+        "projection_theme": settings.PROJECTION_THEME,
+        "projection_style": settings.PROJECTION_STYLE,
+        "show_bible_version": settings.SHOW_BIBLE_VERSION,
+        "dual_translations": settings.DUAL_TRANSLATIONS,
     }
 
 
@@ -577,6 +585,26 @@ async def update_settings(settings_update: SettingsUpdate):
         settings.LOCAL_SEMANTIC_CALIBRATION.setdefault(active, {})["threshold"] = threshold
         settings.LOCAL_SEMANTIC_THRESHOLD = threshold
         await db.set_setting(f"local_semantic_threshold_{active}", threshold)
+
+    if "projection_theme" in update:
+        theme = str(update["projection_theme"])
+        settings.PROJECTION_THEME = theme
+        await db.set_setting("projection_theme", theme)
+        
+    if "projection_style" in update:
+        style = str(update["projection_style"])
+        settings.PROJECTION_STYLE = style
+        await db.set_setting("projection_style", style)
+        
+    if "show_bible_version" in update:
+        show_ver = bool(update["show_bible_version"])
+        settings.SHOW_BIBLE_VERSION = show_ver
+        await db.set_setting("show_bible_version", settings.SHOW_BIBLE_VERSION)
+        
+    if "dual_translations" in update:
+        dual_trans = str(update["dual_translations"])
+        settings.DUAL_TRANSLATIONS = dual_trans
+        await db.set_setting("dual_translations", dual_trans)
 
     if reconnect_propresenter and output_manager and "propresenter" in output_manager.outputs:
         pp_driver = output_manager.outputs["propresenter"]

@@ -14,13 +14,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from loguru import logger
 import uvicorn
 
-from .core.config import settings
+from .core.config import settings, RESOURCE_DIR
 from .core.security import http_request_allowed, websocket_allowed
 from .services.deepgram_service import DeepgramService
-from .services.verse_parser import VerseParserService
+from .services.verse_parser import VerseParserService, version_label
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
 from .services.ai_service import AIService
@@ -108,7 +110,13 @@ async def broadcast_projection(text: str, reference: str, background: str | None
         "theme": theme or current_projection_slide.get("theme", "presentation"),
         "translations": translations or {},
         "next_reference": next_ref,
-        "next_text": next_text
+        "next_text": next_text,
+        "active_version": settings.BIBLE_VERSION,
+        "active_version_label": version_label(settings.BIBLE_VERSION),
+        "active_version_short": version_label(settings.BIBLE_VERSION, short=True),
+        "show_version": settings.SHOW_BIBLE_VERSION,
+        "style": settings.PROJECTION_STYLE,
+        "dual_translations": settings.DUAL_TRANSLATIONS
     }
 
     # Nouveau verset à l'écran : la lecture vivante repart de zéro
@@ -237,6 +245,16 @@ async def access_control_middleware(request, call_next):
 # Routes API
 app.include_router(api_router, prefix="/api/v1")
 
+# Polices du produit servies aux écrans de diffusion. Sans elles, /output et
+# /stage retombent sur la police système : un bandeau se juge d'abord à sa
+# typographie, et le laiton de Lumen sur du Helvetica ne ressemble à rien.
+# Servies en local — une source navigateur OBS doit fonctionner hors ligne.
+_fonts_dir = Path(RESOURCE_DIR) / "data" / "fonts"
+if _fonts_dir.is_dir():
+    app.mount("/fonts", StaticFiles(directory=str(_fonts_dir)), name="fonts")
+else:
+    logger.warning(f"⚠️ Polices de diffusion absentes ({_fonts_dir}) : repli police système")
+
 
 @app.get("/")
 async def root():
@@ -289,12 +307,31 @@ async def get_output_page():
         <meta charset="utf-8">
         <title>Rendu d'Affichage - VersePro</title>
         <style>
-            :root { --accent: oklch(76% 0.17 50); --accent-2: oklch(68% 0.16 18); --read: #ffffff; --unread: rgba(255,255,255,0.34); }
+            /* Polices du produit, servies par le backend (/fonts) : une source
+               navigateur OBS doit fonctionner hors ligne, donc rien de distant. */
+            @font-face { font-family:"Space Grotesk"; font-weight:600; font-display:block;
+                         src:url("/fonts/space-grotesk-latin-600-normal.woff2") format("woff2"); }
+            @font-face { font-family:"Space Grotesk"; font-weight:700; font-display:block;
+                         src:url("/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); }
+            @font-face { font-family:"Geist Sans"; font-weight:400; font-display:block;
+                         src:url("/fonts/geist-sans-latin-400-normal.woff2") format("woff2"); }
+            @font-face { font-family:"Geist Sans"; font-weight:500; font-display:block;
+                         src:url("/fonts/geist-sans-latin-500-normal.woff2") format("woff2"); }
+            @font-face { font-family:"JetBrains Mono"; font-weight:500; font-display:block;
+                         src:url("/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2"); }
+            @font-face { font-family:"JetBrains Mono"; font-weight:600; font-display:block;
+                         src:url("/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+
+            :root { --accent: oklch(76% 0.17 50); --accent-2: oklch(68% 0.16 18); --read: #ffffff; --unread: rgba(255,255,255,0.34);
+                    --ink: oklch(97% 0.005 262); --accent-ink: oklch(18% 0.05 50);
+                    --font-display: "Space Grotesk", system-ui, sans-serif;
+                    --font-body: "Geist Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+                    --font-mono: "JetBrains Mono", ui-monospace, monospace; }
             html { font-size: 16px; }
             body {
                 margin: 0; padding: 0;
                 background-color: #000; color: #fff;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                font-family: var(--font-body);
                 overflow: hidden;
                 display: flex; align-items: center; justify-content: center;
                 height: 100vh; text-align: center;
@@ -383,6 +420,70 @@ async def get_output_page():
             }
             body.theme-broadcast #subtitle { display: none; }
 
+            /* --- STYLE: FILET (défaut recommandé) ---------------------------
+               Pas de cadre : le texte pose sur un voile dégradé et une seule
+               règle laiton le tient. Un lower third encadré fait « carte web » ;
+               la diffusion demande des arêtes franches et peu de chrome.
+               Conforme à design.md : accents laiton uniquement, Geist pour le
+               verset, mono pour la ligne de service.                          */
+            body.theme-broadcast.style-filet { align-items: flex-end; justify-content: flex-start; }
+            body.theme-broadcast.style-filet #container {
+                width: 100%; max-width: none; background: none; border: none; border-radius: 0;
+                box-shadow: none; margin: 0; padding: 8rem 5.5rem 3.6rem;
+                display: block; text-align: left;
+                background: linear-gradient(to top,
+                    oklch(8% 0.01 265 / 0.92) 0%, oklch(8% 0.01 265 / 0.72) 45%, transparent 100%);
+            }
+            body.theme-broadcast.style-filet #container::before {
+                content: ""; display: block; width: 44px; height: 3px;
+                background: var(--accent); margin-bottom: 1.1rem;
+            }
+            body.theme-broadcast.style-filet #text {
+                font-family: var(--font-body); font-size: 2.4rem; line-height: 1.32; font-weight: 400;
+                color: var(--ink); margin: 0; text-shadow: none; max-width: 62ch;
+            }
+            body.theme-broadcast.style-filet #text.karaoke .w { color: rgba(255,255,255,0.34); }
+            body.theme-broadcast.style-filet #text.karaoke .w.read { color: var(--ink); }
+            body.theme-broadcast.style-filet #reference {
+                display: inline-block; margin-top: 1rem; padding: 0; background: none; border: none;
+                font-family: var(--font-mono); font-size: 0.88rem; font-weight: 600;
+                letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+            }
+            body.theme-broadcast.style-filet #edition {
+                display: inline-block; margin-left: 0.9rem;
+                font-family: var(--font-mono); font-size: 0.88rem; font-weight: 500;
+                letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.6);
+            }
+
+            /* --- THEME: SOUFFLE (adoration) ---------------------------------
+               Aucun décor : le verset seul, centré, sur un halo bas. Pour les
+               moments où le graphisme doit s'effacer devant le texte.         */
+            body.theme-souffle { justify-content: center; align-items: flex-end; }
+            body.theme-souffle #container {
+                width: 100%; max-width: none; background: none; border: none; box-shadow: none;
+                padding: 0 8rem 5rem; text-align: center;
+                background: radial-gradient(60% 42% at 50% 100%, oklch(8% 0.01 265 / 0.86) 0%, transparent 72%);
+            }
+            body.theme-souffle #text {
+                font-family: var(--font-body); font-size: 2.9rem; line-height: 1.34; font-weight: 400;
+                color: var(--ink); margin: 0 auto; max-width: 26ch;
+                text-shadow: 0 2px 24px oklch(6% 0.01 265 / 0.7);
+            }
+            body.theme-souffle #text.karaoke .w { color: rgba(255,255,255,0.3); }
+            body.theme-souffle #text.karaoke .w.read { color: var(--ink); }
+            body.theme-souffle #reference {
+                display: inline-block; margin-top: 1.6rem; padding: 0; background: none; border: none;
+                font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;
+                letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+            }
+            body.theme-souffle #edition {
+                display: inline-block; margin-left: 0.85rem;
+                font-family: var(--font-mono); font-size: 0.85rem; font-weight: 500;
+                letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.68);
+            }
+            body.theme-souffle #edition::before { content: "•"; margin-right: 0.85rem; color: var(--accent); }
+            body.theme-souffle #subtitle { display: none; }
+
             /* --- THEME: CONFIDENCE (moniteur simple) --- */
             body.theme-confidence { background: #000 !important; justify-content: flex-start; align-items: flex-start; text-align: left; }
             body.theme-confidence #container { width: 95%; margin: 40px; }
@@ -424,8 +525,8 @@ async def get_output_page():
             }
 
             /* --- THEME: DUAL (multi-versions) --- */
-            body.theme-dual #container { width: 90%; max-width: 1300px; text-align: left; }
-            body.theme-dual .split-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+             body.theme-dual #container { width: 90%; max-width: 1300px; text-align: left; }
+            body.theme-dual .split-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; }
             body.theme-dual .split-col { border-left: 3px solid rgba(255,255,255,0.15); padding-left: 20px; }
             body.theme-dual .split-ver { font-size: 1.8rem; line-height: 1.5; color: #f3f4f6; margin-bottom: 12px; opacity: 0; }
             body.theme-dual .split-label { font-size: 11px; font-weight: bold; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; opacity: 0; }
@@ -433,6 +534,115 @@ async def get_output_page():
             body.theme-dual #container.visible .split-label { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards; }
 
             /* --- NOUVEAUX STYLES DE BROADCAST --- */
+
+            /* Style: glass (Frosted Glassmorphism - Moderne) */
+            body.theme-broadcast.style-glass #container {
+                background: rgba(15, 17, 24, 0.65);
+                backdrop-filter: blur(12px) saturate(160%);
+                -webkit-backdrop-filter: blur(12px) saturate(160%);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 16px;
+                padding: 22px 36px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 28px;
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            }
+            body.theme-broadcast.style-glass #text {
+                font-size: 1.6rem;
+                color: rgba(255, 255, 255, 0.95);
+                text-shadow: none;
+                margin-bottom: 0;
+                flex: 1;
+                font-weight: 400;
+            }
+            body.theme-broadcast.style-glass #text.karaoke .w { color: rgba(255, 255, 255, 0.32); }
+            body.theme-broadcast.style-glass #text.karaoke .w.read { color: #ffffff; }
+            body.theme-broadcast.style-glass #reference {
+                background: linear-gradient(135deg, oklch(70% 0.16 265) 0%, oklch(60% 0.15 285) 100%);
+                color: #ffffff;
+                border: none;
+                font-size: 1.1rem;
+                font-weight: 700;
+                border-radius: 8px;
+                padding: 8px 20px;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+                box-shadow: 0 4px 12px rgba(123, 131, 235, 0.25);
+                flex-shrink: 0;
+            }
+
+            /* Style: neon-glow (Cyberpunk Minimalist) */
+            body.theme-broadcast.style-neon-glow #container {
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 16px 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 32px;
+                box-shadow: none;
+            }
+            body.theme-broadcast.style-neon-glow #text {
+                font-size: 1.7rem;
+                color: #ffffff;
+                font-weight: 600;
+                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+                margin-bottom: 0;
+                flex: 1;
+            }
+            body.theme-broadcast.style-neon-glow #text.karaoke .w { color: rgba(255, 255, 255, 0.35); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85); }
+            body.theme-broadcast.style-neon-glow #text.karaoke .w.read { color: #ffffff; text-shadow: 0 0 12px rgba(255,255,255,0.4); }
+            body.theme-broadcast.style-neon-glow #reference {
+                background: #000000;
+                color: oklch(76% 0.17 50);
+                border: 2px solid oklch(76% 0.17 50);
+                font-size: 1.15rem;
+                font-weight: 800;
+                border-radius: 4px;
+                padding: 6px 18px;
+                text-shadow: none;
+                box-shadow: 0 0 15px rgba(253, 186, 116, 0.25);
+                flex-shrink: 0;
+            }
+
+            /* Style: elegant-serif (Georgia Dorée - Vantage) */
+            body.theme-broadcast.style-elegant-serif #container {
+                background: rgba(20, 16, 10, 0.94);
+                border: none;
+                border-left: 4px solid #e2b865;
+                border-radius: 4px;
+                padding: 20px 36px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 28px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+                font-family: Georgia, "Times New Roman", serif;
+            }
+            body.theme-broadcast.style-elegant-serif #text {
+                font-size: 1.6rem;
+                font-style: italic;
+                color: #f5efe2;
+                text-shadow: none;
+                margin-bottom: 0;
+                flex: 1;
+            }
+            body.theme-broadcast.style-elegant-serif #text.karaoke .w { color: rgba(245, 239, 226, 0.35); }
+            body.theme-broadcast.style-elegant-serif #text.karaoke .w.read { color: #f5efe2; }
+            body.theme-broadcast.style-elegant-serif #reference {
+                color: #e2b865;
+                font-size: 1.1rem;
+                font-weight: 600;
+                border: none;
+                padding: 0;
+                margin: 0;
+                text-shadow: none;
+                flex-shrink: 0;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+            }
 
             /* Style: pill (Capsule Moderne - Image 1) */
             body.theme-broadcast.style-pill #container {
@@ -683,6 +893,10 @@ async def get_output_page():
         <div id="container">
             <div id="text">En attente d'affichage...</div>
             <div id="reference"></div>
+            <!-- Édition en toutes lettres, à côté de la référence. Masquée par
+                 défaut : seuls les styles qui la mettent en scène l'affichent,
+                 les autres gardent le sigle entre parenthèses. -->
+            <div id="edition" style="display: none;"></div>
             <div id="split-container" style="display: none;">
                 <div class="split-columns" id="split-cols"></div>
             </div>
@@ -713,7 +927,13 @@ async def get_output_page():
             // Rendu du texte en mots individuels (Lecture vivante) — DOM sûr, pas d'innerHTML
             function renderWords(text) {
                 textEl.textContent = '';
-                textEl.classList.add('karaoke');
+                // La lecture vivante éteint les mots non encore prononcés (34 %
+                // d'opacité). Poser « karaoke » dès le rendu affichait TOUT le
+                // verset en gris tant qu'aucune voix ne le suivait : projection
+                // manuelle, micro coupé, simple silence. Le verset attendait une
+                // lecture qui ne venait pas. On n'arme le suivi qu'au premier
+                // événement de progression — voir applyProgress.
+                textEl.classList.remove('karaoke');
         (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
                     const span = document.createElement('span');
                     span.className = 'w';
@@ -725,13 +945,18 @@ async def get_output_page():
 
             function applyProgress(matched) {
                 const spans = textEl.querySelectorAll('.w');
+                if (!spans.length) return;
+                // Une voix suit réellement le texte : on peut armer l'extinction
+                // des mots à venir. Sans cette garde, un verset projeté sans
+                // lecture restait gris de bout en bout devant l'assemblée.
+                if (matched > 0) textEl.classList.add('karaoke');
                 spans.forEach((span, i) => {
                     span.classList.toggle('read', i < matched);
                     span.classList.toggle('cur', i === matched - 1);
                 });
             }
 
-            function getFullReference(data) {
+             function getFullReference(data) {
                 if (!data) return '';
                 if (!data.book) return data.reference || '';
                 let ref = data.book + ' ' + data.chapter;
@@ -740,6 +965,9 @@ async def get_output_page():
                     if (data.verse_end) {
                         ref += '-' + data.verse_end;
                     }
+                }
+                if (data.active_version && data.show_version !== false) {
+                    ref += ' (' + data.active_version + ')';
                 }
                 return ref;
             }
@@ -761,7 +989,7 @@ async def get_output_page():
 
                 // Même verset (changement de thème/fond seulement) : pas de re-animation
                 const fullRef = getFullReference(data);
-                const key = fullRef + '|' + (data.text || '');
+                const key = fullRef + '|' + (data.text || '') + '|' + theme + '|' + (forcedStyle || '');
                 if (key === currentKey) return;
                 currentKey = key;
 
@@ -769,7 +997,11 @@ async def get_output_page():
                 setTimeout(() => {
                     splitContainer.style.display = 'none';
                     textEl.style.display = 'block';
-                    refEl.style.display = 'block';
+                    // Style inline volontairement vidé plutôt que forcé à
+                    // « block » : les styles qui posent la référence et l'édition
+                    // sur une même ligne les déclarent inline-block en CSS, et un
+                    // style inline l'emporterait sur eux.
+                    refEl.style.display = '';
 
                     const translations = data.translations || {};
                     if (theme === 'dual' && Object.keys(translations).length > 1) {
@@ -777,7 +1009,26 @@ async def get_output_page():
                         refEl.style.display = 'none';
                         splitContainer.style.display = 'block';
                         splitCols.textContent = '';
-                        Object.entries(translations).slice(0, 2).forEach(([version, txt]) => {
+                        
+                        let versionsToShow = [];
+                        const versionsParam = params.get('versions');
+                        if (versionsParam) {
+                            versionsToShow = versionsParam.split(',').map(v => v.trim().toUpperCase());
+                        } else if (data.dual_translations) {
+                            versionsToShow = data.dual_translations.split(',').map(v => v.trim().toUpperCase());
+                        } else {
+                            const active = data.active_version || 'LSG';
+                            versionsToShow = [active];
+                            Object.keys(translations).forEach(v => {
+                                if (v !== active && versionsToShow.length < 2) {
+                                    versionsToShow.push(v);
+                                }
+                            });
+                        }
+
+                        versionsToShow.forEach((version) => {
+                            const txt = translations[version];
+                            if (!txt) return;
                             const col = document.createElement('div');
                             col.className = 'split-col';
                             const ver = document.createElement('div');
@@ -785,14 +1036,29 @@ async def get_output_page():
                             ver.textContent = txt;
                             const label = document.createElement('div');
                             label.className = 'split-label';
-                            label.textContent = version + ' — ' + fullRef;
+                            const showVer = data.show_version !== false;
+                            label.textContent = (showVer ? version + ' — ' : '') + getFullReference({...data, show_version: false});
                             col.appendChild(ver);
                             col.appendChild(label);
                             splitCols.appendChild(col);
                         });
                     } else {
                         renderWords(data.text);
-                        refEl.textContent = fullRef;
+                        // Les styles « filet » et « souffle » portent l'édition dans
+                        // un élément propre, en toutes lettres : « Louis Segond 1910 »
+                        // plutôt qu'un « (LSG) » que personne dans l'assemblée ne sait
+                        // lire. Les autres gardent le sigle collé à la référence.
+                        const editionEl = document.getElementById('edition');
+                        const spelled = document.body.classList.contains('style-filet')
+                                     || document.body.classList.contains('theme-souffle');
+                        if (spelled && data.show_version !== false && data.active_version_label) {
+                            refEl.textContent = getFullReference({...data, show_version: false});
+                            editionEl.textContent = data.active_version_label;
+                            editionEl.style.display = '';
+                        } else {
+                            refEl.textContent = fullRef;
+                            editionEl.style.display = 'none';
+                        }
                     }
 
                     if (data.text || data.reference) container.classList.add('visible');
@@ -925,6 +1191,9 @@ async def get_stage_display():
                     if (data.verse_end) {
                         ref += '-' + data.verse_end;
                     }
+                }
+                if (data.active_version && data.show_version !== false) {
+                    ref += ' (' + data.active_version + ')';
                 }
                 return ref;
             }
@@ -1171,6 +1440,10 @@ async def get_current_projection():
 async def update_projection_theme(payload: dict):
     """Change le thème de la projection en direct"""
     theme = payload.get("theme", "presentation")
+    settings.PROJECTION_THEME = theme
+    from .services.database import get_database
+    db = get_database()
+    await db.set_setting("projection_theme", theme)
     await broadcast_projection(
         current_projection_slide.get("text", ""),
         current_projection_slide.get("reference", ""),
