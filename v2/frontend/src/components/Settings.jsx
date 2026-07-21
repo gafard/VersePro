@@ -55,6 +55,19 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [helpModal, setHelpModal] = useState(null)
+
+  // Version installée et, si un manifeste est configuré, disponibilité d'une
+  // mise à jour. L'appel échoue en silence : hors ligne, la section affiche
+  // simplement la version installée.
+  const [versionInfo, setVersionInfo] = useState(null)
+  useEffect(() => {
+    let vivant = true
+    fetch(`${BACKEND_BASE}/api/v1/update/check`)
+      .then((r) => r.json())
+      .then((d) => { if (vivant) setVersionInfo(d) })
+      .catch(() => {})
+    return () => { vivant = false }
+  }, [])
   const [rehearseText, setRehearseText] = useState('')
   const [rehearseResults, setRehearseResults] = useState(null)
   const [rehearsing, setRehearsing] = useState(false)
@@ -386,6 +399,8 @@ export default function Settings() {
                     onChange={(e) => updateField('projection_style', e.target.value)}
                   >
                     <option value="filet">filet (Recommandé — règle laiton, sans cadre)</option>
+                    <option value="cartouche">cartouche (Bloc laiton, registre télévision)</option>
+                    <option value="ligne">ligne (Filet pleine largeur, éditorial)</option>
                     <option value="default">default (Classique translucide)</option>
                     <option value="glass">✨ glass (Aero Dépoli Acrylique)</option>
                     <option value="neon-glow">✨ neon-glow (Cyberpunk épuré)</option>
@@ -416,7 +431,9 @@ export default function Settings() {
                   style={{ width: '16px', height: '16px' }}
                 />
                 <span className="text-xs text-[var(--text)]">
-                  Afficher la version de la Bible à côté de la référence (ex: <strong>Jean 3:16 (LSG)</strong>)
+                  Indiquer l'édition sous le verset. Les styles <strong>filet</strong>, <strong>cartouche</strong>,
+                  <strong> ligne</strong> et le thème <strong>souffle</strong> l'écrivent en toutes lettres
+                  (<strong>Louis Segond 1910</strong>) ; les autres gardent le sigle (<strong>Jean 3:16 (LSG)</strong>).
                 </span>
               </label>
             </div>
@@ -724,6 +741,33 @@ export default function Settings() {
           )}
         </div>
       </section>
+
+      {versionInfo && (
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <span className="settings-eyebrow">à propos</span>
+            <h2>Version installée</h2>
+          </div>
+          <div className="settings-section-body">
+            <p className="text-sm">
+              VersePro <strong>{versionInfo.current}</strong> — Selah Studios.
+              {' '}
+              {versionInfo.update_available
+                ? <>Une version <strong>{versionInfo.latest}</strong> est disponible.</>
+                : versionInfo.checked
+                  ? 'Vous êtes à jour.'
+                  : 'Le contrôle des mises à jour n\'est pas activé — rien n\'est envoyé sur internet.'}
+            </p>
+            {versionInfo.update_available && versionInfo.url && (
+              <p className="text-sm" style={{ marginTop: '8px' }}>
+                {versionInfo.notes ? <span>{versionInfo.notes} </span> : null}
+                <a href={versionInfo.url} target="_blank" rel="noreferrer">Télécharger la mise à jour</a>
+                {' '}— l'installation reste manuelle : VersePro ne se remplace jamais tout seul.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
 
       <div className="settings-footer">
         <div>

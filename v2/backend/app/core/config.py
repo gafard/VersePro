@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     VALIDATE_REFERENCES: bool = True  # Valider les références (chapitres/versets existants)
     
     # Projection & Themes
+    # Version de l'application et contrôle de mise à jour.
+    # URL VIDE = contrôle désactivé, aucun appel réseau. VersePro ne téléphone
+    # nulle part par défaut : c'est un outil d'église, il doit pouvoir tourner
+    # sans jamais sortir du bâtiment. Renseigner l'URL d'un manifeste JSON
+    # {"version": "2.1.0", "url": "https://…", "notes": "…"} pour l'activer.
+    APP_VERSION: str = "2.0.0"
+    UPDATE_CHECK_URL: str = ""
+    UPDATE_CHECK_TIMEOUT: float = 6.0
+
     PROJECTION_THEME: str = "presentation"
     PROJECTION_STYLE: str = "default"
     SHOW_BIBLE_VERSION: bool = True

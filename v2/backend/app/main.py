@@ -455,6 +455,83 @@ async def get_output_page():
                 letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.6);
             }
 
+            /* --- STYLE: CARTOUCHE -------------------------------------------
+               Bloc laiton plein à gauche, verset sur voile sombre à droite.
+               Arêtes franches, aucun rayon : registre télévision. La grille
+               place trois frères (#reference, #edition, #text) sans conteneur
+               supplémentaire — le balisage est partagé par tous les styles.   */
+            body.theme-broadcast.style-cartouche { align-items: flex-end; justify-content: flex-start; }
+            body.theme-broadcast.style-cartouche #container {
+                width: auto; max-width: 92%; background: none; border: none; border-radius: 0;
+                box-shadow: none; padding: 0; margin: 0 0 4.6rem 0;
+                display: grid; grid-template-columns: auto minmax(0, 1fr);
+                grid-template-areas: "ref text" "ed text"; text-align: left; gap: 0;
+                /* Le conteneur broadcast de base centre ses enfants ; en grille
+                   cela empêche les deux moitiés du cartouche de s'étirer sur
+                   leur rangée et ouvre une couture sombre entre elles. */
+                align-items: stretch;
+            }
+            body.theme-broadcast.style-cartouche #reference {
+                grid-area: ref; margin: 0; border: none; border-radius: 0;
+                background: var(--accent); color: var(--accent-ink);
+                font-family: var(--font-display); font-weight: 700; font-size: 1.75rem;
+                letter-spacing: -0.01em; white-space: nowrap;
+                padding: 1.1rem 1.7rem 0.15rem; display: flex; align-items: flex-end;
+            }
+            body.theme-broadcast.style-cartouche #edition {
+                grid-area: ed; margin: 0; background: var(--accent); color: var(--accent-ink);
+                font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
+                letter-spacing: 0.14em; text-transform: uppercase;
+                /* Alpha sur la COULEUR seulement : une opacité d'élément
+                   ternissait aussi le fond laiton et coupait le bloc en deux
+                   teintes. */
+                color: oklch(18% 0.05 50 / 0.72);
+                padding: 0 1.7rem 1.15rem; white-space: nowrap;
+            }
+            body.theme-broadcast.style-cartouche #text {
+                grid-area: text; margin: 0; font-family: var(--font-body); font-weight: 400;
+                font-size: 1.9rem; line-height: 1.34; color: var(--ink); text-shadow: none;
+                background: oklch(10% 0.012 265 / 0.93); padding: 1.2rem 2.2rem;
+                display: flex; align-items: center;
+            }
+            body.theme-broadcast.style-cartouche #text.karaoke .w { color: rgba(255,255,255,0.34); }
+            body.theme-broadcast.style-cartouche #text.karaoke .w.read { color: var(--ink); }
+
+            /* --- STYLE: LIGNE DE BASE ---------------------------------------
+               Filet pleine largeur sous le verset, référence à gauche et
+               édition à droite. Le filet naît des bordures hautes des deux
+               cellules : une seule ligne continue, sans élément décoratif.    */
+            body.theme-broadcast.style-ligne { align-items: flex-end; justify-content: flex-start; }
+            body.theme-broadcast.style-ligne #container {
+                width: 100%; max-width: none; background: none; border: none; border-radius: 0;
+                box-shadow: none; margin: 0; padding: 8rem 6rem 3.4rem; text-align: left;
+                /* Aucun écart entre les colonnes : le filet naît des bordures
+                   hautes des deux cellules, et le moindre column-gap le coupe
+                   en deux tronçons. L'air se fait au rembourrage de l'édition. */
+                display: grid; grid-template-columns: 1fr auto; column-gap: 0;
+                background: linear-gradient(to top, oklch(8% 0.01 265 / 0.9), transparent 78%);
+            }
+            body.theme-broadcast.style-ligne #text {
+                grid-column: 1 / -1; margin: 0 0 1.3rem; font-family: var(--font-body);
+                font-weight: 400; font-size: 2.5rem; line-height: 1.28; color: var(--ink);
+                text-shadow: none; max-width: 60ch;
+            }
+            body.theme-broadcast.style-ligne #text.karaoke .w { color: rgba(255,255,255,0.34); }
+            body.theme-broadcast.style-ligne #text.karaoke .w.read { color: var(--ink); }
+            body.theme-broadcast.style-ligne #reference {
+                grid-column: 1; margin: 0; padding: 0.85rem 0 0; background: none; border: none;
+                border-top: 1px solid var(--accent); border-radius: 0;
+                font-family: var(--font-mono); font-size: 0.84rem; font-weight: 600;
+                letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent);
+            }
+            body.theme-broadcast.style-ligne #edition {
+                grid-column: 2; margin: 0; padding: 0.85rem 0 0 2.5rem;
+                border-top: 1px solid oklch(90% 0.01 262 / 0.22);
+                font-family: var(--font-mono); font-size: 0.84rem; font-weight: 500;
+                letter-spacing: 0.15em; text-transform: uppercase;
+                color: rgba(255,255,255,0.55); text-align: right; align-self: end;
+            }
+
             /* --- THEME: SOUFFLE (adoration) ---------------------------------
                Aucun décor : le verset seul, centré, sur un halo bas. Pour les
                moments où le graphisme doit s'effacer devant le texte.         */
@@ -1049,8 +1126,8 @@ async def get_output_page():
                         // plutôt qu'un « (LSG) » que personne dans l'assemblée ne sait
                         // lire. Les autres gardent le sigle collé à la référence.
                         const editionEl = document.getElementById('edition');
-                        const spelled = document.body.classList.contains('style-filet')
-                                     || document.body.classList.contains('theme-souffle');
+                        const spelled = ['style-filet', 'style-cartouche', 'style-ligne', 'theme-souffle']
+                            .some((c) => document.body.classList.contains(c));
                         if (spelled && data.show_version !== false && data.active_version_label) {
                             refEl.textContent = getFullReference({...data, show_version: false});
                             editionEl.textContent = data.active_version_label;

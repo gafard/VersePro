@@ -5,7 +5,8 @@ explicites (« Jean 3 verset 16 ») comme passages lus ou paraphrasés — et vo
 laisse valider d'un geste ce qui part à l'écran. Application de bureau macOS et
 Windows, autonome : aucun terminal à ouvrir, rien à lancer à côté.
 
-Édité par **Selah Studios**.
+Édité par **Selah Studios**. **Gratuit**, don libre — voir
+[les conditions d'utilisation](CONDITIONS.md).
 
 ---
 
@@ -27,6 +28,7 @@ dans cette section n'est nécessaire pour faire tourner un culte.
 | [v2/EXPLICATION_ARCHITECTURE.md](v2/EXPLICATION_ARCHITECTURE.md) | Intentions produit et architecture |
 | [v2/IMPLEMENTATION.md](v2/IMPLEMENTATION.md) | Détail des modules |
 | [SIGNING.md](SIGNING.md) | Certificats Apple et Windows, secrets CI |
+| [CONDITIONS.md](CONDITIONS.md) | Conditions d'utilisation, droits sur les textes bibliques |
 
 ---
 

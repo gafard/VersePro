@@ -908,6 +908,14 @@ async def control_prev():
             pass
     return {"success": False, "detail": "Aucun verset précédent disponible"}
 
+@router.get("/update/check")
+async def update_check():
+    """État de mise à jour. Renvoie toujours 200, même hors ligne : ce contrôle
+    est un confort, jamais une condition pour utiliser l'application."""
+    from ..services.update_check import check_for_update
+    return await check_for_update()
+
+
 @router.get("/control/status")
 async def control_status():
     """Renvoie l'état courant de la projection"""
