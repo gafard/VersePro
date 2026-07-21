@@ -27,6 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       HAS_WIN_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     defaults:
       run:
         shell: bash
@@ -106,7 +107,7 @@ jobs:
       - name: Build Tauri
         working-directory: v2/frontend
         # macOS : le bundler Tauri signe et notarise NATIVEMENT dès que ces
-        # variables existent (secrets du dépôt). Absentes -> build non signé.
+        # variables existent (secrets du dépôt).
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -116,7 +117,39 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm ci
-          npm run tauri build
+          # Un secret qui n'existe pas n'arrive pas ABSENT, il arrive en chaîne
+          # VIDE — et le bundler Tauri décide de signer sur la présence de la
+          # variable, pas sur son contenu. Sans ce nettoyage il tentait
+          # « Signing with identity "" » puis mourait sur l'import d'un
+          # certificat vide, au lieu de produire un build non signé.
+          if [ "$HAS_APPLE_CERT" != "true" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                  APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            echo "::notice::Aucun certificat Apple : application non signée (Gatekeeper avertira)."
+          fi
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            npm run tauri build -- --bundles app
+          else
+            npm run tauri build
+          fi
+
+      # Le bundler DMG de Tauri met en scène la fenêtre via AppleScript et le
+      # Finder — il a déjà échoué sur cette application. Aucun habillage DMG
+      # n'est configuré ici, donc hdiutil produit l'équivalent sans dépendre
+      # d'une session graphique. Le .app seul ne suffit pas : upload-artifact
+      # le re-zippe et perd le bit exécutable du binaire.
+      - name: Assembler le DMG (hdiutil)
+        if: runner.os == 'macOS'
+        working-directory: v2/frontend/src-tauri/target/release/bundle
+        run: |
+          version=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/v2/frontend/src-tauri/tauri.conf.json'))['package']['version'])")
+          mkdir -p dmg staging
+          cp -R macos/VersePro.app staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname "VersePro" -srcfolder staging -ov \
+                         -format UDZO "dmg/VersePro_${version}_aarch64.dmg"
+          rm -rf staging
+          ls -lh dmg/
 
       # ── 4. Publier les installeurs ──
       - uses: actions/upload-artifact@v4

@@ -71,7 +71,8 @@ droits d'en disposer.
 
 ## Construire les installeurs
 
-- **macOS, en local** : `./build-macos.sh`
+- **macOS, en local** : `v2/frontend/src-tauri/build-macos.sh` (nécessite le venv
+  de gel `v2/backend/.freeze-venv`)
 - **macOS + Windows** : onglet *Actions* → workflow « Release (installeurs macOS
   + Windows) » → *Run workflow*, ou pousser un tag `v*`.
 
