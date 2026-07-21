@@ -125,7 +125,14 @@ jobs:
           if [ "$HAS_APPLE_CERT" != "true" ]; then
             unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
                   APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-            echo "::notice::Aucun certificat Apple : application non signée (Gatekeeper avertira)."
+            # Le nettoyage vaut pour les deux OS, l'avertissement non : Gatekeeper
+            # n'existe pas sous Windows, et le job y annonçait un défaut de
+            # certificat Apple sans le moindre rapport avec son installeur.
+            # `if` et non `[ … ] && echo` : sous `set -e`, une liste && qui se
+            # termine en échec ferait tomber l'étape entière sur Windows.
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              echo "::notice::Aucun certificat Apple : application non signée (Gatekeeper avertira)."
+            fi
           fi
           if [ "$RUNNER_OS" = "macOS" ]; then
             npm run tauri build -- --bundles app
