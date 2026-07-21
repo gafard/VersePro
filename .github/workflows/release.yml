@@ -140,6 +140,20 @@ jobs:
             npm run tauri build
           fi
 
+      # Sans certificat Developer ID, Tauri ne signe pas du tout. Sur Apple
+      # Silicon, un binaire dépourvu de TOUTE signature est tué au lancement et
+      # macOS l'annonce comme « endommagé, placez-le dans la Corbeille » — un
+      # cul-de-sac pour l'utilisateur. Une signature ad hoc (« - ») ne remplace
+      # pas un certificat, Gatekeeper avertira toujours, mais elle ramène le
+      # refus à un « développeur non identifié » que le clic droit → Ouvrir
+      # permet de lever. À faire AVANT le DMG, qui fige le contenu signé.
+      - name: Signature ad hoc (faute de certificat)
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT != 'true'
+        working-directory: v2/frontend/src-tauri/target/release/bundle/macos
+        run: |
+          codesign --force --deep --sign - VersePro.app
+          codesign --verify --deep --strict --verbose=2 VersePro.app
+
       # Le bundler DMG de Tauri met en scène la fenêtre via AppleScript et le
       # Finder — il a déjà échoué sur cette application. Aucun habillage DMG
       # n'est configuré ici, donc hdiutil produit l'équivalent sans dépendre
