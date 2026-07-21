@@ -46,6 +46,26 @@ export default function FirstRunWizard({ onDone }) {
   useEffect(() => { const t = setTimeout(() => setEntered(true), 40); return () => clearTimeout(t) }, [])
 
   // ── Statuts vosk + sémantique (scan continu) ──
+  // ── Ouverture cinématique ──
+  // La séquence se joue TOUJOURS, même quand les moteurs sont déjà installés.
+  // Sans cela un poste déjà équipé ouvrait l'assistant sur son image finale :
+  // anneau coché, trois lignes vertes, plus rien en mouvement. L'opérateur ne
+  // voyait pas ce qui avait été vérifié — il voyait un écran mort.
+  const REVEAL_AT_MS = [1450, 1720, 1990]
+  const SETTLE_AT_MS = 2320
+  const [revealed, setRevealed] = useState(0)
+  const [settled, setSettled] = useState(false)
+  const reducedMotion = useRef(
+    typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  ).current
+  useEffect(() => {
+    if (reducedMotion) { setRevealed(3); setSettled(true); return }
+    const timers = REVEAL_AT_MS.map((ms, i) => setTimeout(() => setRevealed(i + 1), ms))
+    timers.push(setTimeout(() => setSettled(true), SETTLE_AT_MS))
+    return () => timers.forEach(clearTimeout)
+  }, [])
+
   const [vosk, setVosk] = useState(null)
   const [sem, setSem] = useState(null)
   const [scanned, setScanned] = useState(false)
@@ -147,6 +167,12 @@ export default function FirstRunWizard({ onDone }) {
 
   const stepLabel = ['PRÉPARATION', 'MICRO', 'PRÊT'][step]
 
+  // L'étape 01 porte déjà son action dans le corps — « tout installer (1,7 Go) »,
+  // « réessayer », ou « continuer → ». Le bouton du pied ferait doublon, sauf
+  // pendant un téléchargement, où le corps n'affiche rien et où l'on doit
+  // pouvoir avancer quand même.
+  const ctaDansLeCorps = step === 0 && settled && scanned && !backendDown && !anyBusy
+
   return (
     <div className="fw-backdrop" role="dialog" aria-modal="true" aria-label="Premier lancement">
       <div className="fw-aurora" aria-hidden="true"><span /><span /><span /></div>
@@ -164,26 +190,28 @@ export default function FirstRunWizard({ onDone }) {
           {STEPS[step] === 'preparation' && (
             <div className="fw-prep">
               <div className="fw-prep-stage">
-                {!allReady && !anyBusy && !launched && (
-                  <div className={`fw-sonar ${scanned ? 'is-scanned' : ''}`} aria-hidden="true">
+                {!settled && (
+                  <div className="fw-sonar" aria-hidden="true">
                     <span /><span /><span /><i><Icon name="mic" size={26} /></i>
                   </div>
                 )}
-                {(anyBusy || launched || allReady) && (
+                {settled && (anyBusy || launched || allReady) && (
                   <Ring pct={totalPct} size={168} stroke={7} big state={allReady ? 'done' : 'busy'} />
                 )}
-                {!allReady && !anyBusy && !launched && (
+                {settled && !allReady && !anyBusy && !launched && (
                   <div className="fw-prep-count"><strong>{missing.length === 0 ? 3 : 3 - missing.length}</strong><span>/ 3 prêts</span></div>
                 )}
               </div>
 
               <h1 className="fw-title">
-                {allReady ? 'votre régie est parée.'
+                {!settled ? 'analyse de votre poste…'
+                  : allReady ? 'votre régie est parée.'
                   : anyBusy ? 'installation en cours…'
                   : 'préparons votre régie.'}
               </h1>
               <p className="fw-lede">
-                {allReady ? 'tous les moteurs sont là. on passe au micro.'
+                {!settled ? 'versepro inventorie ce qui est déjà là et ce qu\'il reste à installer.'
+                  : allReady ? 'tous les moteurs sont là. on passe au micro.'
                   : anyBusy ? 'vous pouvez continuer — le téléchargement se poursuit en arrière-plan.'
                   : 'versepro analyse votre poste et télécharge ce qu\'il faut pour fonctionner sans internet le dimanche.'}
               </p>
@@ -195,27 +223,33 @@ export default function FirstRunWizard({ onDone }) {
 
               {scanned && !backendDown && (
                 <ul className="fw-comps">
-                  <li className="fw-comp is-ready">
+                  {revealed > 0 && (
+                  <li className="fw-comp fw-comp--in is-ready">
                     <Icon name="check" size={15} />
                     <div><strong>index lexical des citations</strong><small>inclus · « jean 3 verset 16 » fonctionne déjà</small></div>
                     <span className="fw-comp-size">0 Mo</span>
                   </li>
-                  <li className={`fw-comp ${voskReady ? 'is-ready' : voskBusy ? 'is-busy' : ''}`}>
+                  )}
+                  {revealed > 1 && (
+                  <li className={`fw-comp fw-comp--in ${voskReady ? 'is-ready' : voskBusy ? 'is-busy' : ''}`}>
                     {voskReady ? <Icon name="check" size={15} /> : voskBusy ? <span className="fw-mini-pct">{Math.round(voskPct)}%</span> : <span className="fw-dot" />}
                     <div><strong>reconnaissance vocale hors-ligne</strong>
                       <small>{vosk?.last_error ? vosk.last_error : voskReady ? 'installée' : voskBusy ? 'téléchargement…' : 'vosk — à installer'}</small></div>
                     <span className="fw-comp-size">1,4 Go</span>
                   </li>
-                  <li className={`fw-comp ${semReady ? 'is-ready' : semBusy ? 'is-busy' : ''}`}>
+                  )}
+                  {revealed > 2 && (
+                  <li className={`fw-comp fw-comp--in ${semReady ? 'is-ready' : semBusy ? 'is-busy' : ''}`}>
                     {semReady ? <Icon name="check" size={15} /> : semBusy ? <span className="fw-mini-pct">{Math.round(semPct)}%</span> : <span className="fw-dot" />}
                     <div><strong>intelligence sémantique (paraphrases)</strong>
                       <small>{sem?.last_error ? sem.last_error : semReady ? 'prête' : sem?.downloading ? 'téléchargement…' : sem?.indexing ? `indexation ${sem?.verses_indexed || 0} versets…` : 'e5-base — à installer'}</small></div>
                     <span className="fw-comp-size">265 Mo</span>
                   </li>
+                  )}
                 </ul>
               )}
 
-              {scanned && !backendDown && (
+              {settled && scanned && !backendDown && (
                 allReady
                   ? <button className="vp-btn vp-btn--primary fw-cta" onClick={() => go(1)}>continuer →</button>
                   : anyBusy
@@ -280,7 +314,7 @@ export default function FirstRunWizard({ onDone }) {
           <div className="fw-foot-right">
             {step > 0 && <button className="vp-btn" onClick={() => go(step - 1)}>retour</button>}
             {step < STEPS.length - 1
-              ? <button className="vp-btn vp-btn--primary" onClick={() => go(step + 1)}>continuer</button>
+              ? (!ctaDansLeCorps && <button className="vp-btn vp-btn--primary" onClick={() => go(step + 1)}>continuer</button>)
               : <button className="vp-btn vp-btn--primary" onClick={finish}>ouvrir la régie</button>}
           </div>
         </footer>

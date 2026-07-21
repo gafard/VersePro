@@ -2670,7 +2670,10 @@ select:focus-visible,
 @keyframes fw-step-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* ── PRÉPARATION : scène (sonar / anneau maître) ── */
-.fw-prep-stage { position: relative; height: 190px; display: flex; align-items: center; justify-content: center; margin-bottom: var(--space-sm); }
+/* La scène occupait 190px fixes : sur un portable en 720px de haut, le bouton
+   « continuer » tombait sous la ligne de flottaison et il fallait scroller
+   l'assistant pour le trouver. Elle respire encore en grand écran. */
+.fw-prep-stage { position: relative; height: clamp(140px, 22vh, 190px); display: flex; align-items: center; justify-content: center; margin-bottom: var(--space-sm); }
 .fw-sonar { position: relative; width: 150px; height: 150px; display: flex; align-items: center; justify-content: center; }
 .fw-sonar span { position: absolute; inset: 0; margin: auto; width: 100%; height: 100%; border: 1px solid var(--color-accent); border-radius: 50%; opacity: 0; animation: fw-ping 2.6s var(--ease-out) infinite; }
 .fw-sonar span:nth-child(2) { animation-delay: 0.85s; }
@@ -2695,6 +2698,12 @@ select:focus-visible,
 .fw-comps { list-style: none; margin: 0 0 var(--space-xs); padding: 0; display: flex; flex-direction: column; gap: var(--space-2xs); }
 .fw-comp { display: flex; align-items: center; gap: var(--space-sm); background: var(--color-paper-3); border: 1px solid var(--color-rule); border-radius: var(--radius-card); padding: var(--space-sm) var(--space-md); transition: border-color 300ms var(--ease-out), background 300ms var(--ease-out); }
 .fw-comp > svg { color: var(--color-muted); flex-shrink: 0; }
+/* Chaque composant se pose à son tour, monté par le compteur `revealed`. */
+.fw-comp--in { animation: fw-comp-in 420ms var(--ease-out) both; }
+@keyframes fw-comp-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
 .fw-comp.is-ready { border-color: color-mix(in oklch, var(--color-ok-ink) 38%, var(--color-rule)); }
 .fw-comp.is-ready > svg { color: var(--color-ok-ink); animation: fw-pop 360ms var(--ease-out) both; }
 .fw-comp.is-busy { border-color: color-mix(in oklch, var(--color-accent) 45%, var(--color-rule)); }
@@ -2706,6 +2715,24 @@ select:focus-visible,
 .fw-mini-pct { min-width: 30px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--color-accent); flex-shrink: 0; }
 
 /* ── MICRO : visualiseur d'onde ── */
+/* Portables 13" (~720px utiles) : l'assistant doit tenir d'un seul tenant,
+   bouton compris. Devoir scroller pour trouver « continuer » casse net le
+   moment qu'on vient de mettre en scène. Les tailles d'anneau et de sonar
+   sont posées par le composant en attribut, d'où les !important ici. */
+@media (max-height: 820px) {
+  .fw-body { padding: var(--space-md) var(--space-lg); }
+  .fw-prep-stage { height: 118px; margin-bottom: 2px; }
+  .fw-ring { width: 112px !important; height: 112px !important; }
+  .fw-ring svg { width: 100%; height: 100%; }
+  .fw-ring-pct { font-size: 1.45rem; }
+  .fw-sonar { width: 104px; height: 104px; }
+  .fw-sonar i { width: 46px; height: 46px; }
+  .fw-title { font-size: 1.5rem; margin-bottom: 4px; }
+  .fw-lede { margin-bottom: var(--space-sm); }
+  .fw-comp { padding: 7px var(--space-md); }
+  .fw-cta { margin-top: var(--space-md); }
+}
+
 .fw-wave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 72px; margin: var(--space-lg) 0 var(--space-sm); }
 .fw-wave span { width: 4px; min-height: 6px; border-radius: var(--radius-pill); background: var(--color-rule-2); transition: height 80ms linear, background 300ms var(--ease-out); }
 .fw-wave.is-live span { background: var(--color-accent); }
