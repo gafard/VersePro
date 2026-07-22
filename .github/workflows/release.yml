@@ -100,8 +100,8 @@ jobs:
           $cert = Import-PfxCertificate -FilePath selah.pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd
           Remove-Item selah.pfx
           $conf = Get-Content v2/frontend/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $conf.tauri.bundle.windows.certificateThumbprint = $cert.Thumbprint
-          $conf.tauri.bundle.windows.timestampUrl = "http://timestamp.digicert.com"
+          $conf.bundle.windows.certificateThumbprint = $cert.Thumbprint
+          $conf.bundle.windows.timestampUrl = "http://timestamp.digicert.com"
           $conf | ConvertTo-Json -Depth 32 | Set-Content v2/frontend/src-tauri/tauri.conf.json
 
       - name: Build Tauri
@@ -163,7 +163,7 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: v2/frontend/src-tauri/target/release/bundle
         run: |
-          version=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/v2/frontend/src-tauri/tauri.conf.json'))['package']['version'])")
+          version=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/v2/frontend/src-tauri/tauri.conf.json'))['version'])")
           mkdir -p dmg staging
           cp -R macos/VersePro.app staging/
           ln -s /Applications staging/Applications

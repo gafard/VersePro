@@ -1028,7 +1028,9 @@ export const useStore = create((set, get) => ({
               if (channel) {
                 this._chunks.push(new Float32Array(channel))
                 this._length += channel.length
-                if (this._length >= 4096) {
+                // 2048 échantillons ≈ 43 ms à 48 kHz : la moitié de latence de
+                // groupage d'avant, sans surcoût mesurable pour les moteurs ASR.
+                if (this._length >= 2048) {
                   const out = new Float32Array(this._length)
                   let offset = 0
                   for (const c of this._chunks) { out.set(c, offset); offset += c.length }
@@ -1048,7 +1050,7 @@ export const useStore = create((set, get) => ({
         console.info('Capture audio : AudioWorklet global')
       } catch (workletErr) {
         console.warn('AudioWorklet indisponible, repli sur ScriptProcessor :', workletErr)
-        captureNode = audioCtx.createScriptProcessor(4096, 1, 1)
+        captureNode = audioCtx.createScriptProcessor(2048, 1, 1)
         captureNode.onaudioprocess = (event) => handleAudioFrame(event.inputBuffer.getChannelData(0))
       }
       processorNode = captureNode

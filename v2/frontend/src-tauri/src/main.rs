@@ -7,6 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::path::BaseDirectory;
 use tauri::Manager;
 
 #[derive(Clone)]
@@ -43,11 +44,12 @@ fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let data_dir = app
-                .path_resolver()
+                .path()
                 .app_data_dir()
-                .unwrap_or_else(|| std::env::current_dir().unwrap().join("versepro-data"));
+                .unwrap_or_else(|_| std::env::current_dir().unwrap().join("versepro-data"));
             std::fs::create_dir_all(&data_dir).ok();
             let db_path = data_dir.join("versepro.db");
 
@@ -56,8 +58,8 @@ fn main() {
             #[cfg(not(windows))]
             let backend_name = "backend/versepro-backend";
             let backend_exe = app
-                .path_resolver()
-                .resolve_resource(backend_name)
+                .path()
+                .resolve(backend_name, BaseDirectory::Resource)
                 .expect("backend embarqué introuvable dans les ressources");
 
             #[cfg(unix)]
@@ -80,7 +82,7 @@ fn main() {
 
             // Surveille le sidecar pendant toute la session. Un crash isolé est
             // réparé automatiquement; un crash en boucle reçoit un backoff.
-            let handle = app.handle();
+            let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let mut failures = 0_u32;
                 let mut started_at = Instant::now();

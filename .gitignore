@@ -87,3 +87,5 @@ v2/frontend/src-tauri/binaries/
 v2/frontend/src-tauri/backend/
 v2/backend/dist-onefile/
 v2/release/
+# Schémas générés par Tauri v2 (capabilities)
+v2/frontend/src-tauri/gen/
