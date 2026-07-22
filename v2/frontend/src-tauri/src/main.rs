@@ -1,18 +1,49 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::{Child, Command};
+use std::fs::OpenOptions;
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::Manager;
 
-// Conserve le processus backend pour l'arrêter à la fermeture de l'application.
-struct BackendProcess(Mutex<Option<Child>>);
+#[derive(Clone)]
+struct BackendConfig {
+    executable: PathBuf,
+    data_dir: PathBuf,
+    db_path: PathBuf,
+}
+
+struct BackendProcess {
+    child: Mutex<Option<Child>>,
+    shutting_down: AtomicBool,
+    config: BackendConfig,
+}
+
+fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
+    let log_path = config.data_dir.join("backend-desktop.log");
+    let stdout = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    let stderr = stdout.try_clone()?;
+    let mut cmd = Command::new(&config.executable);
+    cmd.env("VERSEPRO_DATA_DIR", config.data_dir.to_string_lossy().to_string())
+        .env("VERSEPRO_DB_PATH", config.db_path.to_string_lossy().to_string())
+        .env("VERSEPRO_HOST", "127.0.0.1")
+        .env("VERSEPRO_PORT", "17871")
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.spawn()
+}
 
 fn main() {
     tauri::Builder::default()
-        .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
-            // Dossier de données INSCRIPTIBLE de l'utilisateur (modèles, index, base).
             let data_dir = app
                 .path_resolver()
                 .app_data_dir()
@@ -20,10 +51,6 @@ fn main() {
             std::fs::create_dir_all(&data_dir).ok();
             let db_path = data_dir.join("versepro.db");
 
-            // Backend empaqueté (PyInstaller onedir) : l'exécutable et son dossier
-            // _internal/ sont embarqués comme ressources. onedir = démarrage rapide
-            // (pas de ré-extraction ni de re-scan Gatekeeper à chaque lancement).
-            // Le nom diffère par OS : PyInstaller produit un .exe sous Windows.
             #[cfg(windows)]
             let backend_name = "backend/versepro-backend.exe";
             #[cfg(not(windows))]
@@ -33,7 +60,6 @@ fn main() {
                 .resolve_resource(backend_name)
                 .expect("backend embarqué introuvable dans les ressources");
 
-            // Garantit le bit exécutable (les ressources peuvent le perdre à la copie).
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -44,38 +70,66 @@ fn main() {
                 }
             }
 
-            let mut cmd = Command::new(&backend_exe);
-            cmd.env("VERSEPRO_DATA_DIR", data_dir.to_string_lossy().to_string())
-                .env("VERSEPRO_DB_PATH", db_path.to_string_lossy().to_string())
-                .env("VERSEPRO_HOST", "127.0.0.1")
-                .env("VERSEPRO_PORT", "17871");
-            // Sous Windows, un exécutable console lancé par une app graphique
-            // ouvre une fenêtre de terminal à chaque démarrage : CREATE_NO_WINDOW.
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000);
-            }
-            let child = cmd
-                .spawn()
-                .expect("échec du lancement du backend VersePro");
+            let config = BackendConfig { executable: backend_exe, data_dir, db_path };
+            let child = spawn_backend(&config).expect("échec du lancement du backend VersePro");
+            app.manage(BackendProcess {
+                child: Mutex::new(Some(child)),
+                shutting_down: AtomicBool::new(false),
+                config,
+            });
 
-            app.state::<BackendProcess>()
-                .0
-                .lock()
-                .unwrap()
-                .replace(child);
-
+            // Surveille le sidecar pendant toute la session. Un crash isolé est
+            // réparé automatiquement; un crash en boucle reçoit un backoff.
+            let handle = app.handle();
+            std::thread::spawn(move || {
+                let mut failures = 0_u32;
+                let mut started_at = Instant::now();
+                loop {
+                    std::thread::sleep(Duration::from_secs(2));
+                    let state = handle.state::<BackendProcess>();
+                    if state.shutting_down.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let exited = {
+                        let mut guard = state.child.lock().unwrap();
+                        match guard.as_mut().and_then(|child| child.try_wait().ok()).flatten() {
+                            Some(_) => {
+                                guard.take();
+                                true
+                            }
+                            None => false,
+                        }
+                    };
+                    if !exited {
+                        continue;
+                    }
+                    if started_at.elapsed() < Duration::from_secs(10) {
+                        failures = failures.saturating_add(1);
+                    } else {
+                        failures = 0;
+                    }
+                    let delay = 2_u64.saturating_pow(failures.min(4)).min(30);
+                    std::thread::sleep(Duration::from_secs(delay));
+                    if state.shutting_down.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if let Ok(child) = spawn_backend(&state.config) {
+                        state.child.lock().unwrap().replace(child);
+                        started_at = Instant::now();
+                    }
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("erreur au démarrage de l'application Tauri")
         .run(|app_handle, event| {
-            // Arrêt propre du backend quand l'app se ferme.
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<BackendProcess>() {
-                    if let Some(mut child) = state.0.lock().unwrap().take() {
+                    state.shutting_down.store(true, Ordering::SeqCst);
+                    if let Some(mut child) = state.child.lock().unwrap().take() {
                         let _ = child.kill();
+                        let _ = child.wait();
                     }
                 }
             }

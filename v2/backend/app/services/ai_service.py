@@ -19,6 +19,8 @@ class AIService:
         self.gemini_model = settings.GEMINI_MODEL
         
         self.ollama_active = False
+        self.ollama_reachable = False
+        self.ollama_model_available = False
         # Caches bornés (FIFO) : sans plafond, un culte de 2h avec traduction simultanée
         # ferait croître la mémoire indéfiniment (une entrée par phrase finale)
         self._cache_max_entries = 500
@@ -26,8 +28,9 @@ class AIService:
         self._translation_cache: Dict[str, Optional[str]] = {}
         self._summary_cache: Dict[str, Optional[str]] = {}
         
-        # L'agent est activé si on a l'une des clés ou si on a Ollama configuré
-        self.enabled = settings.AI_AGENT_ENABLED and (bool(self.openrouter_key) or bool(self.api_key) or bool(self.ollama_url))
+        # Une URL Ollama configurée ne prouve pas qu'un serveur ou un modèle est
+        # disponible. L'état passe à actif seulement après le contrôle réseau.
+        self.enabled = settings.AI_AGENT_ENABLED and (bool(self.openrouter_key) or bool(self.api_key))
         
         # Tente de détecter Ollama en tâche de fond
         if settings.AI_AGENT_ENABLED and self.ollama_url:
@@ -61,32 +64,58 @@ class AIService:
                 return {}
             
     async def _detect_ollama(self):
-        """Vérifie si Ollama est actif localement et télécharge le modèle si absent"""
+        """Vérifie Ollama sans lancer de téléchargement implicite de plusieurs Go."""
+        self.ollama_reachable = False
+        self.ollama_model_available = False
+        self.ollama_active = False
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 response = await client.get(f"{self.ollama_url}/api/tags")
                 if response.status_code == 200:
-                    self.ollama_active = True
-                    logger.info(f"🤖 [Ollama] Détecté localement sur {self.ollama_url}. Modèle par défaut: {self.ollama_model}")
-                    self.enabled = True
+                    self.ollama_reachable = True
 
-                    # Vérifie si le modèle est déjà téléchargé
                     data = response.json()
                     models = [m.get("name") for m in data.get("models", [])]
-                    model_found = False
-                    for m in models:
-                        if self.ollama_model in m or m in self.ollama_model:
-                            model_found = True
-                            break
-
-                    if not model_found:
-                        logger.info(f"📥 [Ollama] Modèle {self.ollama_model} introuvable localement. Lancement du téléchargement automatique...")
-                        asyncio.create_task(self._pull_ollama_model(self.ollama_model))
+                    self.ollama_model_available = any(
+                        m and (self.ollama_model in m or m in self.ollama_model)
+                        for m in models
+                    )
+                    self.ollama_active = self.ollama_model_available
+                    self.enabled = settings.AI_AGENT_ENABLED and (
+                        bool(self.openrouter_key) or bool(self.api_key) or self.ollama_active
+                    )
+                    if not self.ollama_model_available:
+                        logger.warning(
+                            f"Ollama répond, mais le modèle {self.ollama_model} n'est pas installé. "
+                            "Installez-le explicitement depuis Paramètres."
+                        )
                     else:
-                        logger.info(f"✅ [Ollama] Le modèle {self.ollama_model} est prêt à l'emploi.")
-        except Exception:
-            # Silencieux si absent, ce n'est qu'un fallback
-            pass
+                        logger.info(f"Ollama prêt avec le modèle {self.ollama_model}")
+        except Exception as exc:
+            self.enabled = settings.AI_AGENT_ENABLED and (
+                bool(self.openrouter_key) or bool(self.api_key)
+            )
+            logger.debug(f"Ollama indisponible : {exc}")
+
+    def refresh_availability(self) -> bool:
+        self.enabled = settings.AI_AGENT_ENABLED and (
+            bool(self.openrouter_key) or bool(self.api_key) or self.ollama_active
+        )
+        return self.enabled
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.refresh_availability(),
+            "openrouter": bool(self.openrouter_key),
+            "gemini": bool(self.api_key),
+            "ollama_reachable": self.ollama_reachable,
+            "ollama_model_available": self.ollama_model_available,
+            "provider": (
+                "openrouter" if self.openrouter_key else
+                "gemini" if self.api_key else
+                "ollama" if self.ollama_active else None
+            ),
+        }
 
     async def _pull_ollama_model(self, model_name: str):
         """Télécharge automatiquement le modèle Ollama en tâche de fond"""
@@ -142,7 +171,7 @@ class AIService:
         candidates: Optional[List[Dict[str, Any]]],
     ) -> Optional[Dict[str, Any]]:
         if not result or not candidates:
-            return result
+            return None
         by_reference = {
             self._normalize_reference(candidate.get("reference", "")): candidate
             for candidate in candidates
@@ -151,10 +180,25 @@ class AIService:
         if not selected:
             logger.warning("Suggestion IA rejetee: reference absente de la liste locale de candidats")
             return None
+        raw_confidence = max(0, min(100, int(result.get("confidence") or 0)))
+        raw_score = selected.get("score")
+        if raw_score is None:
+            raw_score = selected.get("semantic_score")
+        if raw_score is None:
+            raw_score = selected.get("confidence")
+        try:
+            normalized_score = max(0.0, min(1.0, float(raw_score)))
+            candidate_confidence = 70.0 + (normalized_score * 30.0)
+        except (TypeError, ValueError):
+            normalized_score = None
+            candidate_confidence = 85.0
+        calibrated_confidence = int(round(min(raw_confidence, candidate_confidence)))
         return {
             **result,
             "reference": selected["reference"],
-            "candidate_score": selected.get("score"),
+            "raw_model_confidence": raw_confidence,
+            "confidence": calibrated_confidence,
+            "candidate_score": normalized_score,
             "candidate_validated": True,
         }
 
@@ -265,7 +309,8 @@ class AIService:
         
     async def _call_gemini_direct(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Gemini directe de Google avec score de confiance"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
+        headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
         
         prompt = self._build_detection_prompt(text, candidates)
         
@@ -304,7 +349,7 @@ class AIService:
         
         try:
             async with httpx.AsyncClient(timeout=4.0) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 if response.status_code == 200:
                     res_json = response.json()
                     candidates = res_json.get("candidates", [])
@@ -417,14 +462,15 @@ class AIService:
 
         # 2. Utilisation de l'API Gemini directe
         if self.api_key:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
+            headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "systemInstruction": {"parts": [{"text": f"Tu es un traducteur simultané d'église. Traduis en '{target_lang}' et renvoie uniquement la traduction brute."}]}
             }
             try:
                 async with httpx.AsyncClient(timeout=3.0) as client:
-                    response = await client.post(url, json=payload)
+                    response = await client.post(url, json=payload, headers=headers)
                     if response.status_code == 200:
                         text_res = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                         if text_res:
@@ -511,14 +557,15 @@ class AIService:
 
         # 2. Utilisation de l'API Gemini directe
         if self.api_key:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
+            headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "systemInstruction": {"parts": [{"text": "Tu es un théologien et rédacteur d'église. Rédige un résumé édifiant et structuré d'un sermon sous forme de Markdown."}]}
             }
             try:
                 async with httpx.AsyncClient(timeout=15.0) as client:
-                    response = await client.post(url, json=payload)
+                    response = await client.post(url, json=payload, headers=headers)
                     if response.status_code == 200:
                         text_res = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                         if text_res:

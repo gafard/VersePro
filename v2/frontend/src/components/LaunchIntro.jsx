@@ -86,7 +86,8 @@ export default function LaunchIntro({ onDone }) {
   useEffect(() => {
     if (reducedMotion || !videoRef.current) return
     const video = videoRef.current
-    video.muted = !isTauri
+    // Une animation d'ouverture ne doit jamais sortir sur la sono de l'église.
+    video.muted = true
     const playback = video.play()
     playback?.catch(() => {
       video.muted = true
@@ -110,7 +111,7 @@ export default function LaunchIntro({ onDone }) {
             src={VIDEO_SRC}
             poster={POSTER_SRC}
             autoPlay
-            muted={!isTauri}
+            muted
             playsInline
             preload="auto"
             onEnded={() => setMediaComplete(true)}

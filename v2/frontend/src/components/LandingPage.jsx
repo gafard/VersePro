@@ -17,7 +17,7 @@ const METER_BARS = Array.from({ length: 64 }, (_, i) => {
 })
 
 export default function LandingPage({ setActiveTab }) {
-  const { history, connected, propresenterConnected } = useStore()
+  const { history, connected, propresenterConnected, availableBibles, semanticStatus, asrStatus } = useStore()
   const recentVerses = useMemo(() => history.slice(0, 3), [history])
 
   return (
@@ -122,11 +122,11 @@ export default function LandingPage({ setActiveTab }) {
       {/* ── Rangée de trois stats · chiffres réels, sérif, tabulaires ── */}
       <section className="lp-stats" aria-label="Chiffres clés">
         <div className="lp-stat">
-          <strong>29 940</strong>
+          <strong>{semanticStatus?.verses_indexed ? semanticStatus.verses_indexed.toLocaleString('fr-FR') : 'corpus local'}</strong>
           <span className="lp-stat-label">VERSETS INDEXÉS</span>
         </div>
         <div className="lp-stat">
-          <strong>6</strong>
+          <strong>{availableBibles.length}</strong>
           <span className="lp-stat-label">TRADUCTIONS BIBLIQUES</span>
         </div>
         <div className="lp-stat">
@@ -143,7 +143,7 @@ export default function LandingPage({ setActiveTab }) {
           <article className="lp-card">
             <p className="lp-card-eyebrow">ÉCOUTE</p>
             <h3>le micro entre, le texte sort.</h3>
-            <p>le flux audio est transcrit en direct — en local avec vosk, ou dans le nuage avec deepgram. la musique et les silences sont filtrés avant analyse.</p>
+            <p>le flux audio est transcrit en direct — avec deepgram, whisper ou vosk. le prétraitement reste désactivable pour préserver une sortie console propre.</p>
           </article>
           <article className="lp-card">
             <p className="lp-card-eyebrow">VALIDATION</p>
@@ -183,7 +183,7 @@ export default function LandingPage({ setActiveTab }) {
           <span>VERSEPRO · V2</span>
           <span>{connected ? 'SERVEUR · PRÊT' : 'SERVEUR · HORS LIGNE'}</span>
           <span>{propresenterConnected ? 'PROPRESENTER · ACTIF' : 'PROPRESENTER · MANUEL'}</span>
-          <span>100 % LOCAL LE DIMANCHE</span>
+          <span>{asrStatus?.whisper?.ready || asrStatus?.vosk?.available ? 'MOTEUR LOCAL · PRÊT' : 'MODE LOCAL · À PRÉPARER'}</span>
         </div>
       </footer>
     </div>

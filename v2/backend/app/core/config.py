@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     PROPRESENTER_PORT: int = 12345  # Port API TCP ProPresenter
     PROPRESENTER_AUTO_CONNECT: bool = True
     PROPRESENTER_AUTO_SEND: bool = False  # Envoi automatique ou validation manuelle
+    SUNDAY_SAFE_MODE: bool = True  # Interdit toute projection automatique
+    SHADOW_MODE: bool = False  # Détecte et mesure sans piloter les sorties
     
     # Parser
     BIBLE_VERSION: str = "LSG"  # Louis Segond 1910
@@ -74,13 +76,20 @@ class Settings(BaseSettings):
     # Audio
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_CHUNK_SIZE: int = 4096
-    ASR_DEFAULT_ENGINE: str = "auto"  # auto (deepgram + secours vosk), deepgram, vosk
+    ASR_DEFAULT_ENGINE: str = "auto"  # auto, deepgram, whisper, vosk, local_auto
+    WHISPER_MODEL: str = "auto"  # auto choisit tiny/base/small selon la machine
+    WHISPER_COMPUTE_TYPE: str = "int8"
+    WHISPER_CHUNK_SECONDS: float = 2.4
+    WHISPER_OVERLAP_SECONDS: float = 0.25
+    WHISPER_BEAM_SIZE: int = 1
+    WHISPER_AUTO_DOWNLOAD: bool = False
     
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # secondes
     
     # Vosk
-    VOSK_MODEL_TYPE: str = "large"  # 'small' (45 Mo) par défaut pour la rapidité et légèreté hors-ligne
+    VOSK_MODEL_TYPE: str = "small"
+    VOSK_MODEL_SHA256: str = ""  # À renseigner pour imposer la vérification du fournisseur
 
     # Recherche sémantique locale. Le moteur ONNX est optionnel et retombe
     # automatiquement sur l'index lexical si le runtime n'est pas disponible.

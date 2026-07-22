@@ -21,6 +21,11 @@ if [ ! -x "$FREEZE_VENV/bin/pyinstaller" ]; then
   exit 1
 fi
 
+if ! "$FREEZE_VENV/bin/python" -c "import faster_whisper, keyring" >/dev/null 2>&1; then
+  echo "Mise à niveau des dépendances du backend figé…"
+  "$FREEZE_VENV/bin/python" -m pip install -r "$BACKEND/requirements.txt" pyinstaller
+fi
+
 echo "▶ 1/3  Gel du backend (PyInstaller onedir)…"
 ( cd "$BACKEND" && "$FREEZE_VENV/bin/pyinstaller" --clean --noconfirm versepro-backend.spec )
 
@@ -28,9 +33,21 @@ echo "▶ 2/3  Embarquement du backend dans les ressources Tauri…"
 rm -rf "$HERE/backend"
 cp -R "$BACKEND/dist/versepro-backend" "$HERE/backend"
 
-echo "▶ 3/3  Construction de l'application Tauri…"
-( cd "$HERE/.." && npm run tauri build )
+echo "▶ 3/4  Construction de l'application Tauri…"
+( cd "$HERE/.." && npm run tauri build -- --bundles app )
+
+echo "▶ 4/4  Création du DMG natif…"
+APP="$HERE/target/release/bundle/macos/VersePro.app"
+DMG="$HERE/target/release/bundle/dmg/VersePro_2.0.0_aarch64.dmg"
+STAGING="$(mktemp -d "${TMPDIR:-/tmp}/versepro-dmg.XXXXXX")"
+cleanup() { rm -rf "$STAGING"; }
+trap cleanup EXIT
+cp -R "$APP" "$STAGING/VersePro.app"
+ln -s /Applications "$STAGING/Applications"
+mkdir -p "$(dirname "$DMG")"
+rm -f "$DMG"
+hdiutil create -volname "VersePro" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
 
 echo "✅ Terminé :"
-echo "   $HERE/target/release/bundle/macos/VersePro.app"
-echo "   $HERE/target/release/bundle/dmg/VersePro_2.0.0_aarch64.dmg"
+echo "   $APP"
+echo "   $DMG"

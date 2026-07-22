@@ -54,11 +54,13 @@ faible connu : les moteurs comparent du texte, pas des récits.
 
 | Composant | Rôle | Poids |
 |---|---|---|
-| Vosk `fr-0.22` | transcription hors-ligne | 1,4 Go |
+| Vosk small `fr-0.22` | transcription hors-ligne légère | environ 45 Mo |
+| faster-whisper `tiny`/`base`/`small` | transcription locale robuste, installé à la demande | selon modèle |
 | e5-base (ONNX) | recherche sémantique, repli automatique sur e5-small | 265 Mo |
 
-L'index sémantique (31 102 versets) est **pré-calculé et livré** avec
-l'application : le premier lancement télécharge, il n'indexe pas.
+L'index sémantique (31 102 versets) peut être livré pré-calculé avec
+l'application. Les modèles absents sont préparés explicitement depuis Paramètres,
+jamais téléchargés automatiquement pendant un culte.
 
 ## Bibles et droits
 

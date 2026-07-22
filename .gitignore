@@ -86,3 +86,4 @@ v2/backend/*.db
 v2/frontend/src-tauri/binaries/
 v2/frontend/src-tauri/backend/
 v2/backend/dist-onefile/
+v2/release/

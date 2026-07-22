@@ -7,9 +7,11 @@ de PyInstaller ne suit pas seule :
   - onnxruntime  (encodeur e5 : .dylib + capi)
   - tokenizers   (extension Rust)
   - vosk         (libvosk + bindings)
+  - faster-whisper / ctranslate2 (moteur local natif)
+  - keyring      (trousseau macOS / Windows)
   - uvicorn      (workers/protocols chargés dynamiquement)
-On NE bundle PAS les modèles (Vosk ~1,4 Go, e5 ~118 Mo) : ils se téléchargent
-au premier lancement dans le dossier de données inscriptible.
+On NE bundle PAS les modèles : ils sont préparés explicitement dans le dossier
+de données inscriptible depuis l'assistant de premier lancement ou Paramètres.
 """
 import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -54,7 +56,10 @@ if os.path.isdir(_fonts):
         if _f.endswith(".woff2"):
             datas.append((os.path.join(_fonts, _f), os.path.join("data", "fonts")))
 
-for pkg in ("onnxruntime", "tokenizers", "vosk"):
+for pkg in (
+    "onnxruntime", "tokenizers", "vosk", "faster_whisper", "ctranslate2",
+    "huggingface_hub", "keyring",
+):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
@@ -66,7 +71,7 @@ hiddenimports += collect_submodules("app")           # tout le backend
 hiddenimports += [
     "anyio", "sniffio", "httpx", "httpcore", "aiosqlite", "aiohttp",
     "deepgram", "pydantic", "pydantic_settings", "loguru", "pythonosc",
-    "PIL", "numpy",
+    "PIL", "numpy", "keyring.backends.macOS", "keyring.backends.Windows",
 ]
 
 a = Analysis(

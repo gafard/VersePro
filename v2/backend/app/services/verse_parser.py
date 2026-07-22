@@ -427,6 +427,9 @@ class BibleLoader:
             "priez sans cesse": ("1 Th", 5, 17),
             "rejouissez vous toujours": ("1 Th", 5, 16),
             "la foi est une ferme assurance": ("He", 11, 1),
+            "je puis tout par celui qui me fortifie": ("Ph", 4, 13),
+            "je peux tout par celui qui me fortifie": ("Ph", 4, 13),
+            "je peux tout par celui qui me donne la force": ("Ph", 4, 13),
         }
         self.curated_phrase_hits = {
             self._normalize_text(phrase): ref
@@ -729,18 +732,18 @@ class VerseParserService:
         """Compile les patterns regex optimisés (évite le greedy matching)"""
         patterns = [
             # "Jean 3:16" ou "Jn 3:16" ou "1 Co 13:4-8"
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
             
             # "Jean chapitre 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
             
             # "Jean 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
 
             # "Jean 3 16" (sans séparateur, par exemple après conversion des mots de Vosk)
             # ⚠️ Pattern "loose" : sujet aux faux positifs sur du langage courant converti en
             # chiffres — sa confiance est plafonnée sous le seuil d'autopilotage (voir LOOSE_PATTERN_INDEX)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s+(\d+)(?:\s*[-–à]\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s+(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
             
             # "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),

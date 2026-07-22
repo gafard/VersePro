@@ -25,11 +25,21 @@ export default function Settings() {
     asrStatus,
     semanticStatus,
     fetchIntelligenceStatus,
-    prepareSemanticIndex
+    prepareSemanticIndex,
+    prepareWhisper,
+    connected,
+    audioDevices,
+    selectedAudioDeviceId,
+    setSelectedAudioDeviceId,
+    refreshAudioDevices,
+    audioFilterMode,
+    setAudioFilterMode
   } = useStore()
 
   const [form, setForm] = useState({
     auto_send: false,
+    sunday_safe_mode: true,
+    shadow_mode: false,
     bible_version: activeBible || 'LSG',
     propresenter_host: '127.0.0.1',
     propresenter_port: 12345,
@@ -72,36 +82,8 @@ export default function Settings() {
   const [rehearseResults, setRehearseResults] = useState(null)
   const [rehearsing, setRehearsing] = useState(false)
   const [preparingLocal, setPreparingLocal] = useState('')
-  const [audioDevices, setAudioDevices] = useState([])
-  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(() => {
-    try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
-  })
-
-  const refreshAudioDevices = async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const inputs = devices.filter((device) => device.kind === 'audioinput')
-      setAudioDevices(inputs)
-      setSelectedAudioDeviceId((current) => {
-        const saved = (() => {
-          try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
-        })()
-        const next = current || saved || inputs[0]?.deviceId || ''
-        if (next && inputs.some((device) => device.deviceId === next)) return next
-        return inputs[0]?.deviceId || ''
-      })
-    } catch (error) {
-      console.warn('Impossible de lire les entrées audio:', error)
-    }
-  }
-
   const updateAudioDevice = (deviceId) => {
     setSelectedAudioDeviceId(deviceId)
-    try {
-      if (deviceId) localStorage.setItem('versepro_audio_device_id', deviceId)
-      else localStorage.removeItem('versepro_audio_device_id')
-    } catch {}
     addToast({ message: 'Entrée micro mise à jour', kind: 'success' })
   }
 
@@ -141,6 +123,8 @@ export default function Settings() {
     if (!settings) return
     setForm({
       auto_send: Boolean(settings.auto_send),
+      sunday_safe_mode: settings.sunday_safe_mode !== false,
+      shadow_mode: Boolean(settings.shadow_mode),
       bible_version: settings.bible_version || activeBible || 'LSG',
       propresenter_host: settings.propresenter_host || '127.0.0.1',
       propresenter_port: settings.propresenter_port || 12345,
@@ -163,12 +147,12 @@ export default function Settings() {
   const statusCards = useMemo(() => ([
     {
       label: 'Serveur',
-      value: settings ? 'Connecte' : 'Lecture',
-      tone: 'good'
+      value: connected ? 'Connecté' : 'Hors ligne',
+      tone: connected ? 'good' : 'warn'
     },
     {
       label: 'ProPresenter',
-      value: propresenterConnected ? 'Pret' : 'Manuel',
+      value: propresenterConnected ? 'Prêt' : 'Manuel',
       tone: propresenterConnected ? 'good' : 'warn'
     },
     {
@@ -176,7 +160,7 @@ export default function Settings() {
       value: aiActive ? 'Active' : 'Inactive',
       tone: aiActive ? 'good' : 'neutral'
     }
-  ]), [settings, propresenterConnected, aiActive])
+  ]), [connected, propresenterConnected, aiActive])
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }))
@@ -226,11 +210,16 @@ export default function Settings() {
     }
   }
 
-  const prepareLocalEngine = async () => {
-    setPreparingLocal('semantic')
+  const prepareLocalEngine = async (kind) => {
+    setPreparingLocal(kind)
     try {
-      await prepareSemanticIndex()
-      addToast({ message: 'Indexation sémantique lancée', kind: 'success' })
+      if (kind === 'whisper') {
+        await prepareWhisper('auto')
+        addToast({ message: 'Préparation de Whisper lancée', kind: 'success' })
+      } else {
+        await prepareSemanticIndex()
+        addToast({ message: 'Indexation sémantique lancée', kind: 'success' })
+      }
     } catch {
       addToast({ message: 'Préparation locale impossible', kind: 'error' })
     } finally {
@@ -242,10 +231,10 @@ export default function Settings() {
     <div className="settings-page app-soft-page">
       <section className="settings-hero">
         <div>
-          <span>Parametres</span>
+          <span>Paramètres</span>
           <h1>Console de configuration</h1>
           <p>
-            Les reglages critiques restent lisibles, calmes et modifiables sans toucher aux fichiers systeme.
+            Les réglages critiques restent lisibles, calmes et modifiables sans toucher aux fichiers système.
           </p>
         </div>
 
@@ -288,8 +277,16 @@ export default function Settings() {
               )}
             </select>
           </label>
+          <label>
+            <small>Prétraitement audio</small>
+            <select value={audioFilterMode} onChange={(e) => setAudioFilterMode(e.target.value)}>
+              <option value="off">Signal brut (recommandé)</option>
+              <option value="speech">Parole: 80 Hz à 8 kHz</option>
+              <option value="church">Église avec musique: 120 Hz à 7 kHz</option>
+            </select>
+          </label>
           <span className="settings-secret-hint">
-            Ce réglage est local à ce navigateur. Les noms exacts des micros apparaissent après autorisation micro.
+            Le filtre Église atténue les graves continus sans couper les consonnes. Le signal brut reste le choix le plus fidèle avec une sortie console propre.
           </span>
         </div>
 
@@ -300,22 +297,58 @@ export default function Settings() {
               <h2>Transcription et recherche hors ligne</h2>
             </div>
             <span className={`vp-chip ${semanticStatus?.installed ? 'is-accent' : ''}`}>
-              {semanticStatus?.installed ? 'Prêt' : 'À préparer'}
+              {semanticStatus?.installed && asrStatus?.whisper?.ready
+                ? 'Prêt'
+                : semanticStatus?.installed
+                  ? 'Recherche prête'
+                  : asrStatus?.whisper?.ready
+                    ? 'Voix prête'
+                    : 'À préparer'}
             </span>
           </div>
           <p>
             Le mode automatique privilégie Deepgram quand Internet est disponible,
-            et bascule sur Vosk local dès qu'il tombe.
+            puis bascule sur Whisper préparé ou Vosk local si la connexion tombe.
           </p>
           <div className="settings-form-grid">
             <label>
               <small>Moteur par défaut</small>
               <select value={form.asr_default_engine} onChange={(e) => updateField('asr_default_engine', e.target.value)}>
-                <option value="auto">Auto (Deepgram + secours Vosk)</option>
+                <option value="auto">Auto (Deepgram puis local)</option>
                 <option value="deepgram">Deepgram cloud</option>
-                <option value="vosk">Vosk local</option>
+                <option value="local_auto">Local auto (Whisper puis Vosk)</option>
+                <option value="whisper">Whisper local</option>
+                <option value="vosk">Vosk local rapide</option>
               </select>
             </label>
+          </div>
+          <div className="settings-divider">
+            <div className="settings-card-head">
+              <div>
+                <small>Whisper local adaptatif</small>
+                <p>
+                  {asrStatus?.whisper?.ready
+                    ? `Prêt · modèle ${asrStatus.whisper.model}`
+                    : asrStatus?.whisper?.preparing
+                      ? 'Téléchargement ou chargement en cours'
+                      : `Non préparé · modèle conseillé ${asrStatus?.whisper?.model || 'auto'}`}
+                </p>
+              </div>
+              <span className={`vp-chip ${asrStatus?.whisper?.ready ? 'is-ok' : ''}`}>
+                {asrStatus?.whisper?.ready ? 'Prêt' : 'Optionnel'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="vp-btn vp-btn--sm"
+              onClick={() => prepareLocalEngine('whisper')}
+              disabled={preparingLocal === 'whisper' || asrStatus?.whisper?.preparing}
+            >
+              {asrStatus?.whisper?.ready ? 'Whisper prêt' : 'Préparer Whisper'}
+            </button>
+            <span className="settings-muted-note">
+              Plus robuste que Vosk sur les accents et le multilingue, avec une latence par fenêtre d'environ 2,4 secondes sur CPU.
+            </span>
           </div>
           <div className="settings-divider">
             <div className="settings-card-head">
@@ -362,9 +395,27 @@ export default function Settings() {
             </label>
           </div>
           <p>
-            Active uniquement la projection directe des references explicites et tres fiables.
-            Les deductions IA restent en validation manuelle.
+            La projection automatique reste réservée aux références explicites et vérifiées.
+            Les suggestions sémantiques et IA exigent toujours une validation humaine.
           </p>
+          <div className="settings-form-grid">
+            <label className="settings-inline-check">
+              <input
+                type="checkbox"
+                checked={form.sunday_safe_mode}
+                onChange={(e) => updateField('sunday_safe_mode', e.target.checked)}
+              />
+              <span><strong>Mode dimanche sûr</strong><small>Bloque toute projection automatique.</small></span>
+            </label>
+            <label className="settings-inline-check">
+              <input
+                type="checkbox"
+                checked={form.shadow_mode}
+                onChange={(e) => updateField('shadow_mode', e.target.checked)}
+              />
+              <span><strong>Mode ombre</strong><small>Analyse le culte sans piloter les sorties.</small></span>
+            </label>
+          </div>
         </div>
 
         <div className="settings-card is-wide">
@@ -487,7 +538,7 @@ export default function Settings() {
 
         <label className="settings-card">
           <span>Bible</span>
-          <h2>Version par defaut</h2>
+          <h2>Version par défaut</h2>
           <select value={form.bible_version} onChange={(e) => updateField('bible_version', e.target.value)}>
             {availableBibles.map((code) => (
               <option key={code} value={code}>
@@ -502,7 +553,7 @@ export default function Settings() {
           <h2>Connexion locale</h2>
           <div className="settings-two-cols">
             <label>
-              <small>Hote</small>
+              <small>Hôte</small>
               <input
                 value={form.propresenter_host}
                 onChange={(e) => updateField('propresenter_host', e.target.value)}
@@ -524,7 +575,7 @@ export default function Settings() {
           <h2>Transcription cloud</h2>
           <div className="settings-two-cols">
             <label>
-              <small>Modele</small>
+              <small>Modèle</small>
               <select value={form.deepgram_model} onChange={(e) => updateField('deepgram_model', e.target.value)}>
                 <option value="nova-2">nova-2</option>
                 <option value="nova-3">nova-3</option>
@@ -535,7 +586,7 @@ export default function Settings() {
             <label>
               <small>Langue</small>
               <select value={form.deepgram_language} onChange={(e) => updateField('deepgram_language', e.target.value)}>
-                <option value="fr">Francais</option>
+                <option value="fr">Français</option>
                 <option value="en">Anglais</option>
                 <option value="es">Espagnol</option>
                 <option value="pt">Portugais</option>
@@ -545,7 +596,7 @@ export default function Settings() {
           <div className="settings-divider">
             <label>
               <small className="settings-label-row">
-                <span>Cle API Deepgram</span>
+                <span>Clé API Deepgram</span>
                 <button
                   type="button"
                   onClick={() => setHelpModal('deepgram')}
@@ -583,13 +634,13 @@ export default function Settings() {
             </label>
           </div>
           <p>
-            L IA peut proposer une reference quand le predicteur paraphrase, mais elle ne doit pas prendre le controle de l ecran.
+            L'IA peut proposer une référence quand le prédicateur paraphrase, mais elle ne doit pas prendre le contrôle de l'écran.
           </p>
 
           <div className="settings-form-grid">
             <label>
               <small className="settings-label-row">
-                <span>Cle API OpenRouter</span>
+                <span>Clé API OpenRouter</span>
                 <button
                   type="button"
                   onClick={() => setHelpModal('openrouter')}
@@ -607,7 +658,7 @@ export default function Settings() {
             </label>
             <label>
               <small className="settings-label-row">
-                <span>Cle API Gemini Direct</span>
+                <span>Clé API Gemini Direct</span>
                 <button
                   type="button"
                   onClick={() => setHelpModal('gemini')}
@@ -664,7 +715,7 @@ export default function Settings() {
                 Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
                 {form.ai_confidence_threshold >= 90 && (
                   <span className="settings-muted-note">
-                    Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour proteger le direct.
+                    Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour protéger le direct.
                   </span>
                 )}
               </small>
@@ -676,7 +727,7 @@ export default function Settings() {
                 onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
               />
               <span className="settings-muted-note">
-                Toute suggestion IA sous ce seuil sera automatiquement rejetee pour eviter les hallucinations.
+                Toute suggestion IA sous ce seuil sera automatiquement rejetée pour éviter les hallucinations.
               </span>
             </label>
           </div>
@@ -771,7 +822,7 @@ export default function Settings() {
 
       <div className="settings-footer">
         <div>
-          <strong>{savedAt ? 'Parametres sauvegardes' : 'Pret a sauvegarder'}</strong>
+          <strong>{savedAt ? 'Paramètres sauvegardés' : 'Prêt à sauvegarder'}</strong>
           <span>{savedAt ? savedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'Les changements seront appliques au backend.'}</span>
         </div>
         <button onClick={save} disabled={saving}>

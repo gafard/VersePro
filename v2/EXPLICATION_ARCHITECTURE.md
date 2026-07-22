@@ -1,274 +1,118 @@
-# Explication architecture - VersePro V2 actuelle
+# Architecture VersePro V2
 
-Ce document décrit l'état réel de VersePro V2 après intégration du plan critique : simplification pour bénévoles, garde-fous anti-erreur en direct, interface claire, et séparation stricte entre suggestions IA et projection.
+Ce document décrit le code actuel. Il sépare les garanties déjà implémentées des travaux qui exigent encore du terrain, des certificats ou un corpus audio.
 
-## Intention produit
+## Objectif
 
-VersePro est pensé pour le régisseur bénévole du dimanche matin, pas pour un développeur. L'application doit donc :
+VersePro est un instrument de régie pour bénévoles. Son architecture privilégie quatre propriétés: démarrage sans terminal dans le paquet desktop, retour d'état lisible, fonctionnement dégradé sans Internet et impossibilité pour une suggestion probabiliste de prendre l'écran seule.
 
-- démarrer sans commandes complexes ;
-- afficher un état lisible et rassurant ;
-- éviter qu'une IA projette une référence incertaine ;
-- rester utile même si Internet, Deepgram ou ProPresenter ne sont pas prêts ;
-- donner au régisseur une validation humaine rapide.
-
-La V2 actuelle n'est pas encore un installeur natif final, mais elle a maintenant un lanceur local autonome et une page Paramètres qui retirent l'essentiel de la friction terminal.
-
-## Vue système
+## Vue d'ensemble
 
 ```mermaid
-flowchart TB
-  subgraph Frontend["Frontend React + Vite"]
-    Landing["Landing page claire"]
-    Live["Console live: micro, onde réelle, prompteur, queue"]
-    Settings["Page Paramètres"]
-    Projector["Écran projection web /projection"]
-    OBS["Source navigateur OBS /obs"]
-    Store["Store Zustand"]
-  end
-
-  subgraph Backend["Backend FastAPI"]
-    WS["WebSocket audio"]
-    ASR["ASR adaptatif: Deepgram / Whisper / Vosk"]
-    Parser["Parser biblique local"]
-    Retrieval["Embeddings ONNX: top-k biblique"]
-    AI["Reranking: OpenRouter, Gemini ou Ollama"]
-    Policy["Politique de projection"]
-    DB["SQLite: settings, sessions, historique"]
-    PP["Client ProPresenter"]
-  end
-
-  Mic["Micro"] --> Live
-  Live --> WS
-  Settings --> DB
-  WS --> ASR
-  ASR --> Parser
-  Parser --> Policy
-  Parser --> Retrieval
-  Retrieval --> AI
-  Retrieval --> Policy
-  AI --> Policy
-  Policy --> Store
-  Policy --> PP
-  Policy --> Projector
-  Policy --> OBS
-  DB --> Settings
+flowchart LR
+  Mic["Micro choisi dans Paramètres"] --> WebAudio["Web Audio: PCM 16 kHz + crêtes réelles"]
+  WebAudio --> AudioWS["WebSocket audio borné"]
+  AudioWS --> DG["Deepgram"]
+  AudioWS --> Whisper["faster-whisper local"]
+  AudioWS --> Vosk["Vosk local"]
+  DG --> Scheduler["Ordonnanceur générationnel"]
+  Whisper --> Scheduler
+  Vosk --> Scheduler
+  Scheduler --> Parser["Parser explicite"]
+  Scheduler --> Fusion["Lexical/flou + e5 ONNX"]
+  Fusion --> ClosedAI["LLM, liste fermée"]
+  Parser --> Policy["Politique de sécurité"]
+  Fusion --> Policy
+  ClosedAI --> Policy
+  Policy --> Queue["À valider"]
+  Policy --> Outputs["Web / OBS / vMix / ProPresenter"]
+  Policy --> DB["SQLite"]
 ```
 
-## Frontend
+## Processus desktop
 
-Le frontend est une application React structurée autour de trois surfaces principales.
+Tauri charge le frontend compilé et lance le backend PyInstaller sur l'interface loopback. Le backend utilise un dossier utilisateur inscriptible pour SQLite, modèles et journaux. Un thread Rust surveille le processus enfant toutes les deux secondes. Après un crash, il relance avec un backoff plafonné à trente secondes; à la fermeture, il marque l'arrêt volontaire, tue puis attend le processus enfant.
 
-### Landing
+La WebView utilise une CSP explicite. Elle peut charger les ressources locales, créer le blob de l'AudioWorklet et joindre uniquement le backend local. L'animation d'ouverture est muette sur le Web comme dans Tauri afin de ne jamais sortir dans la sono.
 
-La landing est visuelle, claire et proche des références fournies : bleu clair, verre doux, cartes modernes, typographie très lisible. Elle sert à vendre l'expérience, pas à simuler la console live.
+## Connexions frontend
 
-### Console live
+La santé du serveur et la session audio sont deux états différents:
 
-La console live contient le vrai outil :
+- `GET /api/v1/health` est sondé toutes les cinq secondes;
+- `/ws/audio` ne s'ouvre que lorsque l'opérateur démarre le micro;
+- l'arrêt du micro ferme la socket et libère le moteur cloud;
+- une coupure pendant le direct déclenche un backoff de 750 ms à 30 s, limité à huit tentatives;
+- hors direct, aucune boucle de reconnexion WebSocket ne consomme de quota.
 
-- bouton micro central ;
-- onde audio calculée depuis le buffer micro réel ;
-- niveau sonore dynamique ;
-- prompteur avec fondu haut/bas ;
-- statut serveur, IA et ProPresenter ;
-- modes Autopilote local et Validation manuelle ;
-- requête manuelle de référence ;
-- file de projection avec accepter / rejeter.
+Le store Zustand conserve les états opérateur. Le choix micro, le filtre et le moteur se font dans Paramètres. Le live ne garde que niveau, micro, préflight, sorties, validation et arrêt d'urgence.
 
-Les anciennes sensations de panneau sombre debug ont été remplacées par une interface claire, bleue, douce, cohérente avec la landing.
+## Audio et ASR
 
-### Paramètres
+L'AudioWorklet agrège les échantillons, calcule le RMS, extrait 64 crêtes pour l'onde et convertit en PCM mono 16 kHz. Le signal brut est le défaut. Les profils `speech` et `church` utilisent respectivement 80-8000 Hz et 120-7000 Hz; aucun filtre 250-3000 Hz destructif n'est imposé.
 
-La page Paramètres centralise ce qui était auparavant trop technique :
+Deepgram traite le streaming cloud. Vosk garde un chemin local léger. `WhisperService` charge `faster-whisper` seulement à la demande, choisit `tiny`, `base` ou `small` selon la mémoire, puis transcrit des fenêtres de 2,4 secondes avec 250 ms de recouvrement dans un thread de travail. Un modèle absent n'est jamais téléchargé au démarrage ou en plein direct.
 
-- version biblique ;
-- ProPresenter host/port ;
-- modèle Deepgram ;
-- langue ASR ;
-- clés Deepgram, OpenRouter et Gemini ;
-- activation de l'agent IA ;
-- seuil de confiance IA.
+## Ordonnancement temps réel
 
-Les secrets sont traités prudemment : le backend accepte de nouvelles clés, mais ne renvoie au navigateur que des indicateurs `configured` et des indices masqués.
+La queue de transcripts contient au plus 64 éléments. Une finale applique une vraie backpressure; un partiel devenu obsolète peut être abandonné. La persistance SQLite est sérialisée dans une queue de 128 éléments. Les tâches auxiliaires d'une session sont suivies et plafonnées.
 
-## Backend
+Chaque transcript incrémente un numéro de génération. L'analyse précédente et la traduction précédente sont annulées. Après chaque attente asynchrone et juste avant une projection, le code vérifie encore la génération. Un calcul CPU déjà parti dans un thread peut finir, mais son résultat ne peut plus produire d'effet. Les écritures WebSocket passent par un verrou unique.
 
-Le backend FastAPI expose :
+## Cascade de détection
 
-- `/health` et `/api/v1/health` pour l'état ;
-- `/api/v1/settings` pour lire et modifier la configuration runtime ;
-- `/api/v1/references/parse` pour tester le parser ;
-- `/api/v1/references/send` pour envoyer manuellement ;
-- `/api/v1/history/*` pour sessions et historique ;
-- `/projection` et `/ws/projection` pour l'écran de projection autonome ;
-- `/obs` pour une source navigateur OBS transparente ou chroma key ;
-- `/ws/audio` pour le flux micro.
+### A. Référence explicite
 
-SQLite conserve les réglages, sessions, transcriptions, références, source de détection et score de confiance.
+Le parser normalise homophones, ordinaux et nombres parlés. Il gère les plages (`Éphésiens 2:8-9`, `jusqu'au verset neuf`) et choisit la référence la plus récente du buffer. Une référence valide obtient une confiance de 0,98; une forme lâche comme `lisons Jean trois seize` reste sous 0,95.
 
-## Pipeline temps réel
+### B. Fusion locale
 
-```mermaid
-sequenceDiagram
-  participant U as Régisseur
-  participant F as Frontend
-  participant B as Backend
-  participant A as ASR
-  participant P as Parser local
-  participant E as Embeddings ONNX
-  participant I as LLM arbitre
-  participant Q as Queue
-  participant R as Projection
+Le moteur lexical/flou et e5 ONNX produisent des classements indépendants. Les clés livre/chapitre/verset sont canonisées sans casse ni accents, puis agrégées par Reciprocal Rank Fusion. L'accord, le score sémantique et le recouvrement lexical des traductions déterminent si une proposition remonte. Le résultat reste `requires_review=true`.
 
-  U->>F: Démarre le micro
-  F->>B: WebSocket audio PCM
-  B->>A: Flux audio
-  A-->>B: Transcript final/intermédiaire
-  B-->>F: Texte prompteur immédiat
-  B->>P: Analyse locale rapide
-  alt Référence explicite fiable
-    P-->>B: Référence validée
-    B->>I: Annule/ignore IA concurrente
-    B->>R: Projette si autopilote local actif
-    B-->>Q: Ajoute à l'historique/file
-  else Aucune référence locale
-    B->>E: Recherche locale dans les versets réels
-    E-->>B: Top-k + scores cosinus
-    opt Candidats ambigus
-      B->>I: Choix dans une liste fermée
-      I-->>B: Candidat + confiance
-    end
-    B->>B: Filtre seuil et obsolescence
-    B-->>Q: Ajoute en validation manuelle
-  end
-```
+### C. Arbitrage IA
 
-## Politique anti-erreur en direct
+L'IA ne reçoit que des candidats réellement présents dans le corpus. OpenRouter, Gemini ou Ollama peuvent sélectionner une entrée ou répondre `null`. Le backend revalide la sélection dans la liste, recalibre la confiance avec le score local, reparcourt le parser et impose une validation humaine. Une URL Ollama ne suffit plus à déclarer l'IA active; le serveur et le modèle doivent répondre. Aucun modèle Ollama n'est téléchargé implicitement.
 
-Le coeur du plan critique est dans la politique de projection.
+## Politique de projection
 
-| Cas | Décision |
-| --- | --- |
-| Référence explicite locale, valide, confiance >= 0.95 | Peut être projetée automatiquement si l'autopilote est activé |
-| Référence locale mais incomplète/floue | File manuelle |
-| Suggestion IA | File manuelle uniquement |
-| Suggestion IA sous le seuil configuré | Rejet |
-| Suggestion IA arrivée après une détection locale plus récente | Ignorée |
-| Détection locale forte pendant une requête IA | Tâche IA annulée si possible |
+| Signal | Mode sûr | Mode ombre | Automatisation explicitement autorisée |
+| --- | --- | --- | --- |
+| Référence explicite >= 0,95 | file manuelle | journal seulement | projection possible |
+| Forme lâche ou chapitre seul | file manuelle | journal seulement | file manuelle |
+| Fusion locale | file manuelle | journal seulement | file manuelle |
+| IA fermée | file manuelle | journal seulement | file manuelle |
 
-Cela règle la principale critique : l'IA n'est pas le pilote de l'écran. Elle est un copilote de proposition.
+Le mode dimanche sûr est activé par défaut. `POST /api/v1/safety/panic` arrête le micro côté frontend, coupe `auto_send`, active le mode sûr et quitte le mode ombre.
 
-## Retrieval local et agent IA
+## Préflight
 
-Le moteur `LocalSemanticService` encode le texte final avec un modèle multilingue ONNX et compare le vecteur aux versets de la Bible active. L'index est calculé une fois puis mis en cache localement. Cette étape est rapide, déterministe et ne peut renvoyer qu'un passage réellement présent dans le corpus.
+`GET /api/v1/preflight` contrôle la base, le corpus, au moins un ASR, la sortie navigateur, l'espace disque, l'index sémantique et le gestionnaire de secrets. Les quatre premiers et l'espace disque sont bloquants. Le live refuse de démarrer et ouvre le diagnostic si un contrôle critique échoue.
 
-Si le premier candidat dépasse le seuil et se détache nettement du second, il est proposé directement en validation manuelle. Si plusieurs candidats sont proches, le LLM reçoit uniquement cette liste. Une référence générée hors liste est rejetée par le backend.
+## Secrets et téléchargements
 
-Les embeddings et Llama ne remplissent donc pas le même rôle : les embeddings font la recherche exhaustive rapide ; le LLM comprend le contexte et arbitre quelques candidats.
+`SecretStore` utilise `keyring`. Au démarrage, les anciennes clés Deepgram, OpenRouter et Gemini sont transférées depuis SQLite puis supprimées. Les logs de réglage n'incluent plus les valeurs. Sans backend de trousseau, les secrets restent en mémoire.
 
-L'agent IA peut utiliser trois chemins :
+Vosk est téléchargé vers un fichier `.part`, peut imposer un SHA-256, puis est extrait dans un répertoire temporaire avec vérification anti-Zip-Slip avant déplacement atomique. Les modèles e5 utilisent déjà des fichiers partiels atomiques. Les téléchargements lourds sont déclenchés depuis Paramètres.
 
-1. OpenRouter avec `google/gemini-2.5-flash`.
-2. Gemini direct avec `gemini-2.0-flash`.
-3. Ollama local avec `llama3.1:8b`.
+## Sorties
 
-La sortie attendue est strictement structurée :
+`OutputManager` diffuse une scène canonique. Le driver navigateur alimente `/projection`, `/stage`, `/obs` et `/ws/output`. OBS peut donc utiliser une source navigateur transparente sans ProPresenter. Les drivers ProPresenter et vMix sont des sorties supplémentaires, pas des dépendances du coeur.
 
-```json
-{
-  "reference": "Jean 3:16",
-  "confidence": 98
-}
-```
+## Persistance et observabilité
 
-Le backend applique ensuite :
+SQLite conserve sessions, transcript cumulé, détections, contexte, source et confiance. Le chemin de décision envoyé au frontend contient une explication opérateur. Le journal desktop du backend est écrit dans le dossier de données utilisateur.
 
-- parsing de la référence renvoyée par l'IA ;
-- seuil minimal, par défaut `95%` ;
-- marquage `source = "ai"` ;
-- `detection_method = "ai_semantic"` ;
-- `requires_review = true` ;
-- `projection_policy = "manual_review"`.
+## Tests et mesure
 
-## ASR et audio
+La suite pytest couvre parser, fusion, IA fermée, sécurité distante, projection OBS, Whisper, archives sûres et un flux distant complet `octets -> faux Deepgram -> transcript -> parser -> référence`. Les tests frontend couvrent le backoff. `cargo check --locked` vérifie le watchdog.
 
-Trois moteurs sont disponibles :
+Le benchmark `benchmarks/run_detection_benchmark.py` importe `run_detection_cascade` au lieu de dupliquer l'algorithme. Il compare des références structurées et publie exactitude, précision, rappel, F1, faux positifs et p50/p95/p99. Le corpus de 30 phrases sert de garde de non-régression; l'étape scientifique suivante est un corpus audio annoté multi-églises avec accents, réverbération, musique et débits variés.
 
-- Deepgram pour le cloud rapide ;
-- Vosk pour le local hors-ligne léger et réactif ;
-- faster-whisper pour une meilleure robustesse multilingue, au bruit et au débit rapide.
+## Limites honnêtes
 
-Le profil matériel détecte architecture, mémoire, CPU et accélération CUDA. En mode local automatique, une machine légère utilise Vosk, une machine standard utilise Whisper `small`, et une machine accélérée peut utiliser Whisper `turbo`. Whisper traite le PCM dans un worker asynchrone par fenêtres configurables afin de ne jamais bloquer le WebSocket audio.
-
-Côté navigateur, le flux audio est préparé avant envoi :
-
-- acquisition micro ;
-- filtrage vocal ;
-- conversion PCM ;
-- downsampling ;
-- calcul de volume ;
-- génération de l'onde réelle affichée dans l'interface.
-
-L'onde n'est donc plus décorative : elle reflète le signal reçu.
-
-## ProPresenter et projection web
-
-VersePro peut envoyer un verset à ProPresenter via le service backend. En parallèle, l'écran `/projection` fournit une projection web autonome, utile pour tester ou pour les installations sans ProPresenter.
-
-La route `/obs` est le pont OBS direct. Elle rend une page HTML transparente, pensée pour une **Source navigateur** OBS, et écoute le même WebSocket `/ws/projection`. Elle accepte les paramètres `theme=lower-third|full|minimal`, `bg=transparent|green|blue|black`, `scale=...` et `show_ref=0|1`.
-
-Le bouton manuel et les actions de queue restent disponibles même si ProPresenter est déconnecté. Le régisseur peut donc préparer, vérifier et corriger sans perdre le fil.
-
-## Démarrage et exploitation
-
-Les lanceurs sont maintenant conçus pour réduire le stress :
-
-- `start.sh` pour macOS/Linux ;
-- `Lancer VersePro.command` pour double-clic macOS ;
-- `start.bat` pour Windows.
-
-Ils créent l'environnement local si nécessaire, installent les dépendances manquantes, démarrent backend et frontend, ouvrent le navigateur et écrivent les logs dans `v2/logs`.
-
-Point volontairement important : le lanceur ne tue plus les applications qui occupent les ports. Il réutilise un backend VersePro sain ou demande explicitement un autre port.
-
-## Observabilité
-
-Les événements importants sont stockés :
-
-- référence ;
-- livre, chapitre, versets ;
-- source `local` ou `ai` ;
-- confiance ;
-- session ;
-- contexte de transcription ;
-- validation manuelle.
-
-Les logs de configuration masquent les clés API pour éviter de laisser des secrets dans les fichiers de diagnostic.
-
-## Tests temps réel
-
-La suite `pytest` couvre désormais le flux de projection WebSocket et l'intelligence hybride :
-
-- connexion initiale à `/ws/projection` ;
-- broadcast d'un slide via `/api/v1/project` vers les clients connectés ;
-- transmission des traductions dans le payload WebSocket ;
-- disponibilité publique de `/obs` pour les clients distants ;
-- refus des flux distants sensibles sans jeton API.
-- accumulation PCM et transcription Whisper hors event loop ;
-- classement d'un verset réel par embeddings locaux ;
-- rejet d'une référence LLM absente du top-k biblique.
-
-## Limites actuelles et prochaines innovations
-
-La V2 actuelle est solide pour un usage local, mais le niveau "produit public" demande encore :
-
-- packaging Tauri ou équivalent avec installeur signé ;
-- assistant de premier lancement avec test micro, test ProPresenter et test IA ;
-- mode répétition avec audio préenregistré pour entraîner l'équipe avant le culte ;
-- calibration automatique bruit d'église / nappe musicale ;
-- bouton "panic mode" pour basculer instantanément en manuel ;
-- export diagnostic anonymisé pour support distant ;
-- profils par église avec versions bibliques, langue, ProPresenter et seuils différents.
-
-Ces éléments sont des innovations utiles, mais la priorité déjà intégrée est la plus critique : aucun passage incertain ne prend l'écran sans validation humaine.
+- La signature et la notarisation nécessitent des certificats externes.
+- La mise à jour signée ne doit être activée qu'après configuration d'une clé publique et d'un canal de publication.
+- Whisper CPU ajoute environ une fenêtre de latence; il privilégie la robustesse, pas l'instantanéité de Vosk.
+- Les allusions narratives sans mots communs restent difficiles si le top-k local ne contient pas le bon récit.
+- NDI dépend d'un runtime et d'une licence externes; OBS navigateur est la sortie locale garantie.
+- Trente phrases ne remplacent pas un benchmark audio de terrain.

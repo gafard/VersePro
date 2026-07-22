@@ -515,9 +515,18 @@ class DatabaseService:
                 (key, str(value))
             )
             await self.db.commit()
-            logger.debug(f"⚙️ Config persistée : {key} = {value}")
+            logger.debug(f"Config persistée : {key}")
         except Exception as e:
             logger.error(f"Erreur set_setting({key}): {e}")
+
+    async def delete_setting(self, key: str) -> None:
+        if not self.db:
+            return
+        try:
+            await self.db.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+            await self.db.commit()
+        except Exception as exc:
+            logger.error(f"Erreur delete_setting({key}): {exc}")
 
     async def get_all_settings(self) -> Dict[str, str]:
         """Récupère l'ensemble des configurations"""

@@ -73,7 +73,12 @@ function App() {
   const { 
     fetchHistory, 
     fetchStatistics, 
-    connectWebSocket, 
+    checkBackendHealth,
+    fetchBibles,
+    fetchSettings,
+    fetchProjectionState,
+    hydrateQueueFromSession,
+    fetchIntelligenceStatus,
     disconnectWebSocket, 
     connected,
     connectionStatus,
@@ -101,10 +106,28 @@ function App() {
   const [clock, setClock] = useState(() => new Date())
 
   useEffect(() => {
-    connectWebSocket()
-    fetchHistory()
-    fetchStatistics()
-    return () => { disconnectWebSocket() }
+    let bootstrapped = false
+    const bootstrap = async () => {
+      const healthy = await checkBackendHealth()
+      if (healthy && !bootstrapped) {
+        bootstrapped = true
+        await Promise.all([
+          fetchHistory(),
+          fetchStatistics(),
+          fetchBibles(),
+          fetchSettings(),
+          fetchProjectionState(),
+          hydrateQueueFromSession(),
+          fetchIntelligenceStatus()
+        ])
+      }
+    }
+    bootstrap()
+    const timer = setInterval(bootstrap, 5000)
+    return () => {
+      clearInterval(timer)
+      disconnectWebSocket()
+    }
   }, [])
 
   // Horloge de régie globale
@@ -197,8 +220,8 @@ function App() {
               <span className={`vp-chip ${serverStatus.tone}`}>
                 <span className="dot" />{serverStatus.label}
               </span>
-              <span className={`vp-chip ${asrMode === 'vosk' ? 'is-warn' : 'is-accent'}`}>
-                <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : 'Deepgram'}
+              <span className={`vp-chip ${['vosk', 'whisper'].includes(asrMode) ? 'is-warn' : 'is-accent'}`}>
+                <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : asrMode === 'whisper' ? 'Whisper local' : 'Deepgram'}
               </span>
               <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
                 <span className="dot" />IA {aiActive ? 'active' : 'off'}

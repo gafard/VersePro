@@ -53,7 +53,7 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self' tauri:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: https://asset.localhost data: blob:; media-src 'self' asset: https://asset.localhost blob:; connect-src 'self' http://127.0.0.1:17871 ws://127.0.0.1:17871; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     },
     "updater": {
       "active": false

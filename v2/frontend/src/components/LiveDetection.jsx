@@ -21,7 +21,8 @@ const QUICK_REFS = [
 
 const ASR_LABELS = {
   deepgram: 'Deepgram cloud',
-  vosk: 'Vosk local'
+  vosk: 'Vosk local',
+  whisper: 'Whisper local'
 }
 
 /** Décale le numéro de verset d'une référence "Livre C:V" (navigation de lecture) */
@@ -53,27 +54,21 @@ function StopIcon({ size = 13 }) {
 
 export default function LiveDetection({ setActiveTab }) {
   const {
-    isListening, setIsListening,
+    isListening,
     currentTranscript,
     detectedReferences,
     propresenterConnected,
     sendReference, sendAudio,
-    asrMode, selectedEngine, setSelectedEngine,
-    activeBible, availableBibles, selectBible, fetchBibles,
+    asrMode, fetchBibles,
     aiActive,
     translationLang, currentTranslation, setTranslationLang,
     autopilotMode, setAutopilotMode,
     projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearProjectionQueue,
-    connected,
-    fetchSettings, updateSettings,
-    voskStatus, fetchVoskStatus, downloadVoskModel,
     lastAiRejection,
     onAir, clearProjectionScreen,
-    backendUnreachable,
     statistics,
-    outputTheme, setOutputTheme,
-    vmixEnabled, vmixHost, vmixPort, vmixInputId, updateVMixConfig,
-    toggleListening, volume, audioDevices, selectedAudioDeviceId, setSelectedAudioDeviceId, micPermissionState, micError, refreshAudioDevices
+    toggleListening, volume, waveform, audioDevices, selectedAudioDeviceId, micError, refreshAudioDevices, setMicPermissionState,
+    preflight, preflightLoading, runPreflight, activatePanicMode, sundaySafeMode, shadowMode
   } = useStore()
 
   const [manualReference, setManualReference] = useState('')
@@ -81,6 +76,7 @@ export default function LiveDetection({ setActiveTab }) {
   const [visibleRejection, setVisibleRejection] = useState(null)
   const [clock, setClock] = useState(() => new Date())
   const [followMode, setFollowMode] = useState(false)
+  const [preflightOpen, setPreflightOpen] = useState(false)
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [failedIds, setFailedIds] = useState(new Set())
   const [dismissedPpAlert, setDismissedPpAlert] = useState(() => {
@@ -101,9 +97,6 @@ export default function LiveDetection({ setActiveTab }) {
     const canvas = document.getElementById('vp-wave')
     if (!canvas) return
     const ctx = canvas.getContext('2d')
-    let animationId
-    let phase = 0
-
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
     canvas.width = rect.width * dpr
@@ -115,25 +108,21 @@ export default function LiveDetection({ setActiveTab }) {
     const liveWave = styles.getPropertyValue('--color-wave-live').trim()
     const idleWave = styles.getPropertyValue('--color-wave-idle').trim()
 
-    const animate = () => {
-      ctx.clearRect(0, 0, width, height)
-      const amp = isListening ? Math.max(1.5, (volume / 100) * 12) : 0.6
-      phase += isListening ? 0.06 + (volume / 100) * 0.08 : 0.015
-
-      ctx.beginPath()
-      ctx.strokeStyle = isListening ? liveWave : idleWave
-      ctx.lineWidth = 1.4
-      for (let x = 0; x < width; x++) {
-        const envelope = Math.sin((x / width) * Math.PI)
-        const y = height / 2 + Math.sin(x * 0.09 + phase) * amp * envelope
-        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
-      }
-      ctx.stroke()
-      animationId = requestAnimationFrame(animate)
+    ctx.clearRect(0, 0, width, height)
+    ctx.beginPath()
+    ctx.strokeStyle = isListening ? liveWave : idleWave
+    ctx.lineWidth = 1.4
+    const samples = isListening && waveform?.length ? waveform : [0, 0]
+    samples.forEach((sample, index) => {
+      const x = (index / Math.max(1, samples.length - 1)) * width
+      const y = height / 2 - sample * height * 0.44
+      index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+    })
+    ctx.stroke()
+    return () => {
+      canvas.width = canvas.width
     }
-    animate()
-    return () => cancelAnimationFrame(animationId)
-  }, [isListening, volume])
+  }, [isListening, waveform])
 
   const transcriptEndRef = useRef(null)
 
@@ -196,16 +185,10 @@ export default function LiveDetection({ setActiveTab }) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [pendingItems, selectedQueueIndex, projectVerseFromQueue, rejectVerseFromQueue])
 
-  // Onboarding (première ouverture sans clé configurée)
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [onboardDeepgram, setOnboardDeepgram] = useState('')
-  const [onboardAi, setOnboardAi] = useState('')
-  const [submittingOnboard, setSubmittingOnboard] = useState(false)
-
   useEffect(() => {
     fetchBibles()
-    fetchVoskStatus()
     refreshAudioDevices()
+    runPreflight()
 
     if (navigator.permissions?.query) {
       navigator.permissions.query({ name: 'microphone' })
@@ -216,19 +199,8 @@ export default function LiveDetection({ setActiveTab }) {
         .catch(() => {})
     }
 
-    const initSettings = async () => {
-      const currentSettings = await fetchSettings()
-      const ignored = localStorage.getItem('versepro_onboarding_ignored')
-      if (currentSettings && !currentSettings.deepgram_api_key_configured && !ignored) {
-        setShowOnboarding(true)
-      }
-    }
-    initSettings()
-
     navigator.mediaDevices?.addEventListener?.('devicechange', refreshAudioDevices)
-    const interval = setInterval(() => { fetchVoskStatus() }, 8000)
     return () => {
-      clearInterval(interval)
       navigator.mediaDevices?.removeEventListener?.('devicechange', refreshAudioDevices)
     }
   }, [])
@@ -239,6 +211,19 @@ export default function LiveDetection({ setActiveTab }) {
     if (!ref) return
     await sendReference(ref)
     setManualReference('')
+  }
+
+  const handleToggleListening = async () => {
+    if (isListening) {
+      await toggleListening()
+      return
+    }
+    const result = await runPreflight()
+    if (!result.ready) {
+      setPreflightOpen(true)
+      return
+    }
+    await toggleListening()
   }
 
   const handleProjectFromQueue = async (queueId, reference, text) => {
@@ -280,28 +265,6 @@ export default function LiveDetection({ setActiveTab }) {
   const handleShiftVerse = async (delta) => {
     const next = shiftVerse(onAir?.reference, delta)
     if (next) await sendReference(next)
-  }
-
-  const handleOnboardSubmit = async (e) => {
-    e.preventDefault()
-    setSubmittingOnboard(true)
-    try {
-      const payload = {}
-      if (onboardDeepgram.trim()) payload.deepgram_api_key = onboardDeepgram.trim()
-      if (onboardAi.trim()) {
-        if (onboardAi.trim().startsWith('AIza')) payload.gemini_api_key = onboardAi.trim()
-        else payload.openrouter_api_key = onboardAi.trim()
-      }
-      if (Object.keys(payload).length > 0) await updateSettings(payload)
-      setShowOnboarding(false)
-    } finally {
-      setSubmittingOnboard(false)
-    }
-  }
-
-  const handleOnboardSkip = () => {
-    localStorage.setItem('versepro_onboarding_ignored', 'true')
-    setShowOnboarding(false)
   }
 
   // Les pages d'écran (/output, /stage, /obs) sont servies par le backend
@@ -453,6 +416,12 @@ export default function LiveDetection({ setActiveTab }) {
           </span>
         </div>
         <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
+        {item.explanation && (
+          <details className="live-card-explanation">
+            <summary>Pourquoi cette détection ?</summary>
+            <p>{item.explanation}</p>
+          </details>
+        )}
         <div className="live-card-foot">
           <span className="live-card-time">
             {new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -507,68 +476,41 @@ export default function LiveDetection({ setActiveTab }) {
 
   return (
     <div className="live-shell">
-      {/* ═══════════ ONBOARDING ═══════════ */}
-      {showOnboarding && (
+      {preflightOpen && (
         <div className="vp-modal-backdrop">
-          <div className="vp-modal">
-            <h2>Bienvenue sur VersePro</h2>
-            <p className="vp-modal-intro">
-              Ouvrez la régie maintenant en mode local. Vous pourrez ajouter Deepgram,
-              OpenRouter ou Gemini plus tard depuis Paramètres.
-            </p>
-
-            <div className="vp-onboarding-value">
-              <span className="vp-chip is-ok"><span className="dot" />Mode local prêt</span>
-              <p>Le premier objectif est de voir la console fonctionner, sans mur de clés API.</p>
-            </div>
-
-            <button type="button" className="vp-btn vp-btn--primary vp-btn--wide" onClick={handleOnboardSkip}>
-              Démarrer en mode local
-            </button>
-
-            <form onSubmit={handleOnboardSubmit} className="vp-onboarding-advanced">
-              <details>
-                <summary>Configurer les moteurs cloud maintenant</summary>
-
-                <label>
-                  <span className="vp-label">Clé API Deepgram — transcription cloud</span>
-                  <input
-                    className="vp-input"
-                    type="password"
-                    placeholder="dg_..."
-                    value={onboardDeepgram}
-                    onChange={(e) => setOnboardDeepgram(e.target.value)}
-                  />
-                </label>
-                <label>
-                  <span className="vp-label">Clé OpenRouter ou Gemini — détection IA</span>
-                  <input
-                    className="vp-input"
-                    type="password"
-                    placeholder="sk-or-... ou AIzaSy..."
-                    value={onboardAi}
-                    onChange={(e) => setOnboardAi(e.target.value)}
-                  />
-                </label>
-
-                <button type="submit" className="vp-btn" disabled={submittingOnboard}>
-                  {submittingOnboard ? 'Configuration…' : 'Enregistrer les clés'}
-                </button>
-              </details>
-
-              <div className="vp-onboarding-vosk">
-                <span className="vp-label">Moteur local Vosk (hors-ligne)</span>
-                {voskStatus.installed ? (
-                  <span className="vp-chip is-ok"><span className="dot" />Modèle {voskStatus.model_type} installé et prêt</span>
-                ) : voskStatus.downloading ? (
-                  <span className="vp-chip is-warn"><span className="dot" />Téléchargement du modèle en cours…</span>
-                ) : (
-                  <button type="button" className="vp-btn vp-btn--sm" onClick={downloadVoskModel}>
-                    Télécharger le modèle français
-                  </button>
-                )}
+          <div className="vp-modal preflight-modal" role="dialog" aria-modal="true" aria-label="Contrôle avant direct">
+            <div className="settings-card-head">
+              <div>
+                <span>Avant direct</span>
+                <h2>{preflight?.ready ? 'Régie prête' : 'Action requise'}</h2>
               </div>
-            </form>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={() => setPreflightOpen(false)}>Fermer</button>
+            </div>
+            <div className="preflight-list">
+              {(preflight?.checks || []).map((check) => (
+                <div key={check.id} className={`preflight-row ${check.ok ? 'is-ok' : 'is-bad'}`}>
+                  <span className="dot" />
+                  <strong>{check.label}</strong>
+                  <span>{check.detail || (check.ok ? 'Prêt' : check.critical ? 'Bloquant' : 'Optionnel')}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="vp-btn" onClick={runPreflight} disabled={preflightLoading}>
+                {preflightLoading ? 'Contrôle…' : 'Recontrôler'}
+              </button>
+              <button className="vp-btn vp-btn--primary" onClick={() => setActiveTab('settings')}>Ouvrir Paramètres</button>
+              {!preflight?.ready && (
+                // Un dimanche matin, rien ne doit bloquer : l'opérateur voit ce
+                // qui manque, puis démarre en connaissance de cause.
+                <button
+                  className="vp-btn vp-btn--danger"
+                  onClick={() => { setPreflightOpen(false); toggleListening() }}
+                >
+                  Démarrer quand même
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -623,7 +565,7 @@ export default function LiveDetection({ setActiveTab }) {
             <div className="flex flex-col gap-2">
               <button 
                 className={`vp-btn ${isListening ? 'vp-btn--ghost' : 'vp-btn--primary'} w-full py-1.5`} 
-                onClick={toggleListening}
+                onClick={handleToggleListening}
               >
                 {isListening ? 'Arrêter Micro' : 'Démarrer Micro'}
               </button>
@@ -634,25 +576,24 @@ export default function LiveDetection({ setActiveTab }) {
             </div>
           </div>
 
-          {/* Réglages Moteur vocal & Bible */}
+          {/* Actions opérationnelles */}
           <div className="vp-panel flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="vp-label">Moteur Vocal</span>
-              <select className="vp-select text-xs py-1" value={selectedEngine} onChange={(e) => setSelectedEngine(e.target.value)}>
-                <option value="auto">Auto (Deepgram + secours Vosk)</option>
-                <option value="deepgram">Deepgram cloud</option>
-                <option value="vosk">Vosk local (hors-ligne)</option>
-              </select>
+            <div className="flex items-center justify-between gap-2">
+              <span className="vp-label">Sécurité</span>
+              <span className={`vp-chip ${sundaySafeMode || shadowMode ? 'is-ok' : 'is-warn'}`}>
+                {shadowMode ? 'Ombre' : sundaySafeMode ? 'Mode sûr' : 'Auto autorisé'}
+              </span>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <span className="vp-label">Version Biblique</span>
-              <select className="vp-select text-xs py-1" value={activeBible} onChange={(e) => selectBible(e.target.value)}>
-                {availableBibles.map((code) => (
-                  <option key={code} value={code}>{code} — {BIBLE_NAMES[code] || code}</option>
-                ))}
-              </select>
-            </div>
+            <button className="vp-btn vp-btn--sm w-full" onClick={() => { runPreflight(); setPreflightOpen(true) }}>
+              Contrôle avant direct
+            </button>
+            <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={() => setActiveTab('settings')}>
+              Paramètres audio et moteurs
+            </button>
+            <button className="vp-btn vp-btn--danger vp-btn--sm w-full" onClick={activatePanicMode}>
+              Arrêt d'urgence
+            </button>
 
             <div className="flex flex-col gap-2 pt-2 border-t border-border-weak">
               <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openProjectionWindow}>
@@ -875,7 +816,7 @@ export default function LiveDetection({ setActiveTab }) {
             Moteur : <span className="text-[var(--vp-accent)] font-bold">{ASR_LABELS[asrMode] || 'Automatique'}</span>
           </div>
           <div className="live-statusbar-item">
-            Latence : <span className="text-[var(--vp-ok)]">114 ms</span>
+            Flux : <span className="text-[var(--vp-ok)]">{isListening ? 'actif' : 'en veille'}</span>
           </div>
           <div className="live-statusbar-item">
             Session : <span className="text-[var(--text-dim)]">SQLite Active</span>
@@ -883,7 +824,7 @@ export default function LiveDetection({ setActiveTab }) {
         </div>
         
         <div className="live-statusbar-right">
-          <span>VersePro v2.0 • Cockpit</span>
+          <span>VersePro v2.0 · Cockpit</span>
           <span className="global-clock">
             {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </span>

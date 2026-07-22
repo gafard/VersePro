@@ -8,9 +8,8 @@ import asyncio
 import json
 import re
 import threading
-import time
 from typing import Any, Dict, List, Optional
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -25,10 +24,12 @@ from .services.deepgram_service import DeepgramService
 from .services.verse_parser import VerseParserService, version_label
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
+from .services.whisper_service import WhisperService
 from .services.ai_service import AIService
 from .services.semantic_search import LocalSemanticService
 from .services.detection_fusion import fuse as fuse_detection, strip_attribution, recent_window
 from .services.reading_tracker import ReadingTracker
+from .services.secret_store import secret_store
 from .outputs import OutputManager
 from .api.routes import router as api_router
 
@@ -39,6 +40,7 @@ output_manager: OutputManager | None = None
 verse_parser: VerseParserService | None = None
 db_service: DatabaseService | None = None
 vosk_service: VoskService | None = None
+whisper_service: WhisperService | None = None
 ai_service: AIService | None = None
 semantic_service: LocalSemanticService | None = None
 current_session_id: int | None = None
@@ -129,7 +131,7 @@ async def broadcast_projection(text: str, reference: str, background: str | None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, ai_service, semantic_service, current_session_id, osc_service
+    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, whisper_service, ai_service, semantic_service, current_session_id, osc_service
     
     # Startup
     logger.info("🚀 Démarrage de VersePro v2...")
@@ -137,21 +139,25 @@ async def lifespan(app: FastAPI):
     # Initialisation de la base de données
     db_service = get_database()
     await db_service.connect()
+
+    # Les clés historiques stockées dans SQLite sont transférées vers le
+    # Trousseau macOS (ou le gestionnaire de secrets de l'OS), puis effacées.
+    await secret_store.migrate_from_database(db_service)
+    for secret_key, attr_name in {
+        "deepgram_api_key": "DEEPGRAM_API_KEY",
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+        "gemini_api_key": "GEMINI_API_KEY",
+    }.items():
+        if not getattr(settings, attr_name, ""):
+            stored_secret = await secret_store.get(secret_key)
+            if stored_secret:
+                setattr(settings, attr_name, stored_secret)
     
     # Charger la configuration dynamique depuis SQLite
     stored_settings = await db_service.get_all_settings()
     for key, val in stored_settings.items():
         attr_name = key.upper()
         if hasattr(settings, attr_name):
-            # Évite d'écraser des clés API d'environnement valides (.env) par des valeurs vides stockées en base
-            if attr_name in ("DEEPGRAM_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY"):
-                env_val = getattr(settings, attr_name, "")
-                if env_val and (val is None or val.strip() == ""):
-                    logger.info(f"⚙️ Conservation de la clé d'environnement pour {attr_name}")
-                    # Enregistre la clé dans la base SQLite pour la synchroniser
-                    await db_service.set_setting(key, env_val)
-                    continue
-                    
             expected_type = type(getattr(settings, attr_name))
             try:
                 if expected_type is bool:
@@ -178,11 +184,14 @@ async def lifespan(app: FastAPI):
     
     verse_parser = VerseParserService()
     vosk_service = VoskService()
+    whisper_service = WhisperService()
     ai_service = AIService()
     semantic_service = LocalSemanticService(verse_parser.bible_loader)
     
-    # Chargement en arrière-plan du modèle local Vosk pour éviter de bloquer l'application
-    threading.Thread(target=vosk_service.initialize, daemon=True).start()
+    # Ne télécharge rien au démarrage. Un modèle Vosk déjà présent est seulement
+    # chargé en arrière-plan; les installations restent des actions explicites.
+    if Path(vosk_service.model_dir).exists():
+        threading.Thread(target=vosk_service.initialize, daemon=True).start()
     threading.Thread(
         target=semantic_service.initialize,
         kwargs={"allow_download": settings.LOCAL_SEMANTIC_AUTO_DOWNLOAD},
@@ -1627,9 +1636,9 @@ BIBLE_KEYWORDS = {
     "disciple", "éternel", "eternel", "amen", "béni", "beni", "sauveur",
 }
 
-# Une seule requête d'arbitrage IA en vol : évite d'empiler les appels au modèle
-# quand plusieurs fins de phrase s'enchaînent.
-_ai_last_resort_busy = False
+# Une seule requête d'arbitrage IA en vol pour tout le processus. Une annulation
+# libère automatiquement le verrou, contrairement à un simple drapeau global.
+_ai_last_resort_lock = asyncio.Lock()
 
 # Frontières de clause : le prédicateur enchâsse souvent l'allusion dans du
 # commentaire (« y a Philippe qui va s'asseoir avec lui… POURQUOI est-ce si
@@ -1749,31 +1758,67 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
     #    être présent (mode strict), une seule requête en vol à la fois, et la
     #    réponse est REVALIDÉE contre la Bible chargée — l'IA ne peut pas inventer
     #    un verset. Le résultat part toujours en validation manuelle.
-    global _ai_last_resort_busy
     if not (ai_service and ai_service.enabled and settings.AI_AGENT_ENABLED):
         return None
-    if _ai_last_resort_busy:
+    if _ai_last_resort_lock.locked():
         return None
     if settings.AI_FILTERING_MODE == "strict" and not any(k in query.lower() for k in BIBLE_KEYWORDS):
         return None
 
-    _ai_last_resort_busy = True
-    try:
-        # Vivier ancré : l'IA choisit parmi des versets RÉELS du corpus.
-        shortlist = await asyncio.to_thread(
-            verse_parser.bible_loader.search_candidates, query, 3
-        )
-        if semantic_service and semantic_service.initialized:
-            shortlist += await asyncio.to_thread(semantic_service.search, query, 3, 0.0)
-        res = await ai_service.detect_bible_reference(query, candidates=shortlist or None)
-    except Exception as exc:
-        logger.debug(f"Arbitrage IA de dernier recours indisponible : {exc}")
-        return None
-    finally:
-        _ai_last_resort_busy = False
+    async with _ai_last_resort_lock:
+        try:
+            # Vivier ancré : l'IA choisit parmi des versets RÉELS du corpus.
+            shortlist = await asyncio.to_thread(
+                verse_parser.bible_loader.search_candidates, query, 3
+            )
+            if semantic_service and semantic_service.initialized:
+                shortlist += await asyncio.to_thread(semantic_service.search, query, 3, 0.0)
+            if not shortlist:
+                return None
+            res = await ai_service.detect_bible_reference(query, candidates=shortlist)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug(f"Arbitrage IA de dernier recours indisponible : {exc}")
+            return None
 
     if not res or not res.get("reference"):
         return None
+
+    # Défense en profondeur : même un fournisseur mal configuré ou un faux
+    # service de test ne peut sortir de la liste locale transmise au modèle.
+    selected = next(
+        (
+            candidate for candidate in shortlist
+            if AIService._normalize_reference(candidate.get("reference", ""))
+            == AIService._normalize_reference(res.get("reference", ""))
+        ),
+        None,
+    )
+    if not selected:
+        logger.info("Suggestion IA écartée : référence absente de la liste fermée")
+        return None
+    if not res.get("candidate_validated"):
+        raw_confidence = max(0.0, min(100.0, float(res.get("confidence") or 0)))
+        try:
+            raw_score = selected.get("score")
+            if raw_score is None:
+                raw_score = selected.get("semantic_score")
+            if raw_score is None:
+                raw_score = selected.get("confidence")
+            score = max(0.0, min(1.0, float(raw_score)))
+            candidate_confidence = 70.0 + (score * 30.0)
+        except (TypeError, ValueError):
+            score = None
+            candidate_confidence = 85.0
+        res = {
+            **res,
+            "reference": selected["reference"],
+            "raw_model_confidence": raw_confidence,
+            "confidence": min(raw_confidence, candidate_confidence),
+            "candidate_score": score,
+            "candidate_validated": True,
+        }
     confidence = float(res.get("confidence") or 0)
     if confidence < settings.AI_CONFIDENCE_THRESHOLD:
         logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {settings.AI_CONFIDENCE_THRESHOLD} %)")
@@ -1787,6 +1832,9 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
     grounded["confidence"] = confidence / 100.0
     grounded["detection_method"] = "ai_semantic"
     grounded["requires_review"] = True
+    grounded["candidate_validated"] = True
+    grounded["candidate_score"] = res.get("candidate_score")
+    grounded["raw_model_confidence"] = res.get("raw_model_confidence")
     logger.info(f"🤖 Dernier recours IA → {grounded['reference']} ({confidence:.0f} %)")
     return grounded
 
@@ -1806,15 +1854,70 @@ async def websocket_audio(websocket: WebSocket):
     if not deepgram_service or not verse_parser or not vosk_service:
         await websocket.close(code=1011, reason="Services non initialisés")
         return
+
+    send_lock = asyncio.Lock()
+
+    async def send_json(payload: dict) -> None:
+        """Sérialise les écritures concurrentes sur le WebSocket Starlette."""
+        async with send_lock:
+            await websocket.send_json(payload)
+
+    session_tasks: set[asyncio.Task] = set()
+
+    def spawn_session_task(coro, label: str) -> asyncio.Task | None:
+        """Suit les tâches courtes et refuse leur accumulation sans limite."""
+        if len(session_tasks) >= 32:
+            if hasattr(coro, "close"):
+                coro.close()
+            logger.warning(f"Tâche temps réel abandonnée (saturation) : {label}")
+            return None
+        task = asyncio.create_task(coro, name=f"versepro:{label}")
+        session_tasks.add(task)
+        task.add_done_callback(session_tasks.discard)
+        return task
+
+    persistence_queue: asyncio.Queue = asyncio.Queue(maxsize=128)
+
+    def persist_later(label: str, factory) -> None:
+        try:
+            persistence_queue.put_nowait((label, factory))
+        except asyncio.QueueFull:
+            logger.error(f"File de persistance saturée, événement ignoré : {label}")
+
+    async def persistence_worker() -> None:
+        while True:
+            item = await persistence_queue.get()
+            if item is None:
+                return
+            label, factory = item
+            try:
+                await factory()
+            except Exception as exc:
+                logger.error(f"Persistance {label} impossible : {exc}")
+            finally:
+                persistence_queue.task_done()
         
     # Envoi de l'état d'activation de l'Agent IA sémantique au client
-    await websocket.send_json({
+    await send_json({
         "type": "ai_status",
         "enabled": ai_service.enabled if ai_service else False
     })
         
-    transcript_queue = asyncio.Queue()
+    transcript_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
+    whisper_window_queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+
+    async def queue_transcript(transcript: str, is_final: bool) -> None:
+        """Conserve toutes les finales, mais laisse tomber un partiel obsolète."""
+        item = (transcript, is_final)
+        if is_final:
+            await transcript_queue.put(item)
+            return
+        try:
+            transcript_queue.put_nowait(item)
+        except asyncio.QueueFull:
+            logger.debug("Partiel ASR ignoré : file de transcription saturée")
     use_vosk = False
+    use_whisper = False
     transcription_session = None
     recognizer = None
 
@@ -1847,12 +1950,12 @@ async def websocket_audio(websocket: WebSocket):
                 is_final = getattr(result, "is_final", False)
                 if transcript.strip():
                     logger.debug(f"📝 Deepgram: '{transcript}' (final={is_final})")
-                    await transcript_queue.put((transcript, is_final))
+                    await queue_transcript(transcript, is_final)
         except Exception as e:
             logger.error(f"❌ Erreur callback transcription Deepgram: {e}")
 
     async def activate_vosk(status: str = "connected") -> bool:
-        nonlocal use_vosk, recognizer
+        nonlocal use_vosk, use_whisper, recognizer
         success = await asyncio.to_thread(vosk_service.initialize)
         if not success:
             return False
@@ -1860,41 +1963,73 @@ async def websocket_audio(websocket: WebSocket):
         if not recognizer:
             return False
         use_vosk = True
-        await websocket.send_json({"type": "status_update", "status": status, "mode": "vosk"})
+        use_whisper = False
+        await send_json({"type": "status_update", "status": status, "mode": "vosk"})
         return True
+
+    async def activate_whisper(status: str = "connected", allow_download: bool = False) -> bool:
+        nonlocal use_vosk, use_whisper
+        if not whisper_service:
+            return False
+        success = await asyncio.to_thread(whisper_service.initialize, allow_download)
+        if not success:
+            return False
+        whisper_service.reset()
+        use_whisper = True
+        use_vosk = False
+        await send_json({
+            "type": "status_update",
+            "status": status,
+            "mode": "whisper",
+            "model": whisper_service.model_name,
+        })
+        return True
+
+    async def whisper_transcription_worker() -> None:
+        """Transcrit hors de la boucle réseau et garde toujours l'audio le plus récent."""
+        while True:
+            audio_window = await whisper_window_queue.get()
+            try:
+                if audio_window is None:
+                    return
+                if whisper_service and use_whisper:
+                    text = await asyncio.to_thread(whisper_service.transcribe_window, audio_window)
+                    if text:
+                        await queue_transcript(text, True)
+            finally:
+                whisper_window_queue.task_done()
 
     # Lecture du paramètre query 'engine' et 'translation_lang'.
     engine = websocket.query_params.get("engine", settings.ASR_DEFAULT_ENGINE)
     translation_lang = websocket.query_params.get("translation_lang", "")
     logger.info(f"🔌 Connexion WebSocket audio demandée avec le moteur : {engine} | Traduction: {translation_lang or 'aucune'}")
 
-    if engine in ("vosk", "whisper", "local_auto"):  # whisper/local_auto : compat -> vosk
-        # Mode Vosk local forcé (chargement du modèle hors event loop)
-        try:
-            success = await activate_vosk()
-            if success:
-                logger.info("🎙️ Moteur local Vosk activé (Mode forcé)")
-            else:
-                raise RuntimeError("Modèle Vosk local non disponible")
-        except Exception as we:
-            logger.warning(f"⚠️ Vosk indisponible ({we}), bascule automatique sur Deepgram…")
+    if engine in ("vosk", "whisper", "local_auto"):
+        local_ready = False
+        if engine in ("whisper", "local_auto"):
+            local_ready = await activate_whisper(
+                allow_download=bool(settings.WHISPER_AUTO_DOWNLOAD and engine == "whisper")
+            )
+        if not local_ready and engine in ("vosk", "local_auto", "whisper"):
+            local_ready = await activate_vosk(status="fallback" if engine == "whisper" else "connected")
+        if not local_ready:
             try:
                 transcription_session = await deepgram_service.create_session(on_transcript_received)
-                await websocket.send_json({"type": "status_update", "status": "fallback", "mode": "deepgram",
-                                           "reason": f"Vosk indisponible : {we}. Deepgram activé en secours."})
-                logger.info("🎙️ Deepgram activé en secours (Vosk indisponible)")
-            except Exception as dg_err:
-                logger.error(f"❌ Ni Vosk ni Deepgram disponibles : {dg_err}")
-                try:
-                    await websocket.close(code=1011, reason=f"Aucun moteur ASR disponible : Vosk ({we}), Deepgram ({dg_err})")
-                except Exception:
-                    pass
+                await send_json({
+                    "type": "status_update",
+                    "status": "fallback",
+                    "mode": "deepgram",
+                    "reason": "Moteurs locaux indisponibles. Deepgram activé en secours.",
+                })
+            except Exception as exc:
+                with suppress(Exception):
+                    await websocket.close(code=1011, reason=f"Aucun moteur ASR disponible : {exc}")
                 return
     elif engine == "deepgram":
         # Mode Deepgram cloud forcé
         try:
             transcription_session = await deepgram_service.create_session(on_transcript_received)
-            await websocket.send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
+            await send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
             logger.info("🎙️ Session de transcription Deepgram connectée (Mode forcé)")
         except Exception as e:
             logger.error(f"❌ Échec démarrage Deepgram forcé : {e}")
@@ -1904,30 +2039,32 @@ async def websocket_audio(websocket: WebSocket):
                 pass
             return
     else:
-        # Mode automatique (Deepgram avec fallback Vosk)
+        # Mode automatique : Deepgram, puis Whisper déjà préparé, puis Vosk.
         try:
             transcription_session = await deepgram_service.create_session(on_transcript_received)
-            await websocket.send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
+            await send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
             logger.info("🎙️ Session de transcription en ligne Deepgram connectée")
         except Exception as e:
-            logger.warning(f"⚠️ Échec connexion Deepgram ({e}). Activation du secours local Vosk...")
+            logger.warning(f"Échec connexion Deepgram ({e}). Activation du secours local...")
             try:
-                success = await activate_vosk(status="fallback")
+                success = await activate_whisper(status="fallback", allow_download=False)
+                if not success:
+                    success = await activate_vosk(status="fallback")
                 if success:
-                    logger.info("Secours local Vosk activé et prêt")
+                    logger.info("Secours local activé et prêt")
                 else:
-                    raise RuntimeError("Modèle Vosk non disponible")
+                    raise RuntimeError("Aucun modèle local disponible")
             except Exception as we:
-                logger.error(f"❌ Échec de la bascule Vosk: {we}")
+                logger.error(f"Échec de la bascule locale : {we}")
                 try:
-                    await websocket.close(code=1011, reason="Connexion Deepgram impossible et Vosk local hors-service")
+                    await websocket.close(code=1011, reason="Connexion Deepgram impossible et moteur local hors-service")
                 except Exception:
                     pass
                 return
             
     async def receive_audio_task():
         """Reçoit l'audio client et l'envoie au moteur de transcription actif"""
-        nonlocal use_vosk, recognizer, transcription_session
+        nonlocal use_vosk, use_whisper, recognizer, transcription_session
         
         # Pour le mécanisme de reconnexion automatique de Deepgram
         reconnecting_deepgram = False
@@ -1947,24 +2084,36 @@ async def websocket_audio(websocket: WebSocket):
                         continue
 
                 # Si on utilise en théorie Deepgram mais que la session est inactive (déconnexion 1011 ou erreur)
-                if not use_vosk and (not transcription_session or not transcription_session.is_active):
+                if not use_vosk and not use_whisper and (
+                    not transcription_session or not transcription_session.is_active
+                ):
                     now = asyncio.get_event_loop().time()
                     if now - last_fallback_attempt < 5:
                         continue  # Aucun moteur disponible : on ignore ce chunk sans re-tenter ni logger
                     last_fallback_attempt = now
-                    # Bascule dynamique à chaud sur Vosk local si possible (hors event loop)
+                    # Bascule dynamique à chaud sur un moteur local déjà préparé.
                     try:
-                        success = await activate_vosk(status="fallback")
+                        success = await activate_whisper(status="fallback", allow_download=False)
+                        if not success:
+                            success = await activate_vosk(status="fallback")
                         if success:
-                            logger.warning("Session Deepgram inactive. Bascule automatique sur Vosk local.")
+                            logger.warning("Session Deepgram inactive. Bascule automatique sur le moteur local.")
                         else:
-                            logger.error("❌ Impossible de basculer sur Vosk : modèle indisponible. Nouvelle tentative dans 5s.")
+                            logger.error("Impossible de basculer en local : modèle indisponible. Nouvelle tentative dans 5 s.")
                             continue
                     except Exception as ve:
-                        logger.error(f"❌ Erreur bascule à chaud Vosk : {ve}")
+                        logger.error(f"Erreur de bascule ASR locale : {ve}")
                         continue
 
-                if not use_vosk:
+                if use_whisper:
+                    audio_window = whisper_service.push_audio(data) if whisper_service else None
+                    if audio_window is not None and whisper_service:
+                        if whisper_window_queue.full():
+                            with suppress(asyncio.QueueEmpty):
+                                whisper_window_queue.get_nowait()
+                                whisper_window_queue.task_done()
+                        whisper_window_queue.put_nowait(audio_window)
+                elif not use_vosk:
                     await transcription_session.send_audio(data)
                 else:
                     # Vosk local : traitement en temps réel du flux audio non-bloquant
@@ -1974,71 +2123,238 @@ async def websocket_audio(websocket: WebSocket):
                         result = json.loads(result_str)
                         text = result.get("text", "")
                         if text.strip():
-                            await transcript_queue.put((text, True))
+                            await queue_transcript(text, True)
                     else:
                         partial_str = await asyncio.to_thread(recognizer.PartialResult)
                         partial = json.loads(partial_str)
                         text = partial.get("partial", "")
                         if text.strip():
-                            await transcript_queue.put((text, False))
+                            await queue_transcript(text, False)
                             
-                    # Tentative de reconnexion en tâche de fond pour Deepgram (uniquement en mode 'auto')
-                    if engine == "auto" and not reconnecting_deepgram:
-                        current_time = asyncio.get_event_loop().time()
-                        if current_time - last_reconnect_attempt > 15:  # Retenter toutes les 15 secondes
-                            last_reconnect_attempt = current_time
-                            reconnecting_deepgram = True
-                            
-                            async def try_reconnect_deepgram():
-                                nonlocal transcription_session, use_vosk, reconnecting_deepgram
-                                logger.info("🔄 Tentative de reconnexion en arrière-plan à Deepgram...")
-                                try:
-                                    new_session = await deepgram_service.create_session(on_transcript_received)
-                                    # Succès ! Fermeture propre de l'ancienne si elle existait encore
-                                    if transcription_session:
-                                        try:
-                                            await transcription_session.close()
-                                        except Exception:
-                                            pass
-                                    transcription_session = new_session
-                                    use_vosk = False
-                                    await websocket.send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
-                                    logger.info("⚡ Connexion Deepgram rétablie en arrière-plan. Retour au moteur principal.")
-                                except Exception as re_err:
-                                    logger.debug(f"Note: Échec reconnexion Deepgram: {re_err}")
-                                finally:
-                                    reconnecting_deepgram = False
-                                    
-                            asyncio.create_task(try_reconnect_deepgram())
+                # Retour vers Deepgram après une bascule Whisper OU Vosk.
+                if engine == "auto" and (use_vosk or use_whisper) and not reconnecting_deepgram:
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_reconnect_attempt > 15:
+                        last_reconnect_attempt = current_time
+                        reconnecting_deepgram = True
+
+                        async def try_reconnect_deepgram():
+                            nonlocal transcription_session, use_vosk, use_whisper, reconnecting_deepgram
+                            logger.info("Tentative de reconnexion en arrière-plan à Deepgram...")
+                            try:
+                                new_session = await deepgram_service.create_session(on_transcript_received)
+                                if transcription_session:
+                                    with suppress(Exception):
+                                        await transcription_session.close()
+                                transcription_session = new_session
+                                use_vosk = False
+                                use_whisper = False
+                                await send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
+                                logger.info("Connexion Deepgram rétablie. Retour au moteur principal.")
+                            except Exception as re_err:
+                                logger.debug(f"Reconnexion Deepgram différée : {re_err}")
+                            finally:
+                                reconnecting_deepgram = False
+
+                        spawn_session_task(try_reconnect_deepgram(), "deepgram-reconnect")
                             
         except WebSocketDisconnect:
             logger.info("🔌 Client WebSocket déconnecté (audio)")
         except Exception as e:
             logger.error(f"❌ Erreur réception audio: {e}")
         finally:
-            if not use_vosk and transcription_session:
-                await transcription_session.close()
+            if transcription_session:
+                with suppress(Exception):
+                    await transcription_session.close()
+            with suppress(asyncio.QueueFull):
+                whisper_window_queue.put_nowait(None)
             # Signal de fermeture de la queue
             await transcript_queue.put(None)
 
     async def send_transcript_task():
         """Prend le texte transcrit, le parse et notifie le technicien + projecteur"""
         buffer_text = ""
-        last_projected_ref = None # Pour éviter de projeter/enregistrer plusieurs fois le même verset d'affilée
-        last_deterministic_at = 0.0
-        # Lecture vivante : mots déjà transmis de l'énoncé en cours (les partiels se répètent)
+        last_projected_ref = None
         last_partial_words = []
+        analysis_generation = 0
+        analysis_task: asyncio.Task | None = None
+        translation_task: asyncio.Task | None = None
+
+        def is_current(generation: int) -> bool:
+            return generation == analysis_generation
+
+        def is_direct_projection_allowed(ref: dict) -> bool:
+            method = ref.get("detection_method")
+            confidence = float(ref.get("confidence") or 0)
+            return (
+                method == "explicit"
+                and confidence >= 0.95
+                and ref.get("verse_start") is not None
+                and not ref.get("requires_review")
+            )
+
+        async def process_detected_reference(
+            raw_ref: dict,
+            analysis_text: str,
+            generation: int,
+            source: str = "local",
+        ) -> None:
+            nonlocal last_projected_ref
+            if not is_current(generation):
+                return
+
+            ref = dict(raw_ref)
+            ref["source"] = source
+            if source != "local":
+                ref["detection_method"] = "semantic_local" if source == "semantic" else "ai_semantic"
+                ref["confidence"] = min(float(ref.get("confidence") or 0.95), 0.95)
+                ref["requires_review"] = True
+                ref["projection_policy"] = "manual_review"
+            else:
+                ref.setdefault("requires_review", False)
+                direct_allowed = is_direct_projection_allowed(ref)
+                ref["requires_review"] = not direct_allowed
+                ref["projection_policy"] = "autopilot_direct" if direct_allowed else "manual_review"
+
+            direct_allowed = is_direct_projection_allowed(ref)
+            ref["auto_projected"] = bool(
+                settings.PROPRESENTER_AUTO_SEND
+                and direct_allowed
+                and not settings.SUNDAY_SAFE_MODE
+                and not settings.SHADOW_MODE
+            )
+            if ref["auto_projected"]:
+                ref["projection_policy"] = "autopilot_projected"
+            elif settings.SHADOW_MODE:
+                ref["projection_policy"] = "shadow_only"
+            elif settings.SUNDAY_SAFE_MODE:
+                ref["projection_policy"] = "safe_manual_review"
+
+            fusion = ref.get("fusion") or {}
+            if ref.get("detection_method") == "explicit":
+                explanation = "Référence biblique prononcée explicitement et vérifiée dans le corpus local."
+            elif source == "semantic":
+                explanation = (
+                    "Suggestion locale issue de l'accord lexical et sémantique. "
+                    f"Recouvrement: {float(fusion.get('overlap') or 0):.2f}."
+                )
+            else:
+                explanation = "Suggestion IA choisie dans une liste fermée de versets réels. Validation humaine requise."
+            ref["explanation"] = explanation
+            ref["decision_generation"] = generation
+
+            ref_key = (
+                f"{ref.get('book_abbr')}_{ref.get('chapter')}_"
+                f"{ref.get('verse_start')}_{ref.get('verse_end') or ''}"
+            )
+            if ref_key == last_projected_ref or not is_current(generation):
+                return
+            last_projected_ref = ref_key
+
+            try:
+                await send_json({
+                    "type": "reference_detected",
+                    "reference": ref,
+                    "text": analysis_text,
+                    "verse_id": None,
+                })
+            except Exception:
+                return
+
+            if not is_current(generation):
+                return
+
+            if db_service and db_service.db:
+                ref_snapshot = dict(ref)
+                persist_later(
+                    "detected-verse",
+                    lambda ref_snapshot=ref_snapshot, analysis_text=analysis_text, source=source:
+                        db_service.add_detected_verse(
+                            reference=ref_snapshot,
+                            session_id=current_session_id,
+                            context=analysis_text,
+                            confidence=int(float(ref_snapshot.get("confidence") or 1.0) * 100),
+                            source=source,
+                        ),
+                )
+
+            if ref["auto_projected"] and is_current(generation):
+                await broadcast_projection(
+                    ref.get("text", ""),
+                    ref["reference"],
+                    translations=ref.get("translations"),
+                )
+                if not is_current(generation):
+                    return
+                sent = False
+                if output_manager and "propresenter" in output_manager.outputs:
+                    sent = await output_manager.outputs["propresenter"].send_scene({
+                        "reference": ref["reference"],
+                        "text": ref.get("text", ""),
+                    })
+                with suppress(Exception):
+                    await send_json({
+                        "type": "propresenter_status",
+                        "sent": sent,
+                        "reference": ref,
+                        "verse_id": None,
+                    })
+
+        async def analyze_and_detect(
+            analysis_text: str,
+            final_state: bool,
+            generation: int,
+        ) -> None:
+            try:
+                decision = await run_detection_cascade(analysis_text, final_state)
+                if not decision or not is_current(generation):
+                    return
+                method = decision.get("detection_method")
+                if method in ("explicit", "chapter_candidate"):
+                    await process_detected_reference(decision, analysis_text, generation)
+                elif method == "ai_semantic":
+                    await process_detected_reference(decision, analysis_text, generation, source="ai")
+                else:
+                    fusion = decision.get("fusion")
+                    if fusion:
+                        logger.info(
+                            f"🔗 Fusion → {decision['reference']} "
+                            f"({fusion['reason']}, recouvrement {fusion['overlap']})"
+                        )
+                    await process_detected_reference(decision, analysis_text, generation, source="semantic")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error(f"Analyse de détection impossible : {exc}")
+
+        async def perform_translation(text_to_translate: str, target_lang: str, generation: int) -> None:
+            try:
+                translated = await ai_service.translate_text(text_to_translate, target_lang)
+                if not translated or not is_current(generation):
+                    return
+                await send_json({"type": "translation", "text": translated, "lang": target_lang})
+                if is_current(generation):
+                    await broadcast_output_event({
+                        "type": "live_translation",
+                        "text": translated,
+                        "lang": target_lang,
+                    })
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error(f"Traduction directe impossible : {exc}")
 
         try:
             while True:
                 item = await transcript_queue.get()
                 if item is None:
+                    transcript_queue.task_done()
                     break
                     
                 transcript, is_final = item
                 
                 # 1. Envoi immédiat et sans blocage du retour visuel de la transcription courante
-                await websocket.send_json({
+                await send_json({
                     "type": "transcript",
                     "text": transcript,
                     "is_final": is_final,
@@ -2056,119 +2372,27 @@ async def websocket_audio(websocket: WebSocket):
                     new_words = " ".join(cur_words[common:])
                     last_partial_words = [] if is_final else cur_words
                     if new_words and reading_tracker.feed(new_words):
-                        asyncio.create_task(broadcast_output_event({
+                        spawn_session_task(broadcast_output_event({
                             "type": "reading_progress",
                             "reference": current_projection_slide.get("reference", ""),
                             "matched": reading_tracker.position,
                             "total": reading_tracker.total
-                        }))
+                        }), "reading-progress")
                 elif is_final:
                     last_partial_words = []
                 
                 # Le texte complet à analyser
                 current_analysis_text = (buffer_text + " " + transcript).strip()
-                
-                # 2. Routine utilitaire pour traiter et notifier la référence détectée
-                def is_direct_projection_allowed(ref):
-                    method = ref.get("detection_method")
-                    confidence = float(ref.get("confidence") or 0)
-                    return (
-                        method == "explicit"
-                        and confidence >= 0.95
-                        and ref.get("verse_start") is not None
-                        and not ref.get("requires_review")
-                    )
 
-                async def process_detected_reference(ref, analysis_text, source="local"):
-                    nonlocal last_projected_ref, last_deterministic_at
-                    ref["source"] = source
-
-                    if source != "local":
-                        ref["detection_method"] = "semantic_local" if source == "semantic" else "ai_semantic"
-                        ref["confidence"] = min(float(ref.get("confidence") or 0.95), 0.95)
-                        ref["requires_review"] = True
-                        ref["projection_policy"] = "manual_review"
-                    else:
-                        ref.setdefault("requires_review", False)
-                        direct_allowed = is_direct_projection_allowed(ref)
-                        ref["requires_review"] = not direct_allowed
-                        ref["projection_policy"] = "autopilot_direct" if direct_allowed else "manual_review"
-                        if direct_allowed:
-                            last_deterministic_at = time.monotonic()
-
-                    direct_allowed = is_direct_projection_allowed(ref)
-                    ref["auto_projected"] = bool(settings.PROPRESENTER_AUTO_SEND and direct_allowed)
-                    if ref["auto_projected"]:
-                        ref["projection_policy"] = "autopilot_projected"
-
-                    ref_key = f"{ref['book_abbr']}_{ref['chapter']}_{ref['verse_start']}_{ref['verse_end'] or ''}"
-                    
-                    if ref_key != last_projected_ref:
-                        last_projected_ref = ref_key
-                        verse_id = None
-
-                        # Notification au client D'ABORD — la persistance SQLite
-                        # (commit disque) ne doit jamais retarder l'affichage régie
-                        try:
-                            await websocket.send_json({
-                                "type": "reference_detected",
-                                "reference": ref,
-                                "text": analysis_text,
-                                "verse_id": verse_id
-                            })
-                        except Exception:
-                            pass
-
-                        if db_service and db_service.db:
-                            asyncio.create_task(db_service.add_detected_verse(
-                                reference=ref,
-                                session_id=current_session_id,
-                                context=analysis_text,
-                                confidence=int(float(ref.get("confidence") or 1.0) * 100),
-                                source=source
-                            ))
-                        
-                        # Projection directe uniquement pour les references explicites et fiables.
-                        # Les deductions IA ou correspondances floues restent en validation manuelle.
-                        if ref["auto_projected"]:
-                            await broadcast_projection(ref.get("text", ""), ref["reference"], translations=ref.get("translations"))
-                            sent = False
-                            if output_manager and "propresenter" in output_manager.outputs:
-                                sent = await output_manager.outputs["propresenter"].send_scene({
-                                    "reference": ref["reference"],
-                                    "text": ref.get("text", "")
-                                })
-                            try:
-                                await websocket.send_json({
-                                    "type": "propresenter_status",
-                                    "sent": sent,
-                                    "reference": ref,
-                                    "verse_id": verse_id
-                                })
-                            except Exception:
-                                pass
-
-                async def analyze_and_detect(analysis_text, final_state, current_transcript):
-                    # Cascade partagée (explicite instantané + fusion hybride des
-                    # paraphrases en fin d'énoncé). Voir run_detection_cascade.
-                    decision = await run_detection_cascade(analysis_text, final_state)
-                    if not decision:
-                        return
-                    method = decision.get("detection_method")
-                    if method in ("explicit", "chapter_candidate"):
-                        await process_detected_reference(decision, analysis_text)
-                    elif method == "ai_semantic":
-                        # Dernier recours IA : toujours en validation manuelle.
-                        await process_detected_reference(decision, analysis_text, source="ai")
-                    else:
-                        fusion = decision.get("fusion")
-                        if fusion:
-                            logger.info(f"🔗 Fusion → {decision['reference']} "
-                                        f"({fusion['reason']}, recouvrement {fusion['overlap']})")
-                        await process_detected_reference(decision, analysis_text, source="semantic")
-
-                # Lance l'analyse en arrière-plan sans bloquer le flux de transcription
-                asyncio.create_task(analyze_and_detect(current_analysis_text, is_final, transcript))
+                # Une transcription plus récente invalide immédiatement toute
+                # décision précédente, y compris une réponse IA encore en vol.
+                analysis_generation += 1
+                if analysis_task and not analysis_task.done():
+                    analysis_task.cancel()
+                analysis_task = spawn_session_task(
+                    analyze_and_detect(current_analysis_text, is_final, analysis_generation),
+                    "detection",
+                )
                 
                 # 3. Traitement des fins de phrases
                 if is_final:
@@ -2185,41 +2409,65 @@ async def websocket_audio(websocket: WebSocket):
                         
                     # Enregistrement cumulé du transcript en BDD (non-bloquant)
                     if db_service and db_service.db and current_session_id:
-                        asyncio.create_task(db_service.append_to_session_transcript(current_session_id, transcript))
+                        persist_later(
+                            "transcript",
+                            lambda transcript=transcript: db_service.append_to_session_transcript(
+                                current_session_id, transcript
+                            ),
+                        )
                         
                     # Traduction en direct (non-bloquante)
                     if translation_lang and ai_service and ai_service.enabled:
-                        async def perform_translation(text_to_translate, target_lang):
-                            translated = await ai_service.translate_text(text_to_translate, target_lang)
-                            if translated:
-                                try:
-                                    await websocket.send_json({
-                                        "type": "translation",
-                                        "text": translated,
-                                        "lang": target_lang
-                                    })
-                                except Exception as err:
-                                    logger.error(f"❌ Impossible d'envoyer la traduction: {err}")
-                                # Sous-titre live sur les écrans de projection/assemblée
-                                await broadcast_output_event({
-                                    "type": "live_translation",
-                                    "text": translated,
-                                    "lang": target_lang
-                                })
-                        
-                        asyncio.create_task(perform_translation(transcript, translation_lang))
+                        if translation_task and not translation_task.done():
+                            translation_task.cancel()
+                        translation_task = spawn_session_task(
+                            perform_translation(transcript, translation_lang, analysis_generation),
+                            "translation",
+                        )
+                transcript_queue.task_done()
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"❌ Erreur émission transcription: {e}")
+        finally:
+            for task in (analysis_task, translation_task):
+                if task and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *[task for task in (analysis_task, translation_task) if task],
+                return_exceptions=True,
+            )
 
     try:
-        receive_job = asyncio.create_task(receive_audio_task())
-        send_job = asyncio.create_task(send_transcript_task())
-        
-        await asyncio.gather(receive_job, send_job)
+        persistence_job = asyncio.create_task(persistence_worker(), name="versepro:persistence")
+        spawn_session_task(whisper_transcription_worker(), "whisper-worker")
+        receive_job = asyncio.create_task(receive_audio_task(), name="versepro:audio-receive")
+        send_job = asyncio.create_task(send_transcript_task(), name="versepro:transcript-send")
+
+        done, pending = await asyncio.wait(
+            {receive_job, send_job},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for task in done:
+            if task.exception():
+                raise task.exception()
+
+        await persistence_queue.put(None)
+        try:
+            await asyncio.wait_for(persistence_job, timeout=2.0)
+        except asyncio.TimeoutError:
+            persistence_job.cancel()
+            await asyncio.gather(persistence_job, return_exceptions=True)
             
     except Exception as e:
         logger.error(f"❌ Erreur WebSocket principal: {e}")
     finally:
+        for task in list(session_tasks):
+            task.cancel()
+        await asyncio.gather(*session_tasks, return_exceptions=True)
         logger.info("🔒 Session audio fermée")
 
 

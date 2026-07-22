@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { BACKEND_BASE, BACKEND_WS_BASE } from './env.js'
+import { MAX_RECONNECT_ATTEMPTS, reconnectDelay, shouldReconnect } from './runtime/reconnect.js'
 
 // Variables non-réactives de module privées pour la capture audio globale
 let audioContext = null
 let mediaStream = null
 let processorNode = null
+let connectPromise = null
 
 const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
   if (inputSampleRate === outputSampleRate) return buffer
@@ -31,22 +33,27 @@ const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
 export const useStore = create((set, get) => ({
   // État de connexion
   connected: false,
+  audioConnected: false,
   connectionStatus: 'starting', // starting | connected | reconnecting | disconnected
   websocket: null,
   
   // État de détection et ASR
   isListening: false,
   volume: 0,
+  waveform: Array(64).fill(0),
   audioDevices: [],
   selectedAudioDeviceId: (() => {
     try { return localStorage.getItem('versepro_audio_device_id') || '' } catch { return '' }
+  })(),
+  audioFilterMode: (() => {
+    try { return localStorage.getItem('versepro_audio_filter_mode') || 'off' } catch { return 'off' }
   })(),
   micPermissionState: 'unknown',
   micError: null,
   currentTranscript: '',
   detectedReferences: [],
-  asrMode: 'deepgram', // deepgram ou vosk
-  selectedEngine: 'auto', // auto, deepgram ou vosk
+  asrMode: 'deepgram',
+  selectedEngine: 'auto',
   aiActive: false, // Disponibilité de l'Agent IA sémantique
   
   // Traduction simultanée
@@ -164,6 +171,10 @@ export const useStore = create((set, get) => ({
   voskStatus: { installed: false, downloading: false, model_name: '', model_type: '' },
   asrStatus: null,
   semanticStatus: null,
+  preflight: null,
+  preflightLoading: false,
+  sundaySafeMode: true,
+  shadowMode: false,
   
   // Actions
   setConnected: (connected) => set({
@@ -200,6 +211,9 @@ export const useStore = create((set, get) => ({
       confidence: verse.confidence,
       source: verse.source || (['ai_semantic', 'semantic_local'].includes(verse.detection_method) ? 'semantic' : 'local'),
       detectionMethod: verse.detection_method,
+      explanation: verse.explanation || '',
+      candidateScore: verse.candidate_score ?? null,
+      rawModelConfidence: verse.raw_model_confidence ?? null,
       projectionPolicy: verse.projection_policy || (verse.requires_review ? 'manual_review' : 'manual_queue'),
       requiresReview: Boolean(verse.requires_review),
       status: wasAutoProjected ? 'projected' : 'pending' // 'pending' | 'projected' | 'rejected'
@@ -274,8 +288,8 @@ export const useStore = create((set, get) => ({
   
   setSelectedEngine: (selectedEngine) => {
     set({ selectedEngine, _switchingEngine: true })
-    const { websocket } = get()
-    if (websocket) {
+    const { websocket, isListening } = get()
+    if (websocket && isListening) {
       get().disconnectWebSocket()
       // Un court délai permet de s'assurer de la fermeture propre avant reconnexion
       setTimeout(() => {
@@ -290,8 +304,8 @@ export const useStore = create((set, get) => ({
   
   setTranslationLang: (lang) => {
     set({ translationLang: lang, currentTranslation: '' })
-    const { websocket } = get()
-    if (websocket) {
+    const { websocket, isListening } = get()
+    if (websocket && isListening) {
       get().disconnectWebSocket()
       setTimeout(() => {
         get().connectWebSocket()
@@ -305,19 +319,51 @@ export const useStore = create((set, get) => ({
   _connectionAttempts: 0,
   _everConnected: false,
 
-  connectWebSocket: () => {
-    // Annule une éventuelle reconnexion programmée (évite les connexions en double)
-    const pendingTimer = get()._reconnectTimer
-    if (pendingTimer) {
-      clearTimeout(pendingTimer)
+  checkBackendHealth: async () => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 2500)
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/health`, { signal: controller.signal })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      set({
+        connected: true,
+        backendUnreachable: false,
+        connectionStatus: 'connected'
+      })
+      return true
+    } catch {
+      set({
+        connected: false,
+        backendUnreachable: true,
+        connectionStatus: get().isListening ? 'reconnecting' : 'disconnected'
+      })
+      return false
+    } finally {
+      clearTimeout(timeout)
     }
+  },
+
+  retryConnection: async () => {
+    set({ _connectionAttempts: 0, _manualDisconnect: false })
+    const healthy = await get().checkBackendHealth()
+    if (healthy && get().isListening) return get().connectWebSocket()
+    return healthy
+  },
+
+  connectWebSocket: () => {
+    const existing = get().websocket
+    if (existing?.readyState === WebSocket.OPEN) return Promise.resolve(existing)
+    if (existing?.readyState === WebSocket.CONNECTING && connectPromise) return connectPromise
+
+    const pendingTimer = get()._reconnectTimer
+    if (pendingTimer) clearTimeout(pendingTimer)
     const { _everConnected, _connectionAttempts } = get()
     set({
       _manualDisconnect: false,
       _reconnectTimer: null,
       connectionStatus: _everConnected
         ? 'reconnecting'
-        : (_connectionAttempts >= 8 ? 'disconnected' : 'starting')
+        : (_connectionAttempts >= MAX_RECONNECT_ATTEMPTS ? 'disconnected' : 'starting')
     })
 
     const { selectedEngine, translationLang } = get()
@@ -327,26 +373,26 @@ export const useStore = create((set, get) => ({
     if (translationLang) {
       wsUrl += `&translation_lang=${translationLang}`
     }
-    const ws = new WebSocket(wsUrl)
-    ws.binaryType = 'arraybuffer'
-    
-    ws.onopen = () => {
-      console.log('WebSocket connecté')
-      set({
-        connected: true,
-        connectionStatus: 'connected',
-        backendUnreachable: false,
-        _connectionAttempts: 0,
-        _everConnected: true
-      })
-      // Récupère les traductions, réglages et l'état de projection courant
-      get().fetchBibles()
-      get().fetchSettings()
-      get().fetchProjectionState()
-      get().hydrateQueueFromSession()
-    }
-    
-    ws.onmessage = (event) => {
+    connectPromise = new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl)
+      ws.binaryType = 'arraybuffer'
+      let opened = false
+
+      ws.onopen = () => {
+        opened = true
+        set({
+          websocket: ws,
+          connected: true,
+          audioConnected: true,
+          connectionStatus: 'connected',
+          backendUnreachable: false,
+          _connectionAttempts: 0,
+          _everConnected: true
+        })
+        resolve(ws)
+      }
+
+      ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
       
       if (data.type === 'ai_status') {
@@ -408,34 +454,44 @@ export const useStore = create((set, get) => ({
           }
         })
       }
-    }
-    
-    ws.onclose = () => {
-      console.log('WebSocket déconnecté')
-      const attempts = get()._connectionAttempts + 1
-      const everConnected = get()._everConnected
-      set({
-        connected: false,
-        connectionStatus: everConnected
-          ? 'reconnecting'
-          : (attempts >= 8 ? 'disconnected' : 'starting'),
-        aiActive: false,
-        currentTranslation: '',
-        _connectionAttempts: attempts
-      })
-      // Reconnexion automatique après une coupure involontaire (réseau, redémarrage backend)
-      if (!get()._manualDisconnect) {
-        console.log('Reconnexion automatique dans 2s...')
-        const timer = setTimeout(() => get().connectWebSocket(), 2000)
-        set({ _reconnectTimer: timer })
       }
-    }
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket erreur:', error)
-    }
-    
-    set({ websocket: ws })
+
+      ws.onclose = () => {
+        const attempts = get()._connectionAttempts + 1
+        const reconnect = shouldReconnect({
+          manual: get()._manualDisconnect,
+          listening: get().isListening,
+          attempt: attempts
+        })
+        set({
+          websocket: null,
+          audioConnected: false,
+          connectionStatus: reconnect ? 'reconnecting' : (get().connected ? 'connected' : 'disconnected'),
+          currentTranslation: '',
+          _connectionAttempts: attempts
+        })
+        if (!opened) reject(new Error('Connexion audio impossible'))
+        if (reconnect) {
+          const delay = reconnectDelay(attempts)
+          const timer = setTimeout(() => {
+            get().connectWebSocket().catch(() => {})
+          }, delay)
+          set({ _reconnectTimer: timer })
+        } else if (attempts >= MAX_RECONNECT_ATTEMPTS && get().isListening) {
+          set({ backendUnreachable: true, connectionStatus: 'disconnected' })
+          get().addToast({ message: 'Connexion audio interrompue. Relancez après le contrôle serveur.', kind: 'error' })
+        }
+        get().checkBackendHealth()
+      }
+
+      ws.onerror = () => {
+        if (!opened) set({ backendUnreachable: true })
+      }
+
+      set({ websocket: ws })
+    })
+    connectPromise.finally(() => { connectPromise = null }).catch(() => {})
+    return connectPromise
   },
   
   disconnectWebSocket: () => {
@@ -443,13 +499,12 @@ export const useStore = create((set, get) => ({
     if (_reconnectTimer) {
       clearTimeout(_reconnectTimer)
     }
-    set({ _manualDisconnect: true, _reconnectTimer: null })
+    set({ _manualDisconnect: true, _reconnectTimer: null, audioConnected: false })
     if (websocket) {
       websocket.close()
       set({
         websocket: null,
-        connected: false,
-        connectionStatus: get()._everConnected ? 'reconnecting' : 'starting'
+        connectionStatus: get().connected ? 'connected' : 'disconnected'
       })
     }
   },
@@ -489,6 +544,8 @@ export const useStore = create((set, get) => ({
         aiActive: Boolean(data.ai_available),
         aiFilteringMode: data.ai_filtering_mode || 'strict',
         selectedEngine: data.asr_default_engine || get().selectedEngine,
+        sundaySafeMode: data.sunday_safe_mode !== false,
+        shadowMode: Boolean(data.shadow_mode),
         outputTheme: data.projection_theme || 'presentation',
         projectionStyle: data.projection_style || 'default',
         showBibleVersion: data.show_bible_version !== false,
@@ -522,6 +579,8 @@ export const useStore = create((set, get) => ({
         aiActive: Boolean(data.ai_available),
         aiFilteringMode: data.ai_filtering_mode || 'strict',
         selectedEngine: data.asr_default_engine || get().selectedEngine,
+        sundaySafeMode: data.sunday_safe_mode !== false,
+        shadowMode: Boolean(data.shadow_mode),
         outputTheme: data.projection_theme || 'presentation',
         projectionStyle: data.projection_style || 'default',
         showBibleVersion: data.show_bible_version !== false,
@@ -754,6 +813,46 @@ export const useStore = create((set, get) => ({
     get().fetchIntelligenceStatus()
     return data
   },
+
+  prepareWhisper: async (model = 'auto') => {
+    const response = await fetch(`${BACKEND_BASE}/api/v1/asr/prepare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model })
+    })
+    const data = await response.json()
+    get().fetchIntelligenceStatus()
+    return data
+  },
+
+  runPreflight: async () => {
+    set({ preflightLoading: true })
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/preflight`)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      set({ preflight: data, preflightCheckedAt: Date.now(), backendUnreachable: false })
+      return data
+    } catch {
+      const data = {
+        ready: false,
+        checks: [{ id: 'server', label: 'Serveur VersePro', ok: false, critical: true, detail: 'Injoignable' }]
+      }
+      set({ preflight: data, preflightCheckedAt: Date.now(), backendUnreachable: true })
+      return data
+    } finally {
+      set({ preflightLoading: false })
+    }
+  },
+
+  activatePanicMode: async () => {
+    get().stopRecording()
+    try {
+      await fetch(`${BACKEND_BASE}/api/v1/safety/panic`, { method: 'POST' })
+    } catch { /* l'arrêt micro local reste effectif même sans serveur */ }
+    set({ autoSend: false, autopilotMode: false, sundaySafeMode: true, shadowMode: false })
+    get().addToast({ message: 'Mode sûr activé. Automatisations coupées.', kind: 'success' })
+  },
   
   setOutputTheme: async (theme) => {
     try {
@@ -796,6 +895,11 @@ export const useStore = create((set, get) => ({
     try { localStorage.setItem('versepro_audio_device_id', id) } catch {}
     set({ selectedAudioDeviceId: id })
   },
+  setAudioFilterMode: (mode) => {
+    const safeMode = ['off', 'speech', 'church'].includes(mode) ? mode : 'off'
+    try { localStorage.setItem('versepro_audio_filter_mode', safeMode) } catch {}
+    set({ audioFilterMode: safeMode })
+  },
   setMicPermissionState: (state) => set({ micPermissionState: state }),
   setMicError: (error) => set({ micError: error }),
   
@@ -826,6 +930,27 @@ export const useStore = create((set, get) => ({
       throw new Error('Ce navigateur ne donne pas accès au micro.')
     }
     set({ micError: null })
+    const { preflight, preflightCheckedAt = 0 } = get()
+    const freshPreflight = Date.now() - preflightCheckedAt < 15000
+      ? preflight
+      : await get().runPreflight()
+    if (!freshPreflight?.ready) {
+      // Fail-open : un contrôle incomplet avertit mais ne bloque jamais le
+      // direct. Le seul arrêt réel reste un serveur audio injoignable, traité
+      // juste en dessous par l'échec de connexion WebSocket.
+      get().addToast({
+        message: 'Contrôle avant direct incomplet : écoute démarrée, vérifiez la régie.',
+        kind: 'error',
+        duration: 6000
+      })
+    }
+    try {
+      await get().connectWebSocket()
+    } catch {
+      set({ micError: 'Le moteur VersePro ne répond pas.', backendUnreachable: true })
+      get().addToast({ message: 'Impossible de démarrer: serveur audio indisponible.', kind: 'error' })
+      throw new Error('Serveur audio indisponible')
+    }
     const { selectedAudioDeviceId } = get()
     const audioConstraints = selectedAudioDeviceId
       ? {
@@ -853,12 +978,17 @@ export const useStore = create((set, get) => ({
 
       const sourceNode = audioCtx.createMediaStreamSource(streamObj)
 
-      const highpassNode = audioCtx.createBiquadFilter()
-      highpassNode.type = 'highpass'
-      highpassNode.frequency.value = 250
-      const lowpassNode = audioCtx.createBiquadFilter()
-      lowpassNode.type = 'lowpass'
-      lowpassNode.frequency.value = 3000
+      const { audioFilterMode } = get()
+      let highpassNode = null
+      let lowpassNode = null
+      if (audioFilterMode !== 'off') {
+        highpassNode = audioCtx.createBiquadFilter()
+        highpassNode.type = 'highpass'
+        highpassNode.frequency.value = audioFilterMode === 'church' ? 120 : 80
+        lowpassNode = audioCtx.createBiquadFilter()
+        lowpassNode.type = 'lowpass'
+        lowpassNode.frequency.value = audioFilterMode === 'church' ? 7000 : 8000
+      }
 
       const inputSampleRate = audioCtx.sampleRate
 
@@ -867,7 +997,17 @@ export const useStore = create((set, get) => ({
         let sum = 0
         for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i]
         const rms = Math.sqrt(sum / inputData.length)
-        set({ volume: Math.min(100, Math.round(rms * 600)) })
+        const points = 64
+        const waveform = Array.from({ length: points }, (_, point) => {
+          const start = Math.floor((point * inputData.length) / points)
+          const end = Math.max(start + 1, Math.floor(((point + 1) * inputData.length) / points))
+          let peak = 0
+          for (let index = start; index < end && index < inputData.length; index++) {
+            if (Math.abs(inputData[index]) > Math.abs(peak)) peak = inputData[index]
+          }
+          return peak
+        })
+        set({ volume: Math.min(100, Math.round(rms * 600)), waveform })
 
         const downsampled = downsampleBuffer(inputData, inputSampleRate, 16000)
         const pcmBuffer = new Int16Array(downsampled.length)
@@ -913,20 +1053,25 @@ export const useStore = create((set, get) => ({
       }
       processorNode = captureNode
 
-      sourceNode.connect(highpassNode)
-      highpassNode.connect(lowpassNode)
-      lowpassNode.connect(captureNode)
+      if (highpassNode && lowpassNode) {
+        sourceNode.connect(highpassNode)
+        highpassNode.connect(lowpassNode)
+        lowpassNode.connect(captureNode)
+      } else {
+        sourceNode.connect(captureNode)
+      }
       captureNode.connect(audioCtx.destination)
       set({ isListening: true })
     } catch (err) {
       console.error("Erreur d'accès micro:", err)
       set({ micError: "Impossible d'accéder au microphone.", isListening: false })
+      get().disconnectWebSocket()
       throw err
     }
   },
 
   stopRecording: () => {
-    set({ volume: 0, isListening: false })
+    set({ volume: 0, waveform: Array(64).fill(0), isListening: false })
     if (processorNode) {
       processorNode.disconnect()
       processorNode = null
@@ -939,6 +1084,7 @@ export const useStore = create((set, get) => ({
       mediaStream.getTracks().forEach((track) => track.stop())
       mediaStream = null
     }
+    get().disconnectWebSocket()
   },
 
   toggleListening: async () => {

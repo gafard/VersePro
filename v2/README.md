@@ -1,231 +1,117 @@
 # VersePro V2
 
-VersePro V2 est une console de régie biblique pour les cultes. Elle écoute la prédication, transcrit le son en temps réel, détecte les références bibliques explicites ou suggérées, puis aide le régisseur à projeter le bon passage dans ProPresenter ou dans l'écran de projection web intégré.
+VersePro est une régie biblique de bureau. Elle transcrit la prédication, détecte les références explicites et les citations proches du texte biblique, puis les place dans une file contrôlée par l'opérateur. La V2 peut piloter ProPresenter et fournir ses propres sorties web pour écran, OBS et vMix.
 
-La V2 actuelle a été durcie pour un usage réel par des bénévoles : démarrage simplifié, interface claire façon verre bleu, réglages dans l'application, file de validation humaine, et agent IA strictement encadré.
+## Garanties de direct
 
-## Ce que la V2 fait maintenant
+- Une référence explicite vérifiée est le seul signal éligible à une projection automatique.
+- Le mode dimanche sûr, activé par défaut, bloque même cette automatisation.
+- Le mode ombre mesure les détections sans piloter aucune sortie.
+- Les recherches floues, embeddings et réponses LLM vont toujours en validation manuelle.
+- Le LLM choisit dans une liste fermée de versets locaux; toute autre référence est rejetée.
+- Chaque nouveau transcript invalide et annule l'analyse précédente. Un résultat ancien ne peut plus projeter.
+- Les files transcript et persistance sont bornées pour résister à un débit prolongé.
+- Le bouton d'arrêt d'urgence coupe le micro et toutes les automatisations.
 
-- Transcription adaptative avec Deepgram cloud, Whisper local ou Vosk local.
-- Onde audio réelle calculée depuis le signal micro, pas une animation factice.
-- Prompteur moderne avec fondu haut/bas pour suivre la parole reconnue.
-- Parser biblique local très rapide pour les références explicites comme `Jean 3:16`.
-- Retrieval sémantique ONNX local sur le corpus biblique, puis arbitrage LLM limité au top-k.
-- Agent IA anti-hallucination : toute référence hors des candidats locaux est rejetée.
-- File de projection manuelle pour vérifier avant l'écran.
-- Projection directe uniquement pour les références locales explicites et très fiables.
-- Page Paramètres pour gérer Bible, ProPresenter, Deepgram, IA et seuil de confiance.
-- Écran de projection autonome sur `/projection`.
-- Source navigateur OBS native sur `/obs`, indépendante de ProPresenter.
-- Historique SQLite des sessions, références, sources et scores.
+## Transcription
 
-## Philosophie : Vers une Régie Sereine
-
-Un outil destiné aux équipes de régie bénévoles ne doit pas seulement être performant : il doit être **rassurant et réduire la charge mentale** lors des moments de direct stressants. VersePro V2 traduit chaque choix d'ingénierie en bénéfices psychologiques et cognitifs pour l'opérateur :
-
-- **Démarrage Calme** : Configuration simplifiée depuis l'application, aucun terminal requis, et gestion des ports non conflictuelle pour éliminer la panique du lancement à 5 minutes du culte.
-- **Assurance Anti-Panique (Jeton d'Annulation Active)** : Le `CancellationToken` n'est pas qu'un outil réseau ; il agit comme un garde-fou. Dès que le régisseur ou le parser local valide une référence explicite, toutes les requêtes d'analyse IA asynchrones en cours sont instantanément tuées. Cela garantit qu'aucun verset erroné ne sautera à l'écran par surprise avec quelques secondes de retard.
-- **Télémétrie Intuitive (L'Onde Audio Active)** : L'onde de forme multicolore n'est pas de la décoration. Elle fournit un retour d'information périphérique instantané : d'un simple coup d'œil du coin de l'œil, l'opérateur a la certitude physique que le micro capte le son, sans avoir besoin de lire de la télémétrie complexe.
-- **Tri Cognitif Simplifié (Bordures Vertes et Orange)** : Les bordures lumineuses font le tri à la place de l'humain. Une bordure **verte** signale une certitude locale absolue (explicite), tandis qu'une bordure **orange** indique une suggestion sémantique de l'IA demandant une relecture. L'esprit de l'opérateur se concentre uniquement là où c'est nécessaire.
-- **Tamis Sémantique Réglable** : Permet de choisir entre un mode strict pour ménager la CPU ou un mode ouvert pour capter les récits et métaphores implicites (ex: "Il a marché sur la mer").
-- **Copilote Prudent** : L'IA ne prend jamais le contrôle de la projection en direct. Elle se contente de déposer des propositions triées par pertinence dans la file d'attente.
-
-## Démarrage bénévole
-
-Depuis le dossier `v2` :
-
-- macOS : double-cliquer sur `Lancer VersePro.command`.
-- macOS/Linux terminal : `./start.sh`.
-- Windows : double-cliquer sur `start.bat`.
-
-Au premier lancement, le script :
-
-- crée `backend/venv` si nécessaire ;
-- installe les dépendances Python ;
-- installe `frontend/node_modules` si nécessaire ;
-- démarre le backend FastAPI ;
-- démarre l'interface React ;
-- ouvre le navigateur.
-
-Adresses par défaut :
-
-- Interface régie : [http://127.0.0.1:3001](http://127.0.0.1:3001)
-- Backend santé : [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health)
-- Écran projection : [http://127.0.0.1:3001/projection](http://127.0.0.1:3001/projection)
-- Source OBS : [http://127.0.0.1:3001/obs](http://127.0.0.1:3001/obs)
-
-Si le port frontend `3001` est déjà occupé, le lanceur essaie automatiquement `3002`, puis les ports suivants jusqu'à `3010`.
-
-## 🚨 Dépannage d'urgence en 2 minutes
-
-Pas de panique ! Si l'application refuse de se lancer ou affiche une erreur, voici comment la débloquer instantanément :
-
-### 1. "Le port de communication 8001 est occupé"
-* **Pourquoi ?** VersePro est déjà en cours d'exécution en arrière-plan, ou une autre application utilise ce canal.
-* **Solution** : Fermez toutes les fenêtres de terminal ouvertes et relancez le script. Si vous êtes sur Mac, vous pouvez forcer la libération des ports avec cette commande dans un terminal : `kill -9 $(lsof -t -i:8001 -i:3001)`.
-
-### 2. Permissions macOS ("Impossible d'ouvrir le fichier car il provient d'un développeur non identifié")
-* **Pourquoi ?** La sécurité de macOS bloque le double-clic sur les scripts `.command` ou `.sh`.
-* **Solution** : 
-  1. Ouvrez l'application **Terminal** intégrée à votre Mac.
-  2. Saisissez : `chmod +x ` (avec un espace après le x).
-  3. Glissez-déposez le fichier `Lancer VersePro.command` dans la fenêtre du terminal, puis appuyez sur **Entrée**.
-  4. Vous pouvez maintenant double-cliquer dessus pour démarrer !
-
-### 3. Blocage de l'installation ("npm install" ou "pip install" bloqué)
-* **Pourquoi ?** Votre connexion réseau est momentanément coupée, ou un antivirus trop zélé bloque l'écriture dans le dossier virtuel.
-* **Solution** : Désactivez temporairement votre antivirus le temps du premier démarrage (qui télécharge les composants essentiels), ou vérifiez votre connexion Internet. Le détail de l'erreur est consultable dans `v2/logs/install.log`.
-
-## Paramètres intégrés
-
-La page Paramètres permet de modifier sans terminal :
-
-- version biblique par défaut ;
-- hôte et port ProPresenter ;
-- moteur ASR par défaut : hybride, local adaptatif, Deepgram, Whisper ou Vosk ;
-- modèle Whisper choisi automatiquement selon le matériel, ou forcé manuellement ;
-- installation des modèles locaux et état de préparation ;
-- modèle et langue Deepgram ;
-- clé Deepgram ;
-- clés OpenRouter ou Gemini ;
-- activation du copilote IA ;
-- embeddings bibliques ONNX et seuil sémantique local ;
-- tamis LLM réglable (Mode Strict ou Mode Ouvert) ;
-- seuil de confiance minimal de l'IA ;
-- mode projection directe ou validation.
-
-Les clés déjà configurées apparaissent avec un indice masqué, par exemple `sk-o...abcd`. Elles ne sont jamais exposées en clair par l'API `/settings`.
-
-## Sortie OBS native
-
-VersePro ne dépend pas uniquement de ProPresenter. Pour OBS Studio, ajoutez une **Source navigateur** et utilisez :
-
-```text
-http://127.0.0.1:8001/obs?theme=lower-third&bg=transparent
-```
-
-Variantes utiles :
-
-- `theme=lower-third` : bandeau bas d'écran, recommandé pour le streaming.
-- `theme=full` : verset plein écran.
-- `theme=minimal` : texte très léger, sans panneau.
-- `bg=transparent` : incrustation native OBS.
-- `bg=green` ou `bg=blue` : chroma key.
-- `scale=1.2` : augmente la taille du texte.
-- `show_ref=0` : masque la référence.
-
-La source OBS écoute `/ws/projection`, le même flux temps réel que l'écran autonome. Toute validation dans la régie apparaît donc dans OBS sans passer par l'API TCP ProPresenter.
-
-## Règles de projection
-
-VersePro sépare strictement détection et projection :
-
-| Source | Condition | Résultat |
+| Moteur | Usage | Latence typique |
 | --- | --- | --- |
-| Parser local explicite | référence valide, confiance >= 95%, autopilote activé | projection directe autorisée |
-| Parser local flou ou incomplet | référence valide mais prudence requise | file manuelle |
-| Embeddings locaux ONNX | score >= seuil, candidat non ambigu | file manuelle seulement |
-| Agent IA | choisit un candidat local et score >= seuil | file manuelle seulement |
-| Agent IA | référence absente du top-k local | rejet immédiat |
-| Agent IA | score < seuil | rejet silencieux |
-| Réponse IA ancienne | une référence locale plus récente existe | ignorée |
+| Deepgram | Cloud rapide, recommandé avec Internet stable | sous-seconde selon réseau |
+| Whisper local | Accents, multilingue, débit rapide, bruit | fenêtres de 2,4 s par défaut |
+| Vosk local small | Secours léger et références explicites | flux continu, faible CPU |
 
-Cela évite le scénario dangereux où une paraphrase mal comprise serait projetée pendant le culte.
+`Whisper` est un vrai chemin `faster-whisper`, plus un alias de Vosk. Le modèle est choisi selon la mémoire de la machine (`tiny`, `base` ou `small`) et n'est téléchargé qu'après une action explicite dans Paramètres. Vosk small est également préparé explicitement. En mode `auto`, VersePro tente Deepgram, puis un modèle local déjà prêt.
 
-## Architecture rapide
+Le navigateur envoie du PCM mono 16 kHz. Le filtre est désactivé par défaut; deux profils conservateurs sont proposés dans Paramètres. L'onde de la régie est dessinée depuis 64 crêtes du buffer PCM réel.
 
-```mermaid
-flowchart LR
-  Mic["Micro navigateur"] --> Audio["Web Audio: filtre vocal + onde réelle"]
-  Audio --> WS["WebSocket audio PCM"]
-  WS --> ASR["Deepgram / Whisper / Vosk adaptatif"]
-  ASR --> Parser["Parser biblique local"]
-  Parser -->|référence explicite| Policy["Politique de projection"]
-  Parser -->|aucune référence| ONNX["Embeddings ONNX: top-k biblique"]
-  ONNX -->|candidat net| Queue["File de validation"]
-  ONNX -->|ambigu| AI["LLM: arbitrage liste fermée"]
-  AI --> Queue
-  Policy -->|direct autorisé| Projector["ProPresenter / projection web / OBS"]
-  Policy -->|prudence| Queue
+## Détection
+
+1. Le parser local traite les références explicites en moins d'une milliseconde.
+2. En fin de phrase, le moteur lexical/flou et l'encodeur e5 ONNX recherchent dans le corpus réel.
+3. La fusion canonise les références, vérifie l'accord des moteurs et le recouvrement des mots.
+4. Si la chaîne locale reste muette, l'IA peut départager un top-k local. Sa confiance est recalibrée par le score du candidat et ne vient jamais seule du modèle.
+
+Le benchmark de production utilise exactement cette cascade:
+
+```bash
+cd v2/backend
+venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
 ```
 
-Voir [EXPLICATION_ARCHITECTURE.md](./EXPLICATION_ARCHITECTURE.md) pour le détail complet.
+Corpus de contrôle actuel: 30 cas, 100 % exacts, 0 faux positif, p95 mesuré à 99 ms sur le poste de développement avec ONNX actif. Ce corpus est un test de non-régression textuel, pas une preuve de performance sur toutes les acoustiques d'église. Un corpus audio réel plus large reste nécessaire avant toute revendication commerciale.
+
+## Sorties
+
+- Écran autonome: `http://127.0.0.1:8001/projection`
+- Source navigateur OBS: `http://127.0.0.1:8001/obs?theme=lower-third&bg=transparent`
+- Moniteur scène: `http://127.0.0.1:8001/stage`
+- ProPresenter: pilote backend dédié
+- vMix: API HTTP si activée
+
+La source OBS écoute le même flux de projection que l'écran autonome et ne dépend pas de ProPresenter.
+
+## Paramètres et secrets
+
+La page Paramètres contient l'entrée micro, le prétraitement audio, les moteurs ASR, les modèles locaux, les versions bibliques, le rendu, les sorties et les fournisseurs IA. Ces éléments n'encombrent pas la régie live.
+
+Les clés Deepgram, OpenRouter et Gemini sont stockées dans le gestionnaire de secrets de l'OS via `keyring` (Trousseau macOS). Les anciennes clés SQLite sont migrées puis supprimées. Sans gestionnaire sécurisé, une clé saisie reste seulement en mémoire pour la session. L'API ne renvoie que des indicateurs masqués. Gemini reçoit sa clé dans l'en-tête `x-goog-api-key`, jamais dans l'URL.
+
+## Application desktop
+
+Le paquet Tauri embarque le frontend et le backend PyInstaller. Au lancement:
+
+1. l'animation de logo reste toujours muette;
+2. le backend démarre sur `127.0.0.1:17871`;
+3. un watchdog le relance avec backoff s'il tombe;
+4. les journaux desktop vont dans `backend-desktop.log` du dossier de données utilisateur;
+5. une CSP restrictive limite le WebView au backend local et aux ressources de l'application.
+
+La signature Apple/Windows et la publication des mises à jour exigent les certificats décrits dans [`../SIGNING.md`](../SIGNING.md). Aucun logiciel ne peut produire une signature de confiance sans ces secrets externes.
 
 ## Développement
 
-Backend :
-
 ```bash
+# backend
 cd v2/backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8001
-```
 
-Frontend :
-
-```bash
+# frontend, dans un autre terminal
 cd v2/frontend
 npm install
 VITE_BACKEND_PORT=8001 npm run dev -- --host 127.0.0.1 --port 3001
 ```
 
-Tests :
+Lanceurs de développement: `Lancer VersePro.command`, `start.sh` et `start.bat`.
+
+## Vérification
 
 ```bash
 cd v2/frontend
+npm test
 npm run build
+cd src-tauri && cargo check --locked
 
-cd ../backend
-source venv/bin/activate
-python3 -m compileall app
-pytest
+cd ../../backend
+venv/bin/python -m pytest -q
+venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
 ```
 
-## Configuration avancée
+La suite couvre le parser, la fusion, l'IA fermée, Whisper, les téléchargements sûrs, la projection web, OBS et un flux audio WebSocket distant avec jeton.
 
-Le fichier `backend/.env.example` liste toutes les variables disponibles :
+## API opérationnelle
 
-- `DEEPGRAM_API_KEY`
-- `GEMINI_API_KEY`
-- `OPENROUTER_API_KEY`
-- `AI_CONFIDENCE_THRESHOLD`
-- `OLLAMA_URL`
-- `PROPRESENTER_HOST`
-- `PROPRESENTER_PORT`
-- `BIBLE_VERSION`
-- `ASR_DEFAULT_ENGINE`
-- `WHISPER_MODEL`
-- `WHISPER_CHUNK_SECONDS`
-- `VOSK_MODEL_TYPE`
-- `LOCAL_SEMANTIC_ENABLED`
-- `LOCAL_SEMANTIC_THRESHOLD`
+- `GET /api/v1/health`: disponibilité du backend
+- `GET /api/v1/preflight`: contrôle bloquant avant direct
+- `POST /api/v1/safety/panic`: arrêt des automatisations
+- `GET|POST /api/v1/settings`: configuration runtime
+- `GET /api/v1/asr/status`: préparation Whisper/Vosk
+- `POST /api/v1/asr/prepare`: préparation explicite de Whisper
+- `POST /api/v1/semantic/prepare`: préparation explicite de l'index ONNX
+- `WS /ws/audio`: PCM et événements de transcription
+- `WS /ws/output`: scène de projection pour écran et OBS
 
-## Choix de performance
-
-- **Vosk** démarre vite et consomme peu : idéal sur un petit ordinateur et pour les références explicites.
-- **Whisper** demande davantage de calcul et travaille par fenêtres d'environ `2,4 s`, mais résiste mieux aux accents, au multilingue, à la musique de fond et au débit rapide.
-- **Deepgram** reste le chemin cloud à faible latence quand Internet est fiable.
-- **Embeddings ONNX** ne remplacent pas Llama : ils retrouvent rapidement les versets réels. Llama, Gemini ou OpenRouter ne servent ensuite qu'à départager les meilleurs candidats.
-
-La première indexation ONNX encode environ 30 000 versets et peut prendre plusieurs minutes sur CPU. Elle est lancée explicitement depuis Paramètres, jamais automatiquement pendant le direct, puis son cache est réutilisé.
-
-Le benchmark local reproductible se lance avec :
-
-```bash
-cd v2/backend
-venv/bin/python benchmarks/run_detection_benchmark.py
-```
-
-Pour un usage normal, privilégier la page Paramètres plutôt que l'édition manuelle de `.env`.
-
-## Reste à produire pour un vrai déploiement public
-
-La V2 est fonctionnelle en local, mais l'étape suivante la plus importante reste un installeur signé :
-
-- app macOS/Windows packagée ;
-- icône et raccourci système ;
-- mise à jour automatique ;
-- vérification guidée micro, ProPresenter et Internet au premier lancement ;
-- mode diagnostic exportable pour aider une équipe bénévole à distance.
+Voir [`EXPLICATION_ARCHITECTURE.md`](EXPLICATION_ARCHITECTURE.md) pour les contrats internes.

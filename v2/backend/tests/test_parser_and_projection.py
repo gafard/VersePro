@@ -16,6 +16,8 @@ from app.services.verse_parser import VerseParserService
         ("Dieu est amour", "1 Jean 4:8"),
         ("L'Éternel est mon berger", "Psaumes 23:1"),
         ("Psaume cent dix neuf verset cent soixante seize", "Psaumes 119:176"),
+        ("Éphésiens deux huit jusqu'au verset neuf", "Éphésiens 2:8-9"),
+        ("Genèse chapitre un versets un à trois", "Genèse 1:1-3"),
     ],
 )
 def test_parser_high_value_cases(text, reference):
@@ -71,6 +73,13 @@ def test_parser_returns_most_recent_reference_in_buffer():
     result = asyncio.run(parser.parse(
         "nous avons lu jean 3:16 tout à l'heure et maintenant philippiens 4:13"
     ))
+    assert result is not None
+    assert result["reference"] == "Philippiens 4:13"
+
+
+def test_curated_philippians_phrase_beats_nearby_strength_verse():
+    parser = VerseParserService()
+    result = asyncio.run(parser.parse("je peux tout par celui qui me donne la force"))
     assert result is not None
     assert result["reference"] == "Philippiens 4:13"
 

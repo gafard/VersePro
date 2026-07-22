@@ -41,8 +41,24 @@ def wired(monkeypatch):
     parser = VerseParserService()
     monkeypatch.setattr(M, "verse_parser", parser)
     monkeypatch.setattr(M, "semantic_service", None)  # local sémantique indisponible
-    monkeypatch.setattr(M, "_ai_last_resort_busy", False)
+    monkeypatch.setattr(M, "_ai_last_resort_lock", asyncio.Lock())
     return parser
+
+
+def _anchor_candidates(parser, monkeypatch):
+    monkeypatch.setattr(
+        parser.bible_loader,
+        "search_candidates",
+        lambda text, limit=3: [{
+            "reference": "Jean 3:16",
+            "text": "Car Dieu a tant aimé le monde qu'il a donné son Fils unique.",
+            "book_abbr": "Jn",
+            "chapter": 3,
+            "verse_start": 16,
+            "verse_end": None,
+            "confidence": 0.9,
+        }],
+    )
 
 
 def _run(text):
@@ -70,6 +86,7 @@ def test_ai_not_called_on_everyday_speech(wired, monkeypatch):
 def test_ai_called_as_last_resort_and_grounded(wired, monkeypatch):
     """Local muet + indice biblique → l'IA tranche, et sa réponse est ancrée."""
     ai = FakeAI(reference="Jean 3:16", confidence=97)
+    _anchor_candidates(wired, monkeypatch)
     monkeypatch.setattr(M, "ai_service", ai)
     out = _run("le seigneur a montré son amour d'une manière que nul ne pouvait imaginer ce jour-là")
     assert ai.calls == 1
@@ -82,6 +99,7 @@ def test_ai_called_as_last_resort_and_grounded(wired, monkeypatch):
 def test_ai_hallucination_is_rejected(wired, monkeypatch):
     """L'IA invente une référence inexistante → écartée."""
     ai = FakeAI(reference="Hezekiah 9:99", confidence=99)
+    _anchor_candidates(wired, monkeypatch)
     monkeypatch.setattr(M, "ai_service", ai)
     out = _run("le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer ce jour-là")
     assert ai.calls == 1
@@ -91,6 +109,7 @@ def test_ai_hallucination_is_rejected(wired, monkeypatch):
 def test_ai_low_confidence_is_rejected(wired, monkeypatch):
     """Sous le seuil de confiance, la suggestion est écartée."""
     monkeypatch.setattr(settings, "AI_CONFIDENCE_THRESHOLD", 95)
+    _anchor_candidates(wired, monkeypatch)
     ai = FakeAI(reference="Jean 3:16", confidence=60)
     monkeypatch.setattr(M, "ai_service", ai)
     out = _run("le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer ce jour-là")

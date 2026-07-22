@@ -7,6 +7,35 @@ from app.services.deepgram_service import DeepgramService
 from app.services.verse_parser import VerseParserService
 from app.services.vosk_service import VoskService
 
+
+class FakeDeepgramSession:
+    def __init__(self, callback):
+        self.callback = callback
+        self.is_active = True
+        self.sent = 0
+
+    async def send_audio(self, data):
+        self.sent += 1
+        if self.sent == 1:
+            result = type("Result", (), {
+                "channel": type("Channel", (), {
+                    "alternatives": [type("Alternative", (), {"transcript": "Jean 3:16"})()]
+                })(),
+                "is_final": True,
+            })()
+            await self.callback(result)
+
+    async def close(self):
+        self.is_active = False
+
+
+class FakeDeepgramService:
+    async def create_session(self, callback):
+        return FakeDeepgramSession(callback)
+
+    async def disconnect(self):
+        return None
+
 @pytest.fixture(autouse=True)
 def configure_api_token(monkeypatch):
     monkeypatch.setattr(settings, "API_TOKEN", "secure-integration-token")
@@ -64,3 +93,26 @@ def test_remote_audio_ws_accepts_valid_token_header():
     with remote_client.websocket_connect("/ws/audio", headers=headers) as websocket:
         data = websocket.receive_json()
         assert data["type"] == "ai_status"
+
+
+def test_remote_audio_stream_reaches_production_parser(monkeypatch):
+    """Intégration distante: octets audio -> ASR -> transcript -> référence."""
+    monkeypatch.setattr(main, "deepgram_service", FakeDeepgramService())
+    monkeypatch.setattr(settings, "SUNDAY_SAFE_MODE", True)
+    remote_client = TestClient(main.app, client=("203.0.113.10", 49152))
+
+    with remote_client.websocket_connect(
+        "/ws/audio?token=secure-integration-token&engine=deepgram"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ai_status"
+        status = websocket.receive_json()
+        assert status == {"type": "status_update", "status": "connected", "mode": "deepgram"}
+        websocket.send_bytes(b"\x00\x00" * 4096)
+        transcript = websocket.receive_json()
+        detected = websocket.receive_json()
+
+    assert transcript["type"] == "transcript"
+    assert transcript["text"] == "Jean 3:16"
+    assert detected["type"] == "reference_detected"
+    assert detected["reference"]["reference"] == "Jean 3:16"
+    assert detected["reference"]["auto_projected"] is False

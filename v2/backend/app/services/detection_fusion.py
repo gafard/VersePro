@@ -162,7 +162,11 @@ def best_overlap(spoken: str, cand: Dict[str, Any]) -> float:
 
 def _ref_key(cand: Dict[str, Any]) -> str:
     verse = cand.get("verse_start", cand.get("verse"))
-    return f"{cand.get('book_abbr')}|{cand.get('chapter')}|{verse}"
+    # Les deux index ne garantissent pas la même casse ni les mêmes accents
+    # d'abréviation ("Ph"/"ph", "És"/"és"). Sans canonisation, un véritable
+    # accord était interprété comme deux références distinctes.
+    book = _strip_accents(str(cand.get("book_abbr") or "")).casefold()
+    return f"{book}|{cand.get('chapter')}|{verse}"
 
 
 def _reciprocal_rank(ranked_keys: List[str], k: int = 60) -> Dict[str, float]:

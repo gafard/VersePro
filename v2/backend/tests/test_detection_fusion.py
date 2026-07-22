@@ -34,6 +34,19 @@ def test_agreement_surfaces():
     assert out["requires_review"] is True
 
 
+def test_agreement_normalizes_book_abbreviation_case():
+    spoken = "je peux tout par celui qui me fortifie"
+    verse = "Je puis tout par celui qui me fortifie"
+    out = fuse(
+        [_lex("Ph", 4, 13, verse, 0.96, method="text_phrase")],
+        [_sem("ph", 4, 13, verse, 0.89)],
+        spoken,
+        **PARAMS,
+    )
+    assert out and out["reference"].lower() == "ph 4:13"
+    assert out["fusion"]["agreement"] is True
+
+
 def test_noise_single_retriever_low_overlap_rejected():
     # Un seul récupérateur, un seul mot commun (« pain ») -> jamais proposé.
     spoken = "il faut que j achète du pain et du lait en rentrant à la maison"

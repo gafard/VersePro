@@ -73,6 +73,8 @@ class SettingsUpdate(BaseModel):
     projection_style: Optional[str] = None
     show_bible_version: Optional[bool] = None
     dual_translations: Optional[str] = None
+    sunday_safe_mode: Optional[bool] = None
+    shadow_mode: Optional[bool] = None
 
 
 class PrepareModelRequest(BaseModel):
@@ -123,6 +125,58 @@ async def health_check():
             "parser": verse_parser is not None
         }
     }
+
+
+@router.get("/preflight")
+async def preflight_check():
+    """Contrôle opérationnel avant le direct, sans déclencher de téléchargement."""
+    import shutil
+    from ..core.config import DATA_DIR, settings
+    from ..main import db_service, output_manager, semantic_service, verse_parser, vosk_service, whisper_service
+    from ..services.secret_store import secret_store
+
+    disk = shutil.disk_usage(DATA_DIR)
+    local_asr = bool(
+        (whisper_service and whisper_service.ready)
+        or (vosk_service and vosk_service.initialized)
+    )
+    cloud_asr = bool(settings.DEEPGRAM_API_KEY)
+    browser_output = bool(output_manager and "browser" in output_manager.outputs)
+    checks = [
+        {"id": "database", "label": "Base locale", "ok": bool(db_service and db_service.db), "critical": True},
+        {"id": "bible", "label": "Corpus biblique", "ok": bool(verse_parser and verse_parser.bible_loader.versions), "critical": True},
+        {"id": "asr", "label": "Transcription", "ok": cloud_asr or local_asr, "critical": True,
+         "detail": "Deepgram" if cloud_asr else ("Local prêt" if local_asr else "Préparer Whisper/Vosk ou ajouter une clé")},
+        {"id": "output", "label": "Sortie navigateur / OBS", "ok": browser_output, "critical": True},
+        {"id": "semantic", "label": "Recherche sémantique locale", "ok": bool(semantic_service and semantic_service.initialized), "critical": False},
+        {"id": "disk", "label": "Espace disque", "ok": disk.free >= 500 * 1024 * 1024, "critical": True,
+         "detail": f"{disk.free / (1024 ** 3):.1f} Go libres"},
+        {"id": "secrets", "label": "Trousseau système", "ok": secret_store.available, "critical": False},
+    ]
+    return {
+        "ready": all(item["ok"] for item in checks if item["critical"]),
+        "checks": checks,
+        "safety": {
+            "sunday_safe_mode": settings.SUNDAY_SAFE_MODE,
+            "shadow_mode": settings.SHADOW_MODE,
+            "auto_send": settings.PROPRESENTER_AUTO_SEND,
+        },
+    }
+
+
+@router.post("/safety/panic")
+async def activate_panic_mode():
+    """Coupe immédiatement tout pilotage automatique sans interrompre la régie."""
+    from ..core.config import settings
+    from ..services.database import get_database
+    settings.PROPRESENTER_AUTO_SEND = False
+    settings.SUNDAY_SAFE_MODE = True
+    settings.SHADOW_MODE = False
+    db = get_database()
+    await db.set_setting("auto_send", False)
+    await db.set_setting("sunday_safe_mode", True)
+    await db.set_setting("shadow_mode", False)
+    return {"status": "safe", "auto_send": False, "sunday_safe_mode": True, "shadow_mode": False}
 
 
 @router.post("/references/send")
@@ -369,14 +423,14 @@ async def download_vosk_model():
 
     # Déclenche l'initialisation (téléchargement en arrière-plan, ou chargement du
     # modèle déjà présent — potentiellement long, donc hors event loop)
-    await asyncio.to_thread(vosk_service.initialize)
+    await asyncio.to_thread(vosk_service.initialize, True)
     return {"status": "started", "message": "Téléchargement du modèle Vosk démarré en arrière-plan"}
 
 
 @router.get("/asr/status")
 async def get_asr_status():
     """Capacites locales et recommandation adaptee a la machine."""
-    from ..main import vosk_service
+    from ..main import vosk_service, whisper_service
     from ..core.config import settings
 
     return {
@@ -385,10 +439,33 @@ async def get_asr_status():
             "available": bool(vosk_service and vosk_service.initialized),
             "model": getattr(vosk_service, "model_name", ""),
         },
+        "whisper": whisper_service.status() if whisper_service else {"installed": False, "ready": False},
     }
 
 
 @router.post("/asr/prepare")
+async def prepare_local_asr(request: PrepareModelRequest):
+    """Prépare explicitement Whisper; aucun gros modèle n'est téléchargé au démarrage."""
+    from ..main import whisper_service
+    from ..core.config import settings
+    if not whisper_service:
+        raise HTTPException(status_code=503, detail="Service Whisper indisponible")
+    if request.model and request.model not in {"auto", "tiny", "base", "small", "medium", "turbo"}:
+        raise HTTPException(status_code=400, detail="Modèle Whisper invalide")
+    if request.model and not whisper_service.ready:
+        settings.WHISPER_MODEL = request.model
+        whisper_service.model_name = whisper_service.select_model(request.model)
+    if whisper_service.ready:
+        return {"status": "ready", **whisper_service.status()}
+    if not whisper_service.initializing:
+        import threading
+        threading.Thread(
+            target=whisper_service.initialize,
+            kwargs={"allow_download": True},
+            daemon=True,
+        ).start()
+    return {"status": "preparing", **whisper_service.status()}
+
 
 @router.get("/semantic/status")
 async def get_semantic_status():
@@ -426,7 +503,8 @@ async def semantic_search(request: SemanticSearchRequest):
 async def get_settings():
     """Récupère la configuration"""
     from ..core.config import settings
-    from ..main import ai_service, output_manager, semantic_service
+    from ..main import ai_service, output_manager, semantic_service, whisper_service
+    from ..services.secret_store import secret_store
     
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
@@ -438,9 +516,13 @@ async def get_settings():
         "propresenter_host": settings.PROPRESENTER_HOST,
         "propresenter_port": settings.PROPRESENTER_PORT,
         "auto_send": settings.PROPRESENTER_AUTO_SEND,
+        "sunday_safe_mode": settings.SUNDAY_SAFE_MODE,
+        "shadow_mode": settings.SHADOW_MODE,
         "bible_version": settings.BIBLE_VERSION,
         "ai_agent_enabled": settings.AI_AGENT_ENABLED,
         "ai_available": bool(ai_service and ai_service.enabled),
+        "ai_status": ai_service.status() if ai_service else {},
+        "secret_storage_secure": secret_store.available,
         "propresenter_connected": propresenter_connected,
         "deepgram_api_key_configured": bool(settings.DEEPGRAM_API_KEY),
         "openrouter_api_key_configured": bool(settings.OPENROUTER_API_KEY),
@@ -453,6 +535,7 @@ async def get_settings():
         "voice_gate_enabled": settings.VOICE_GATE_ENABLED,
         "voice_gate_available": _vad_available(),
         "asr_default_engine": settings.ASR_DEFAULT_ENGINE,
+        "whisper_status": whisper_service.status() if whisper_service else {},
         "local_semantic_enabled": settings.LOCAL_SEMANTIC_ENABLED,
         "local_semantic_threshold": semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD,
         "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
@@ -470,6 +553,7 @@ async def update_settings(settings_update: SettingsUpdate):
     from ..core.config import settings
     from ..main import output_manager, verse_parser, ai_service, deepgram_service, semantic_service
     from ..services.database import get_database
+    from ..services.secret_store import secret_store
     
     db = get_database()
     update = settings_update.model_dump(exclude_unset=True)
@@ -480,6 +564,14 @@ async def update_settings(settings_update: SettingsUpdate):
     if "auto_send" in update:
         settings.PROPRESENTER_AUTO_SEND = bool(update["auto_send"])
         await db.set_setting("auto_send", settings.PROPRESENTER_AUTO_SEND)
+
+    if "sunday_safe_mode" in update:
+        settings.SUNDAY_SAFE_MODE = bool(update["sunday_safe_mode"])
+        await db.set_setting("sunday_safe_mode", settings.SUNDAY_SAFE_MODE)
+
+    if "shadow_mode" in update:
+        settings.SHADOW_MODE = bool(update["shadow_mode"])
+        await db.set_setting("shadow_mode", settings.SHADOW_MODE)
         
     if update.get("bible_version"):
         version = update["bible_version"].upper()
@@ -522,35 +614,29 @@ async def update_settings(settings_update: SettingsUpdate):
         settings.AI_AGENT_ENABLED = bool(update["ai_agent_enabled"])
         await db.set_setting("ai_agent_enabled", settings.AI_AGENT_ENABLED)
         if ai_service:
-            ai_service.enabled = settings.AI_AGENT_ENABLED and (
-                bool(ai_service.openrouter_key) or bool(ai_service.api_key) or bool(ai_service.ollama_url)
-            )
+            ai_service.refresh_availability()
             
-    if update.get("deepgram_api_key"):
-        settings.DEEPGRAM_API_KEY = update["deepgram_api_key"]
-        await db.set_setting("deepgram_api_key", settings.DEEPGRAM_API_KEY)
+    if "deepgram_api_key" in update:
+        settings.DEEPGRAM_API_KEY = str(update["deepgram_api_key"] or "").strip()
+        await secret_store.set("deepgram_api_key", settings.DEEPGRAM_API_KEY)
         if deepgram_service:
             deepgram_service.api_key = settings.DEEPGRAM_API_KEY
             if settings.DEEPGRAM_API_KEY:
                 deepgram_service._init_client()
                 
-    if update.get("openrouter_api_key"):
-        settings.OPENROUTER_API_KEY = update["openrouter_api_key"]
-        await db.set_setting("openrouter_api_key", settings.OPENROUTER_API_KEY)
+    if "openrouter_api_key" in update:
+        settings.OPENROUTER_API_KEY = str(update["openrouter_api_key"] or "").strip()
+        await secret_store.set("openrouter_api_key", settings.OPENROUTER_API_KEY)
         if ai_service:
             ai_service.openrouter_key = settings.OPENROUTER_API_KEY
-            ai_service.enabled = settings.AI_AGENT_ENABLED and (
-                bool(ai_service.openrouter_key) or bool(ai_service.api_key) or bool(ai_service.ollama_url)
-            )
+            ai_service.refresh_availability()
             
-    if update.get("gemini_api_key"):
-        settings.GEMINI_API_KEY = update["gemini_api_key"]
-        await db.set_setting("gemini_api_key", settings.GEMINI_API_KEY)
+    if "gemini_api_key" in update:
+        settings.GEMINI_API_KEY = str(update["gemini_api_key"] or "").strip()
+        await secret_store.set("gemini_api_key", settings.GEMINI_API_KEY)
         if ai_service:
             ai_service.api_key = settings.GEMINI_API_KEY
-            ai_service.enabled = settings.AI_AGENT_ENABLED and (
-                bool(ai_service.openrouter_key) or bool(ai_service.api_key) or bool(ai_service.ollama_url)
-            )
+            ai_service.refresh_availability()
             
     if "ai_confidence_threshold" in update:
         settings.AI_CONFIDENCE_THRESHOLD = int(update["ai_confidence_threshold"])
@@ -566,7 +652,7 @@ async def update_settings(settings_update: SettingsUpdate):
 
     if update.get("asr_default_engine"):
         engine = str(update["asr_default_engine"])
-        if engine not in {"auto", "deepgram", "vosk"}:
+        if engine not in {"auto", "deepgram", "whisper", "vosk", "local_auto"}:
             raise HTTPException(status_code=400, detail="Moteur ASR invalide")
         settings.ASR_DEFAULT_ENGINE = engine
         await db.set_setting("asr_default_engine", engine)
