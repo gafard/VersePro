@@ -39,6 +39,9 @@ export const useStore = create((set, get) => ({
   
   // État de détection et ASR
   isListening: false,
+  // Jalons du chrono de session : le pied de régie compte la durée du direct.
+  listeningStartedAt: null,
+  listeningStoppedAt: null,
   volume: 0,
   waveform: Array(64).fill(0),
   audioDevices: [],
@@ -1063,7 +1066,7 @@ export const useStore = create((set, get) => ({
         sourceNode.connect(captureNode)
       }
       captureNode.connect(audioCtx.destination)
-      set({ isListening: true })
+      set({ isListening: true, listeningStartedAt: Date.now(), listeningStoppedAt: null })
     } catch (err) {
       console.error("Erreur d'accès micro:", err)
       set({ micError: "Impossible d'accéder au microphone.", isListening: false })
@@ -1073,7 +1076,7 @@ export const useStore = create((set, get) => ({
   },
 
   stopRecording: () => {
-    set({ volume: 0, waveform: Array(64).fill(0), isListening: false })
+    set({ volume: 0, waveform: Array(64).fill(0), isListening: false, listeningStoppedAt: Date.now() })
     if (processorNode) {
       processorNode.disconnect()
       processorNode = null

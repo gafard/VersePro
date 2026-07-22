@@ -68,7 +68,8 @@ export default function LiveDetection({ setActiveTab }) {
     onAir, clearProjectionScreen,
     statistics,
     toggleListening, volume, waveform, audioDevices, selectedAudioDeviceId, micError, refreshAudioDevices, setMicPermissionState,
-    preflight, preflightLoading, runPreflight, activatePanicMode, sundaySafeMode, shadowMode
+    preflight, preflightLoading, runPreflight, activatePanicMode, sundaySafeMode, shadowMode,
+    listeningStartedAt, listeningStoppedAt
   } = useStore()
 
   const [manualReference, setManualReference] = useState('')
@@ -825,8 +826,17 @@ export default function LiveDetection({ setActiveTab }) {
         
         <div className="live-statusbar-right">
           <span>VersePro v2.0 · Cockpit</span>
-          <span className="global-clock">
-            {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          {/* Chrono de session : durée du direct, pas l'heure (déjà en haut). */}
+          <span className="global-clock" title="Durée de la session micro">
+            {(() => {
+              if (!listeningStartedAt) return '00:00:00'
+              const end = isListening ? clock.getTime() : (listeningStoppedAt || clock.getTime())
+              const total = Math.max(0, Math.floor((end - listeningStartedAt) / 1000))
+              const h = String(Math.floor(total / 3600)).padStart(2, '0')
+              const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0')
+              const s = String(total % 60).padStart(2, '0')
+              return `${h}:${m}:${s}`
+            })()}
           </span>
         </div>
       </footer>
