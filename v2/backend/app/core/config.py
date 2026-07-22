@@ -87,8 +87,10 @@ class Settings(BaseSettings):
     # WebSocket
     WS_HEARTBEAT_INTERVAL: int = 30  # secondes
     
-    # Vosk
-    VOSK_MODEL_TYPE: str = "small"
+    # Vosk — moteur local de référence. Au réel, le grand modèle FR s'est
+    # montré nettement plus juste et plus réactif que Whisper fenêtré ; son
+    # poids (~1,4 Go) n'est payé qu'une fois, au téléchargement explicite.
+    VOSK_MODEL_TYPE: str = "large"
     VOSK_MODEL_SHA256: str = ""  # À renseigner pour imposer la vérification du fournisseur
 
     # Recherche sémantique locale. Le moteur ONNX est optionnel et retombe

@@ -2006,12 +2006,17 @@ async def websocket_audio(websocket: WebSocket):
 
     if engine in ("vosk", "whisper", "local_auto"):
         local_ready = False
-        if engine in ("whisper", "local_auto"):
+        # Vosk (grand modèle) est le moteur local de référence : au réel, il
+        # s'est montré plus juste et plus réactif que Whisper fenêtré. Whisper
+        # ne passe en premier que sur choix explicite de l'opérateur.
+        if engine == "whisper":
             local_ready = await activate_whisper(
-                allow_download=bool(settings.WHISPER_AUTO_DOWNLOAD and engine == "whisper")
+                allow_download=bool(settings.WHISPER_AUTO_DOWNLOAD)
             )
-        if not local_ready and engine in ("vosk", "local_auto", "whisper"):
+        if not local_ready:
             local_ready = await activate_vosk(status="fallback" if engine == "whisper" else "connected")
+        if not local_ready and engine == "local_auto":
+            local_ready = await activate_whisper(status="fallback")
         if not local_ready:
             try:
                 transcription_session = await deepgram_service.create_session(on_transcript_received)
@@ -2047,9 +2052,9 @@ async def websocket_audio(websocket: WebSocket):
         except Exception as e:
             logger.warning(f"Échec connexion Deepgram ({e}). Activation du secours local...")
             try:
-                success = await activate_whisper(status="fallback", allow_download=False)
+                success = await activate_vosk(status="fallback")
                 if not success:
-                    success = await activate_vosk(status="fallback")
+                    success = await activate_whisper(status="fallback", allow_download=False)
                 if success:
                     logger.info("Secours local activé et prêt")
                 else:
@@ -2093,9 +2098,9 @@ async def websocket_audio(websocket: WebSocket):
                     last_fallback_attempt = now
                     # Bascule dynamique à chaud sur un moteur local déjà préparé.
                     try:
-                        success = await activate_whisper(status="fallback", allow_download=False)
+                        success = await activate_vosk(status="fallback")
                         if not success:
-                            success = await activate_vosk(status="fallback")
+                            success = await activate_whisper(status="fallback", allow_download=False)
                         if success:
                             logger.warning("Session Deepgram inactive. Bascule automatique sur le moteur local.")
                         else:

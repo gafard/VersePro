@@ -45,7 +45,7 @@ export default function FirstRunWizard({ onDone }) {
   const [entered, setEntered] = useState(false)
   useEffect(() => { const t = setTimeout(() => setEntered(true), 40); return () => clearTimeout(t) }, [])
 
-  // ── Statuts Whisper + sémantique (scan continu) ──
+  // ── Statuts Vosk + sémantique (scan continu) ──
   // ── Ouverture cinématique ──
   // La séquence se joue TOUJOURS, même quand les moteurs sont déjà installés.
   // Sans cela un poste déjà équipé ouvrait l'assistant sur son image finale :
@@ -66,7 +66,7 @@ export default function FirstRunWizard({ onDone }) {
     return () => timers.forEach(clearTimeout)
   }, [])
 
-  const [whisper, setWhisper] = useState(null)
+  const [vosk, setVosk] = useState(null)
   const [sem, setSem] = useState(null)
   const [scanned, setScanned] = useState(false)
   const [backendDown, setBackendDown] = useState(false)
@@ -75,34 +75,33 @@ export default function FirstRunWizard({ onDone }) {
 
   const pollStatuses = async () => {
     try {
-      const [ar, sr] = await Promise.all([fetch(`${BACKEND_BASE}/api/v1/asr/status`), fetch(`${BACKEND_BASE}/api/v1/semantic/status`)])
-      const asr = await ar.json()
-      setWhisper(asr.whisper || null); setSem(await sr.json()); setBackendDown(false)
+      const [vr, sr] = await Promise.all([fetch(`${BACKEND_BASE}/api/v1/vosk/status`), fetch(`${BACKEND_BASE}/api/v1/semantic/status`)])
+      setVosk(await vr.json()); setSem(await sr.json()); setBackendDown(false)
     } catch { setBackendDown(true) } finally { setScanned(true) }
   }
   useEffect(() => { pollStatuses(); const id = setInterval(pollStatuses, 1500); return () => clearInterval(id) }, [])
 
-  const whisperReady = Boolean(whisper?.ready)
+  const voskReady = Boolean(vosk?.installed)
   const semReady = Boolean(sem?.installed)
-  const whisperBusy = Boolean(whisper?.preparing)
+  const voskBusy = Boolean(vosk?.downloading)
   const semBusy = Boolean(sem && (sem.downloading || sem.indexing))
-  const allReady = whisperReady && semReady
-  const anyBusy = whisperBusy || semBusy
-  const missing = [!whisperReady && 'whisper', !semReady && 'sem'].filter(Boolean)
-  const whisperModel = whisper?.model || 'auto'
-  const whisperSize = ({ tiny: 75, base: 150, small: 500, medium: 1500, turbo: 1600 })[whisperModel] || 150
+  const allReady = voskReady && semReady
+  const anyBusy = voskBusy || semBusy
+  const missing = [!voskReady && 'vosk', !semReady && 'sem'].filter(Boolean)
+  // Le grand modèle FR est le choix assumé : au réel, il bat Whisper en
+  // justesse comme en réactivité. Son poids n'est payé qu'une seule fois.
+  const voskSize = (vosk?.model_name || '').includes('small') ? 45 : 1400
+  const fmtSize = (mo) => (mo >= 1000 ? `~${(mo / 1000).toFixed(1).replace('.', ',')} Go` : `~${mo} Mo`)
 
-  const installWhisper = async () => {
+  const installVosk = async () => {
     try {
-      await fetch(`${BACKEND_BASE}/api/v1/asr/prepare`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'auto' })
-      })
+      await fetch(`${BACKEND_BASE}/api/v1/vosk/download`, { method: 'POST' })
     } catch { setBackendDown(true) }
   }
   const installSem = async () => { try { await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' }) } catch { setBackendDown(true) } }
   const installMissing = async () => {
     setLaunched(true)
-    await Promise.all([!whisperReady && installWhisper(), !semReady && installSem()].filter(Boolean))
+    await Promise.all([!voskReady && installVosk(), !semReady && installSem()].filter(Boolean))
     pollStatuses()
   }
   useEffect(() => {
@@ -113,10 +112,10 @@ export default function FirstRunWizard({ onDone }) {
   }, [launched, allReady, step])
 
   // ── Progression fusionnée (pour l'anneau maître) ──
-  const whisperPct = whisperReady ? 100 : 0
+  const voskPct = voskReady ? 100 : (vosk?.downloading ? (vosk?.download_progress || 0) : 0)
   const semPct = semReady ? 100 : (sem?.downloading ? (sem?.download_progress || 0)
     : (sem?.indexing && sem?.verses_total ? (sem.verses_indexed / sem.verses_total) * 100 : 0))
-  const totalPct = Math.round((whisperPct + semPct + 100) / 3) // +100 = index lexical inclus
+  const totalPct = Math.round((voskPct + semPct + 100) / 3) // +100 = index lexical inclus
 
   // ── Micro : visualiseur live ──
   const [micState, setMicState] = useState('idle')
@@ -240,11 +239,11 @@ export default function FirstRunWizard({ onDone }) {
                   </li>
                   )}
                   {revealed > 1 && (
-                  <li className={`fw-comp fw-comp--in ${whisperReady ? 'is-ready' : whisperBusy ? 'is-busy' : ''}`}>
-                    {whisperReady ? <Icon name="check" size={15} /> : <span className="fw-dot" />}
+                  <li className={`fw-comp fw-comp--in ${voskReady ? 'is-ready' : voskBusy ? 'is-busy' : ''}`}>
+                    {voskReady ? <Icon name="check" size={15} /> : voskBusy ? <span className="fw-mini-pct">{Math.round(voskPct)}%</span> : <span className="fw-dot" />}
                     <div><strong>reconnaissance vocale hors-ligne</strong>
-                      <small>{whisper?.last_error ? whisper.last_error : whisperReady ? `Whisper ${whisperModel} prêt` : whisperBusy ? 'préparation de Whisper…' : `Whisper ${whisperModel} — à préparer`}</small></div>
-                    <span className="fw-comp-size">~{whisperSize} Mo</span>
+                      <small>{vosk?.last_error ? vosk.last_error : voskReady ? 'Vosk français grand modèle prêt' : voskBusy ? `téléchargement de Vosk… ${Math.round(voskPct)}%` : 'Vosk français grand modèle — à télécharger'}</small></div>
+                    <span className="fw-comp-size">{fmtSize(voskSize)}</span>
                   </li>
                   )}
                   {revealed > 2 && (
@@ -263,10 +262,10 @@ export default function FirstRunWizard({ onDone }) {
                   ? <button className="vp-btn vp-btn--primary fw-cta" onClick={() => go(1)}>continuer →</button>
                   : anyBusy
                     ? null
-                    : (whisper?.last_error || sem?.last_error)
+                    : (vosk?.last_error || sem?.last_error)
                       ? <button className="vp-btn vp-btn--primary fw-cta" onClick={installMissing}>réessayer l'installation</button>
                       : <button className="vp-btn vp-btn--primary fw-cta" onClick={installMissing}>
-                          tout préparer ({missing.length === 2 ? `~${whisperSize + 265} Mo` : missing[0] === 'whisper' ? `~${whisperSize} Mo` : '265 Mo'})
+                          tout préparer ({missing.length === 2 ? fmtSize(voskSize + 265) : missing[0] === 'vosk' ? fmtSize(voskSize) : '~265 Mo'})
                         </button>
               )}
             </div>
@@ -290,7 +289,7 @@ export default function FirstRunWizard({ onDone }) {
                 </p>
               )}
               {micState === 'denied' && <p className="fw-warn">accès refusé — autorisez le micro dans les réglages système, ou continuez : vous pourrez le faire plus tard.</p>}
-              {anyBusy && <p className="fw-hint">préparation en arrière-plan : Whisper {whisperReady ? 'prêt' : 'en cours'} · intelligence {semReady ? 'prête' : `${Math.round(semPct)}%`}</p>}
+              {anyBusy && <p className="fw-hint">préparation en arrière-plan : Vosk {voskReady ? 'prêt' : `${Math.round(voskPct)}%`} · intelligence {semReady ? 'prête' : `${Math.round(semPct)}%`}</p>}
             </div>
           )}
 
@@ -300,7 +299,7 @@ export default function FirstRunWizard({ onDone }) {
               <div className="fw-done-seal"><Icon name="check" size={34} /></div>
               <h1 className="fw-title">c'est prêt.</h1>
               <ul className="fw-recap">
-                <li className={whisperReady ? 'ok' : ''}><Icon name={whisperReady ? 'check' : 'alert'} size={14} /> voix hors-ligne {whisperReady ? `Whisper ${whisperModel} prêt` : whisperBusy ? 'en préparation' : 'non préparée'}</li>
+                <li className={voskReady ? 'ok' : ''}><Icon name={voskReady ? 'check' : 'alert'} size={14} /> voix hors-ligne {voskReady ? 'Vosk grand modèle prêt' : voskBusy ? 'en téléchargement' : 'non préparée'}</li>
                 <li className={semReady ? 'ok' : ''}><Icon name={semReady ? 'check' : 'alert'} size={14} /> intelligence sémantique {semReady ? 'prête' : semBusy ? 'en préparation' : 'non installée'}</li>
                 <li className={micState === 'live' ? 'ok' : ''}><Icon name={micState === 'live' ? 'check' : 'alert'} size={14} /> micro {micState === 'live' ? 'testé' : 'à tester dans la régie'}</li>
               </ul>

@@ -308,7 +308,8 @@ export default function Settings() {
           </div>
           <p>
             Le mode automatique privilégie Deepgram quand Internet est disponible,
-            puis bascule sur Whisper préparé ou Vosk local si la connexion tombe.
+            puis bascule sur Vosk local si la connexion tombe. Whisper, plus lent
+            au réel, reste un second choix explicite.
           </p>
           <div className="settings-form-grid">
             <label>
@@ -316,9 +317,9 @@ export default function Settings() {
               <select value={form.asr_default_engine} onChange={(e) => updateField('asr_default_engine', e.target.value)}>
                 <option value="auto">Auto (Deepgram puis local)</option>
                 <option value="deepgram">Deepgram cloud</option>
-                <option value="local_auto">Local auto (Whisper puis Vosk)</option>
-                <option value="whisper">Whisper local</option>
-                <option value="vosk">Vosk local rapide</option>
+                <option value="local_auto">Local auto (Vosk puis Whisper)</option>
+                <option value="vosk">Vosk local (recommandé)</option>
+                <option value="whisper">Whisper local (plus lent)</option>
               </select>
             </label>
           </div>
