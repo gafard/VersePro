@@ -86,8 +86,10 @@ export default function LaunchIntro({ onDone }) {
   useEffect(() => {
     if (reducedMotion || !videoRef.current) return
     const video = videoRef.current
-    // Une animation d'ouverture ne doit jamais sortir sur la sono de l'église.
-    video.muted = true
+    // Le son fait partie de l'ouverture dans l'application de bureau. Dans un
+    // navigateur, l'autoplay sonore est bloqué : on part muet. Et si la lecture
+    // sonore est refusée malgré tout, le filet ci-dessous rejoue en muet.
+    video.muted = !isTauri
     const playback = video.play()
     playback?.catch(() => {
       video.muted = true
@@ -111,7 +113,7 @@ export default function LaunchIntro({ onDone }) {
             src={VIDEO_SRC}
             poster={POSTER_SRC}
             autoPlay
-            muted
+            muted={!isTauri}
             playsInline
             preload="auto"
             onEnded={() => setMediaComplete(true)}
