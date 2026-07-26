@@ -43,7 +43,8 @@ export default function Settings() {
     shadow_mode: false,
     bible_version: activeBible || 'LSG',
     propresenter_host: '127.0.0.1',
-    propresenter_port: 12345,
+    propresenter_port: 1025,
+    propresenter_message_name: 'VersePro',
     deepgram_model: 'nova-2',
     deepgram_language: 'fr',
     ai_agent_enabled: true,
@@ -128,7 +129,8 @@ export default function Settings() {
       shadow_mode: Boolean(settings.shadow_mode),
       bible_version: settings.bible_version || activeBible || 'LSG',
       propresenter_host: settings.propresenter_host || '127.0.0.1',
-      propresenter_port: settings.propresenter_port || 12345,
+      propresenter_port: settings.propresenter_port || 1025,
+      propresenter_message_name: settings.propresenter_message_name || 'VersePro',
       deepgram_model: settings.deepgram_model || 'nova-2',
       deepgram_language: settings.deepgram_language || 'fr',
       ai_agent_enabled: Boolean(settings.ai_agent_enabled),
@@ -195,7 +197,7 @@ export default function Settings() {
       const payload = {
         ...form,
         ...secrets,
-        propresenter_port: Number(form.propresenter_port) || 12345,
+        propresenter_port: Number(form.propresenter_port) || 1025,
         ai_confidence_threshold: Math.min(99, Math.max(50, Number(form.ai_confidence_threshold) || 95))
       }
       const result = await updateSettings(payload)
@@ -586,6 +588,18 @@ export default function Settings() {
               />
             </label>
           </div>
+          <label>
+            <small>Nom du message ProPresenter</small>
+            <input
+              value={form.propresenter_message_name}
+              onChange={(e) => updateField('propresenter_message_name', e.target.value)}
+            />
+            <span className="settings-muted-note">
+              Vos habillages restent les vôtres : créez dans ProPresenter un Message
+              portant ce nom, stylé comme votre église le souhaite, avec un jeton de
+              référence et un jeton de texte. VersePro ne fait que les remplir.
+            </span>
+          </label>
         </div>
 
         <div className="settings-card">

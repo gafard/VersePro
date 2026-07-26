@@ -48,7 +48,10 @@ class Settings(BaseSettings):
     
     # ProPresenter
     PROPRESENTER_HOST: str = "127.0.0.1"
-    PROPRESENTER_PORT: int = 12345  # Port API TCP ProPresenter
+    PROPRESENTER_PORT: int = 1025  # Port de l'API ProPresenter 7.9+ (Réglages → Réseau)
+    # Nom du « Message » préparé dans ProPresenter : c'est LUI qui porte les
+    # habillages de l'église. VersePro ne fait que remplir ses jetons.
+    PROPRESENTER_MESSAGE_NAME: str = "VersePro"
     PROPRESENTER_AUTO_CONNECT: bool = True
     PROPRESENTER_AUTO_SEND: bool = False  # Envoi automatique ou validation manuelle
     SUNDAY_SAFE_MODE: bool = True  # Interdit toute projection automatique

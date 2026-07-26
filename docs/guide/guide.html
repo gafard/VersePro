@@ -389,13 +389,19 @@
   <p class="lede">Si votre église projette déjà avec ProPresenter, VersePro lui envoie les versets :
   vous gardez vos thèmes, VersePro apporte la détection.</p>
   <div class="steps" style="margin-top:4mm;">
-    <div class="step"><div><b>Dans ProPresenter : activer le réseau</b>
-      <p>ProPresenter → Réglages → <strong>Réseau</strong> : cochez « Activer le réseau »,
-      notez le <strong>port</strong> affiché (ex. 12345) et l'adresse IP de la machine
-      (visible dans les réglages réseau du système).</p></div></div>
+    <div class="step"><div><b>Dans ProPresenter : activer l'API réseau</b>
+      <p>ProPresenter 7.9 ou plus récent. Réglages → <strong>Réseau</strong> : activez le réseau
+      et notez le <strong>port</strong> affiché (<span class="mono">1025</span> par défaut) ainsi que
+      l'adresse IP de la machine.</p></div></div>
+    <div class="step"><div><b>Dans ProPresenter : préparer le message</b>
+      <p>Créez un <strong>Message</strong> nommé <span class="mono">VersePro</span>, habillé comme votre
+      église le souhaite — c'est VOTRE design qui sera projeté. Donnez-lui deux jetons :
+      un pour la <strong>référence</strong>, un pour le <strong>texte</strong>. VersePro ne fait que
+      les remplir à chaque verset.</p></div></div>
     <div class="step"><div><b>Dans VersePro : Paramètres → ProPresenter</b>
       <p>Renseignez l'<strong>hôte</strong> (IP de la machine ProPresenter — <span class="mono">127.0.0.1</span>
-      si c'est le même ordinateur) et le <strong>port</strong> noté, puis sauvegardez.</p></div></div>
+      si c'est le même ordinateur), le <strong>port</strong> noté et le <strong>nom du message</strong>,
+      puis sauvegardez.</p></div></div>
     <div class="step"><div><b>Vérifiez la pastille d'état</b>
       <p>En haut de la régie, la pastille <strong>PP</strong> passe au vert quand la connexion est établie.
       VersePro se reconnecte seul si ProPresenter redémarre.</p></div></div>

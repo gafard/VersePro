@@ -171,6 +171,14 @@ async def lifespan(app: FastAPI):
                 logger.info(f"⚙️ Config chargée depuis SQLite : {attr_name} = {shown}")
             except Exception as e:
                 logger.error(f"Impossible de convertir {key}={val} en {expected_type}: {e}")
+
+    # Migration : 12345 était l'ancien port par défaut, hérité d'un protocole
+    # maison que ProPresenter n'a jamais parlé. Les postes déjà configurés le
+    # gardent en base et resteraient muets ; on les ramène au port officiel.
+    if settings.PROPRESENTER_PORT == 12345:
+        settings.PROPRESENTER_PORT = 1025
+        await db_service.set_setting("propresenter_port", 1025)
+        logger.info("⚙️ Port ProPresenter migré de 12345 vers 1025 (API officielle 7.9+)")
                 
     # Crée une session par défaut
     current_session_id = await db_service.create_session("Session automatique")

@@ -57,6 +57,7 @@ class SettingsUpdate(BaseModel):
     bible_version: Optional[str] = None
     propresenter_host: Optional[str] = None
     propresenter_port: Optional[int] = None
+    propresenter_message_name: Optional[str] = None
     deepgram_model: Optional[str] = None
     deepgram_language: Optional[str] = None
     ai_agent_enabled: Optional[bool] = None
@@ -515,6 +516,7 @@ async def get_settings():
         "deepgram_language": settings.DEEPGRAM_LANGUAGE,
         "propresenter_host": settings.PROPRESENTER_HOST,
         "propresenter_port": settings.PROPRESENTER_PORT,
+        "propresenter_message_name": settings.PROPRESENTER_MESSAGE_NAME,
         "auto_send": settings.PROPRESENTER_AUTO_SEND,
         "sunday_safe_mode": settings.SUNDAY_SAFE_MODE,
         "shadow_mode": settings.SHADOW_MODE,
@@ -602,6 +604,15 @@ async def update_settings(settings_update: SettingsUpdate):
             output_manager.outputs["propresenter"].port = settings.PROPRESENTER_PORT
             reconnect_propresenter = True
             
+    if update.get("propresenter_message_name"):
+        settings.PROPRESENTER_MESSAGE_NAME = update["propresenter_message_name"].strip()
+        await db.set_setting("propresenter_message_name", settings.PROPRESENTER_MESSAGE_NAME)
+        if output_manager and "propresenter" in output_manager.outputs:
+            # Le message cible change : on oublie celui résolu, il sera recherché
+            # à nouveau au prochain envoi.
+            output_manager.outputs["propresenter"]._message_id = None
+            reconnect_propresenter = True
+
     if update.get("deepgram_model"):
         settings.DEEPGRAM_MODEL = update["deepgram_model"]
         await db.set_setting("deepgram_model", settings.DEEPGRAM_MODEL)
