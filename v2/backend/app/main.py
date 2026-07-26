@@ -129,7 +129,11 @@ async def broadcast_projection(text: str, reference: str, background: str | None
         "dual_translations": settings.DUAL_TRANSLATIONS,
         # Habillage personnalisé : l'écran n'a besoin que de savoir qu'une image
         # existe, de sa version (anti-cache) et de l'emplacement des textes.
-        "overlay": {**overlay_store.status(), "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES)},
+        "overlay": {
+            **overlay_store.status(),
+            "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES),
+            "shapes": overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
+        },
     }
 
     # Nouveau verset à l'écran : la lecture vivante repart de zéro
@@ -564,6 +568,10 @@ async def get_output_page():
             .overlay-zone.font-display { font-family: var(--font-display); }
             .overlay-zone.font-serif { font-family: Georgia, "Times New Roman", serif; }
             .overlay-zone.font-mono { font-family: var(--font-mono); }
+            #overlay-shapes { position: absolute; inset: 0; }
+            /* Formes vectorielles : nettes à toute résolution, là où une image
+               exportée pour du 1080p se dégrade sur un vidéoprojecteur 4K. */
+            .overlay-shape { position: absolute; }
             .overlay-zone .overlay-inner { display: block; width: 100%; }
             .overlay-zone .vnum {
                 display: inline; font-size: 0.55em; vertical-align: super;
@@ -1096,6 +1104,9 @@ async def get_output_page():
              texte. Reste vide et masqué tant qu'aucun PNG n'est installé. -->
         <div id="overlay-layer">
             <img id="overlay-image" alt="">
+            <!-- Formes construites dans VersePro, entre l'image et les textes :
+                 une église sans graphiste compose son bandeau ici. -->
+            <div id="overlay-shapes"></div>
             <!-- Le texte vit dans un enfant : la zone est en flex pour son
                  alignement vertical, et un flex y ferait de l'exposant un
                  élément de rangée au lieu de le laisser couler dans la phrase. -->
@@ -1222,16 +1233,41 @@ async def get_output_page():
                 el.className = 'overlay-zone font-' + zone.font;
             }
 
+            function renderShapes(formes) {
+                const hote = document.getElementById('overlay-shapes');
+                hote.textContent = '';
+                (formes || []).forEach((f) => {
+                    const el = document.createElement('div');
+                    el.className = 'overlay-shape';
+                    el.style.left = f.x + '%';
+                    el.style.top = f.y + '%';
+                    el.style.width = f.w + '%';
+                    el.style.height = f.h + '%';
+                    el.style.background = f.fill;
+                    el.style.opacity = f.opacity;
+                    // Rayon rapporté à la HAUTEUR du cadre : un rayon en
+                    // pourcentage de la boîte déformerait les angles dès que la
+                    // forme n'est pas carrée.
+                    el.style.borderRadius = f.radius + 'vh';
+                    hote.appendChild(el);
+                });
+            }
+
             function renderOverlay(data) {
                 const info = data.overlay;
-                if (!info || !info.installed) {
+                const formes = (info && info.shapes) || [];
+                // L'habillage vit dès qu'il y a une image OU des formes : une
+                // église sans graphiste doit pouvoir composer sans fichier.
+                if (!info || (!info.installed && !formes.length)) {
                     document.body.classList.remove('has-overlay');
                     return false;
                 }
-                if (overlayVersion !== info.updated_at) {
+                overlayImage.style.display = info.installed ? '' : 'none';
+                if (info.installed && overlayVersion !== info.updated_at) {
                     overlayVersion = info.updated_at;
                     overlayImage.src = '/overlay.png?v=' + info.updated_at;
                 }
+                renderShapes(formes);
                 const zones = info.zones || {};
                 applyZone(overlayZones.text, zones.text);
                 applyZone(overlayZones.reference, zones.reference);
@@ -1272,7 +1308,8 @@ async def get_output_page():
                 // Même verset (changement de thème/fond seulement) : pas de re-animation
                 const fullRef = getFullReference(data);
                 const key = fullRef + '|' + (data.text || '') + '|' + theme + '|' + (forcedStyle || '')
-                    + '|' + (overlayActif ? (data.overlay.updated_at + JSON.stringify(data.overlay.zones)) : '');
+                    + '|' + (overlayActif ? (data.overlay.updated_at
+                        + JSON.stringify(data.overlay.zones) + JSON.stringify(data.overlay.shapes)) : '');
                 if (key === currentKey) return;
                 currentKey = key;
 

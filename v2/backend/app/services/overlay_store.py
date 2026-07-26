@@ -50,6 +50,19 @@ _ALIGNS = ("left", "center", "right")
 _VALIGNS = ("top", "middle", "bottom")
 _FONTS = ("sans", "display", "serif", "mono")
 
+# Formes construites DANS VersePro, pour l'église qui n'a pas de graphiste.
+# Rendues en éléments vectoriels et non en image : nettes du 720p au 4K, et
+# modifiables sans repasser par un logiciel de dessin.
+# Valeurs de départ : le bandeau classique — panneau clair et étiquette posée
+# dessus à droite — que l'opérateur recolorie ensuite à ses couleurs.
+DEFAULT_SHAPES = [
+    {"x": 5.5, "y": 80.1, "w": 90.1, "h": 15.1, "fill": "#ffffff", "opacity": 0.96, "radius": 3.2},
+    {"x": 63.5, "y": 74.5, "w": 32.3, "h": 5.4, "fill": "#489e8c", "opacity": 1.0, "radius": 1.2},
+]
+# Un habillage raisonnable en compte deux ou trois ; la borne empêche qu'une
+# charge fabriquée fasse rendre des milliers d'éléments à l'écran de projection.
+MAX_SHAPES = 12
+
 
 def png_dimensions(raw: bytes) -> tuple[int, int]:
     """Largeur/hauteur lues dans l'en-tête IHDR, sans dépendance d'image."""
@@ -167,6 +180,50 @@ def parse_zones(brut: Optional[str]) -> Dict[str, Dict[str, Any]]:
         nom: _sanitize_zone(donnees.get(nom), defaut)
         for nom, defaut in DEFAULT_ZONES.items()
     }
+
+
+def _hex_valide(valeur: Any, defaut: str) -> str:
+    couleur = str(valeur or "").strip()
+    if (len(couleur) in (4, 7, 9) and couleur.startswith("#")
+            and all(c in "0123456789abcdefABCDEF" for c in couleur[1:])):
+        return couleur
+    return defaut
+
+
+def _sanitize_shape(brut: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(brut, dict):
+        return None
+    return {
+        "x": _clamp(brut.get("x"), -20, 120, 0.0),
+        "y": _clamp(brut.get("y"), -20, 120, 0.0),
+        "w": _clamp(brut.get("w"), 0.5, 140, 20.0),
+        "h": _clamp(brut.get("h"), 0.5, 140, 10.0),
+        "radius": _clamp(brut.get("radius"), 0, 50, 0.0),
+        "opacity": _clamp(brut.get("opacity"), 0, 1, 1.0),
+        "fill": _hex_valide(brut.get("fill"), "#ffffff"),
+    }
+
+
+def parse_shapes(brut: Optional[str]) -> list:
+    """Relit les formes enregistrées. Une liste vide est un choix valide :
+    elle signifie « pas de formes », pas « remets celles du départ »."""
+    if brut is None or brut == "":
+        return [dict(f) for f in DEFAULT_SHAPES]
+    try:
+        donnees = json.loads(brut)
+    except (TypeError, ValueError):
+        logger.warning("Formes d'habillage illisibles ; valeurs par défaut appliquées.")
+        return [dict(f) for f in DEFAULT_SHAPES]
+    if not isinstance(donnees, list):
+        return [dict(f) for f in DEFAULT_SHAPES]
+    formes = [f for f in (_sanitize_shape(b) for b in donnees[:MAX_SHAPES]) if f]
+    return formes
+
+
+def dump_shapes(formes: Any) -> str:
+    if isinstance(formes, str):
+        return json.dumps(parse_shapes(formes))
+    return json.dumps(parse_shapes(json.dumps(formes)))
 
 
 def dump_zones(zones: Any) -> str:

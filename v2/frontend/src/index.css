@@ -1519,6 +1519,16 @@ body {
   outline: 1px dashed rgba(255,255,255,0.45); outline-offset: -1px;
 }
 .overlay-box.is-selected { outline: 2px solid var(--accent, #f0a868); }
+/* Une forme non sélectionnée ne montre aucun contour : l'aperçu doit ressembler
+   à la projection, pas à un plan de construction. */
+.overlay-box--shape { outline: none; }
+.overlay-box--shape.is-selected { outline: 2px solid var(--accent, #f0a868); }
+.overlay-box--shape .overlay-box-tag,
+.overlay-box--shape .overlay-handle { opacity: 0; transition: opacity 120ms; }
+.overlay-box--shape:hover .overlay-box-tag,
+.overlay-box--shape:hover .overlay-handle,
+.overlay-box--shape.is-selected .overlay-box-tag,
+.overlay-box--shape.is-selected .overlay-handle { opacity: 1; }
 .overlay-box-text { display: block; width: 100%; white-space: pre-wrap; }
 .overlay-vnum { font-size: 0.55em; vertical-align: super; line-height: 0; margin-right: 0.06em; }
 .overlay-box-tag {

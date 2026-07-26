@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # Zones de texte de l'habillage personnalisé (JSON, pourcentages du cadre).
     # Vide = valeurs de départ de overlay_store.DEFAULT_ZONES.
     OVERLAY_ZONES: str = ""
+    # Formes vectorielles construites dans VersePro (JSON). Vide = formes de
+    # départ ; une liste vide explicite « [] » signifie « aucune forme ».
+    OVERLAY_SHAPES: str = ""
     PROJECTION_STYLE: str = "default"
     SHOW_BIBLE_VERSION: bool = True
     DUAL_TRANSLATIONS: str = "LSG,KJF"

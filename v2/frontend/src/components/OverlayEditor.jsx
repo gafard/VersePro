@@ -35,6 +35,8 @@ export default function OverlayEditor() {
   const { addToast } = useStore()
   const [etat, setEtat] = useState(null)
   const [zones, setZones] = useState(null)
+  const [formes, setFormes] = useState([])
+  // Sélection : 'text' / 'reference' pour une zone, ou l'indice d'une forme.
   const [selection, setSelection] = useState('text')
   const [occupe, setOccupe] = useState('')
   const cadreRef = useRef(null)
@@ -46,6 +48,7 @@ export default function OverlayEditor() {
       const d = await r.json()
       setEtat(d)
       setZones(d.zones)
+      setFormes(d.shapes || [])
     } catch {
       addToast({ message: 'Habillage : serveur injoignable', kind: 'error' })
     }
@@ -95,18 +98,20 @@ export default function OverlayEditor() {
     }
   }
 
-  // ── Glisser-déposer des zones ──────────────────────────────────────────────
-  const demarrerGlisse = (evenement, cle, mode) => {
+  // ── Glisser-déposer (zones de texte ET formes) ─────────────────────────────
+  // `cible` vaut 'text' / 'reference' pour une zone, ou l'indice d'une forme.
+  const demarrerGlisse = (evenement, cible, mode) => {
     evenement.preventDefault()
     evenement.stopPropagation()
-    setSelection(cle)
+    setSelection(cible)
     const cadre = cadreRef.current?.getBoundingClientRect()
     if (!cadre) return
+    const depart = typeof cible === 'number' ? formes[cible] : zones[cible]
     glisseRef.current = {
-      cle, mode, cadre,
+      cible, mode, cadre,
       departX: evenement.clientX,
       departY: evenement.clientY,
-      zone: { ...zones[cle] }
+      boite: { ...depart }
     }
     evenement.currentTarget.setPointerCapture?.(evenement.pointerId)
   }
@@ -117,17 +122,22 @@ export default function OverlayEditor() {
       if (!g) return
       const dx = ((evenement.clientX - g.departX) / g.cadre.width) * 100
       const dy = ((evenement.clientY - g.departY) / g.cadre.height) * 100
-      setZones((precedent) => {
-        const z = { ...precedent[g.cle] }
+      const deplace = (b) => {
+        const n = { ...b }
         if (g.mode === 'move') {
-          z.x = borne(g.zone.x + dx, -10, 110)
-          z.y = borne(g.zone.y + dy, -10, 110)
+          n.x = borne(g.boite.x + dx, -10, 110)
+          n.y = borne(g.boite.y + dy, -10, 110)
         } else {
-          z.w = borne(g.zone.w + dx, 3, 130)
-          z.h = borne(g.zone.h + dy, 2, 130)
+          n.w = borne(g.boite.w + dx, 1, 130)
+          n.h = borne(g.boite.h + dy, 1, 130)
         }
-        return { ...precedent, [g.cle]: z }
-      })
+        return n
+      }
+      if (typeof g.cible === 'number') {
+        setFormes((p) => p.map((f, i) => (i === g.cible ? deplace(f) : f)))
+      } else {
+        setZones((p) => ({ ...p, [g.cible]: deplace(p[g.cible]) }))
+      }
     }
     const relacher = () => { glisseRef.current = null }
     window.addEventListener('pointermove', bouger)
@@ -136,7 +146,40 @@ export default function OverlayEditor() {
       window.removeEventListener('pointermove', bouger)
       window.removeEventListener('pointerup', relacher)
     }
-  }, [])
+  }, [formes, zones])
+
+  // ── Formes ─────────────────────────────────────────────────────────────────
+  const majForme = (index, champ, valeur) =>
+    setFormes((p) => p.map((f, i) => (i === index ? { ...f, [champ]: valeur } : f)))
+
+  const ajouterForme = () => {
+    setFormes((p) => {
+      if (p.length >= 12) {
+        addToast({ message: 'Douze formes au maximum', kind: 'error' })
+        return p
+      }
+      setSelection(p.length)
+      return [...p, { x: 20, y: 40, w: 40, h: 12, fill: '#ffffff', opacity: 1, radius: 1.5 }]
+    })
+  }
+
+  const supprimerForme = (index) => {
+    setFormes((p) => p.filter((_, i) => i !== index))
+    setSelection('text')
+  }
+
+  // L'ordre du tableau EST l'ordre d'empilement : monter une forme, c'est la
+  // faire passer devant celle qui la suit.
+  const deplacerForme = (index, sens) => {
+    setFormes((p) => {
+      const cible = index + sens
+      if (cible < 0 || cible >= p.length) return p
+      const copie = [...p]
+      ;[copie[index], copie[cible]] = [copie[cible], copie[index]]
+      setSelection(cible)
+      return copie
+    })
+  }
 
   const majZone = (cle, champ, valeur) =>
     setZones((p) => ({ ...p, [cle]: { ...p[cle], [champ]: valeur } }))
@@ -147,10 +190,10 @@ export default function OverlayEditor() {
       const r = await fetch(`${BACKEND_BASE}/api/v1/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ overlay_zones: zones })
+        body: JSON.stringify({ overlay_zones: zones, overlay_shapes: formes })
       })
       if (!r.ok) throw new Error(`Erreur ${r.status}`)
-      addToast({ message: 'Zones enregistrées — visibles à la prochaine projection', kind: 'success' })
+      addToast({ message: 'Habillage enregistré — visible à la prochaine projection', kind: 'success' })
       charger()
     } catch (err) {
       addToast({ message: `Enregistrement impossible : ${err.message}`, kind: 'error' })
@@ -161,7 +204,7 @@ export default function OverlayEditor() {
 
   if (!zones) return <p className="settings-muted-note">Chargement de l'habillage…</p>
 
-  const zoneActive = zones[selection]
+  const zoneActive = typeof selection === 'string' ? zones[selection] : null
   const installe = Boolean(etat?.installed)
 
   return (
@@ -192,6 +235,22 @@ export default function OverlayEditor() {
           <img className="overlay-frame-img" alt=""
             src={`${BACKEND_BASE}/overlay.png?v=${etat.updated_at}`} />
         )}
+        {/* Formes sous les textes, dans l'ordre du tableau : ce qu'on voit ici
+            est exactement l'empilement de la projection. */}
+        {formes.map((f, i) => (
+          <div
+            key={i}
+            className={`overlay-box overlay-box--shape ${selection === i ? 'is-selected' : ''}`}
+            style={{
+              left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%`,
+              background: f.fill, opacity: f.opacity, borderRadius: `${f.radius}cqh`
+            }}
+            onPointerDown={(e) => demarrerGlisse(e, i, 'move')}
+          >
+            <span className="overlay-box-tag">Forme {i + 1}</span>
+            <span className="overlay-handle" onPointerDown={(e) => demarrerGlisse(e, i, 'resize')} />
+          </div>
+        ))}
         {ZONES.map(({ cle, nom }) => {
           const z = zones[cle]
           const estTexte = cle === 'text'
@@ -239,8 +298,47 @@ export default function OverlayEditor() {
             onClick={() => setSelection(cle)}
           >{nom}</button>
         ))}
+        {formes.map((_, i) => (
+          <button
+            key={i}
+            className={`vp-btn vp-btn--sm ${selection === i ? 'vp-btn--primary' : ''}`}
+            onClick={() => setSelection(i)}
+          >Forme {i + 1}</button>
+        ))}
+        <button className="vp-btn vp-btn--sm" onClick={ajouterForme}>+ Forme</button>
       </div>
 
+      {typeof selection === 'number' && formes[selection] && (
+        <div className="settings-form-grid overlay-controls">
+          <label>
+            <small>Couleur de remplissage</small>
+            <input type="color" value={formes[selection].fill}
+              onChange={(e) => majForme(selection, 'fill', e.target.value)} />
+          </label>
+          <label>
+            <small>Opacité</small>
+            <input type="range" min="0" max="1" step="0.01" value={formes[selection].opacity}
+              onChange={(e) => majForme(selection, 'opacity', Number(e.target.value))} />
+            <span className="settings-muted-note">{Math.round(formes[selection].opacity * 100)} %</span>
+          </label>
+          <label>
+            <small>Arrondi des angles</small>
+            <input type="range" min="0" max="20" step="0.1" value={formes[selection].radius}
+              onChange={(e) => majForme(selection, 'radius', Number(e.target.value))} />
+            <span className="settings-muted-note">{formes[selection].radius.toFixed(1)}</span>
+          </label>
+          <label>
+            <small>Ordre et suppression</small>
+            <span className="overlay-tabs">
+              <button className="vp-btn vp-btn--sm" onClick={() => deplacerForme(selection, -1)}>↓ Dessous</button>
+              <button className="vp-btn vp-btn--sm" onClick={() => deplacerForme(selection, 1)}>↑ Dessus</button>
+              <button className="vp-btn vp-btn--sm vp-btn--danger" onClick={() => supprimerForme(selection)}>Supprimer</button>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {typeof selection === 'string' && (
       <div className="settings-form-grid overlay-controls">
         <label>
           <small>Taille (% de la hauteur)</small>
@@ -291,9 +389,10 @@ export default function OverlayEditor() {
           <span className="settings-muted-note">{zoneActive.line.toFixed(2)}</span>
         </label>
       </div>
+      )}
 
       <button className="vp-btn vp-btn--primary vp-btn--sm" onClick={enregistrer} disabled={occupe === 'enregistrement'}>
-        {occupe === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer les zones'}
+        {occupe === 'enregistrement' ? 'Enregistrement…' : 'Enregistrer l\'habillage'}
       </button>
       <span className="settings-muted-note">
         Déplacez une zone en la faisant glisser ; la poignée en bas à droite la redimensionne.

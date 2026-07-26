@@ -116,6 +116,45 @@ def test_un_alignement_inconnu_retombe_sur_le_defaut():
     assert zone["align"] == "center" and zone["valign"] == "middle" and zone["font"] == "sans"
 
 
+# ── Formes construites dans VersePro ─────────────────────────────────────────
+
+def test_formes_absentes_donnent_le_bandeau_de_depart():
+    formes = overlay_store.parse_shapes("")
+    assert len(formes) == 2
+    assert formes[0]["fill"] == "#ffffff"
+
+
+def test_une_liste_vide_signifie_aucune_forme():
+    """Distinct de « non configuré » : l'opérateur a le droit de tout retirer."""
+    assert overlay_store.parse_shapes("[]") == []
+
+
+def test_le_nombre_de_formes_est_borne():
+    """Une charge fabriquée ne doit pas faire rendre des milliers d'éléments."""
+    sale = json.dumps([{"x": 1, "y": 1, "w": 5, "h": 5}] * 500)
+    assert len(overlay_store.parse_shapes(sale)) == overlay_store.MAX_SHAPES
+
+
+def test_une_couleur_de_forme_hostile_est_rejetee():
+    sale = json.dumps([{"fill": "#fff; background-image:url(//pirate)"}])
+    assert overlay_store.parse_shapes(sale)[0]["fill"] == "#ffffff"
+
+
+def test_opacite_et_rayon_sont_bornes():
+    sale = json.dumps([{"opacity": 40, "radius": -12}])
+    forme = overlay_store.parse_shapes(sale)[0]
+    assert forme["opacity"] == 1.0 and forme["radius"] == 0.0
+
+
+def test_une_forme_qui_nest_pas_un_objet_est_ignoree():
+    assert overlay_store.parse_shapes(json.dumps(["texte", 42, None])) == []
+
+
+def test_les_formes_stockees_sont_deja_nettoyees():
+    stocke = json.loads(overlay_store.dump_shapes([{"fill": "url(javascript:0)", "w": 9999}]))
+    assert stocke[0]["fill"] == "#ffffff" and stocke[0]["w"] == 140
+
+
 def test_ce_qui_est_stocke_est_deja_nettoye():
     """dump_zones sérialise APRÈS nettoyage : la base ne contient rien d'hostile."""
     stocke = json.loads(overlay_store.dump_zones({"text": {"color": "javascript:alert(1)", "x": 5000}}))

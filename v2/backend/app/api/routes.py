@@ -59,6 +59,7 @@ class SettingsUpdate(BaseModel):
     propresenter_port: Optional[int] = None
     propresenter_message_name: Optional[str] = None
     overlay_zones: Optional[Any] = None
+    overlay_shapes: Optional[Any] = None
     deepgram_model: Optional[str] = None
     deepgram_language: Optional[str] = None
     ai_agent_enabled: Optional[bool] = None
@@ -418,7 +419,11 @@ async def get_overlay_status():
     """Habillage personnalisé : image installée et zones de texte."""
     from ..services import overlay_store
     from ..core.config import settings
-    return {**overlay_store.status(), "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES)}
+    return {
+        **overlay_store.status(),
+        "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES),
+        "shapes": overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
+    }
 
 
 @router.post("/overlay/image")
@@ -556,6 +561,7 @@ async def get_settings():
         "propresenter_port": settings.PROPRESENTER_PORT,
         "propresenter_message_name": settings.PROPRESENTER_MESSAGE_NAME,
         "overlay_zones": overlay_store.parse_zones(settings.OVERLAY_ZONES),
+        "overlay_shapes": overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
         "auto_send": settings.PROPRESENTER_AUTO_SEND,
         "sunday_safe_mode": settings.SUNDAY_SAFE_MODE,
         "shadow_mode": settings.SHADOW_MODE,
@@ -649,6 +655,11 @@ async def update_settings(settings_update: SettingsUpdate):
         # l'écran de projection, elles ne doivent jamais transporter n'importe quoi.
         settings.OVERLAY_ZONES = overlay_store.dump_zones(update["overlay_zones"])
         await db.set_setting("overlay_zones", settings.OVERLAY_ZONES)
+
+    if update.get("overlay_shapes") is not None:
+        from ..services import overlay_store
+        settings.OVERLAY_SHAPES = overlay_store.dump_shapes(update["overlay_shapes"])
+        await db.set_setting("overlay_shapes", settings.OVERLAY_SHAPES)
 
     if update.get("propresenter_message_name"):
         settings.PROPRESENTER_MESSAGE_NAME = update["propresenter_message_name"].strip()
