@@ -37,6 +37,7 @@ from .services.semantic_search import LocalSemanticService
 from .services.detection_fusion import fuse as fuse_detection, strip_attribution, recent_window
 from .services.reading_tracker import ReadingTracker
 from .services.secret_store import secret_store
+from .services import overlay_store
 from .outputs import OutputManager
 from .api.routes import router as api_router
 
@@ -125,7 +126,10 @@ async def broadcast_projection(text: str, reference: str, background: str | None
         "active_version_short": version_label(settings.BIBLE_VERSION, short=True),
         "show_version": settings.SHOW_BIBLE_VERSION,
         "style": settings.PROJECTION_STYLE,
-        "dual_translations": settings.DUAL_TRANSLATIONS
+        "dual_translations": settings.DUAL_TRANSLATIONS,
+        # Habillage personnalisé : l'écran n'a besoin que de savoir qu'une image
+        # existe, de sa version (anti-cache) et de l'emplacement des textes.
+        "overlay": {**overlay_store.status(), "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES)},
     }
 
     # Nouveau verset à l'écran : la lecture vivante repart de zéro
@@ -312,6 +316,22 @@ async def health_check():
 async def get_projection_page_legacy():
     """Redirige les anciennes requêtes d'affichage vers le nouvel endpoint Output unifié"""
     return RedirectResponse(url="/output")
+
+
+@app.get("/overlay.png")
+async def get_overlay_image():
+    """Sert l'habillage de l'église aux écrans (projection, OBS, aperçu)."""
+    from fastapi.responses import FileResponse, Response
+    if not overlay_store.IMAGE_PATH.is_file():
+        return Response(status_code=404)
+    # L'URL porte un paramètre de version (?v=mtime) : le navigateur peut donc
+    # garder l'image en cache sans jamais afficher l'ancienne après un
+    # remplacement — un habillage changé le samedi doit être visible le dimanche.
+    return FileResponse(
+        str(overlay_store.IMAGE_PATH),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 # Endpoints de Rendu d'Affichage Web Autonome (Outputs)
@@ -520,6 +540,86 @@ async def get_output_page():
             }
             body.theme-broadcast.style-cartouche #text.karaoke .w { color: rgba(255,255,255,0.34); }
             body.theme-broadcast.style-cartouche #text.karaoke .w.read { color: var(--ink); }
+
+            /* --- HABILLAGE PERSONNALISÉ -------------------------------------
+               L'église fournit son graphique ; VersePro n'y pose que le texte.
+               L'image occupe tout le cadre et les zones sont positionnées en
+               pourcentages, si bien que le réglage fait sur un portable reste
+               juste sur le vidéoprojecteur. Aucun style de VersePro ne s'y
+               applique : le design appartient entièrement au fichier fourni.  */
+            #overlay-layer { position: fixed; inset: 0; display: none; z-index: 5; }
+            body.has-overlay #overlay-layer { display: block; }
+            /* Le graphique remplace toute mise en scène : on masque le bloc
+               habituel plutôt que de le superposer à l'image. */
+            body.has-overlay #container { display: none !important; }
+            #overlay-image {
+                position: absolute; inset: 0;
+                width: 100%; height: 100%; object-fit: fill;
+            }
+            .overlay-zone {
+                position: absolute; display: flex; box-sizing: border-box;
+                overflow: hidden; text-shadow: none; white-space: pre-wrap;
+                font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+            }
+            .overlay-zone.font-display { font-family: var(--font-display); }
+            .overlay-zone.font-serif { font-family: Georgia, "Times New Roman", serif; }
+            .overlay-zone.font-mono { font-family: var(--font-mono); }
+            .overlay-zone .vnum {
+                display: inline; font-size: 0.55em; vertical-align: super;
+                line-height: 0; margin-right: 0.06em;
+            }
+
+            /* --- STYLE: BANDEAU ---------------------------------------------
+               Reproduction fidèle du bandeau demandé : panneau blanc quasi
+               pleine largeur, étiquette turquoise posée dessus à droite, verset
+               en marine gras précédé de son numéro en exposant.
+
+               Tout est dimensionné en unités de viewport, à rebours des autres
+               styles : ceux-ci héritent d'un rem figé à 16 px, si bien qu'ils
+               changent d'allure entre un 720p et un 4K. Un bandeau qu'on veut
+               identique trait pour trait doit garder ses proportions partout.
+
+               Mesures relevées sur la référence (2027 × 1148) : panneau à 90 %
+               de large et 15 % de haut, verset à 5 vh sur deux lignes serrées,
+               marges intérieures étroites, étiquette de 5,4 vh largement
+               respirée à l'horizontale et alignée sur le bord droit.          */
+            body.style-bandeau, body.style-agoe, body.style-agoe-logope { align-items: flex-end; justify-content: center; }
+            body.style-bandeau #container, body.style-agoe #container, body.style-agoe-logope #container {
+                width: 90%; max-width: none; background: none; border: none;
+                border-radius: 0; box-shadow: none; padding: 0; margin: 0 0 4.2vh 0;
+                display: flex; flex-direction: column; align-items: flex-end;
+                text-align: left; gap: 0; position: relative;
+            }
+            body.style-bandeau #reference, body.style-agoe #reference, body.style-agoe-logope #reference {
+                order: -1;
+                margin: 0 0 -1.4vh 0; z-index: 10; border: none; text-transform: none;
+                background: linear-gradient(90deg, #1fb98f 0%, #2ed7b0 100%); color: #ffffff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+                font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+                font-size: 2.7vh; font-weight: 700; letter-spacing: 0;
+                white-space: nowrap; padding: 0 4.8vw; text-align: center;
+                height: 5.2vh; line-height: 5.2vh;
+                border-radius: 1.3vh 1.3vh 0 1.3vh;
+                box-shadow: 0 4px 15px rgba(31, 185, 143, 0.35);
+            }
+            body.style-bandeau #text, body.style-agoe #text, body.style-agoe-logope #text {
+                width: 100%; margin: 0; box-sizing: border-box;
+                background: #ffffff; color: #0b1d45;
+                font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+                font-size: 4.8vh; font-weight: 700; line-height: 1.25;
+                text-shadow: none; padding: 2.2vh 2.5vw 2.2vh 1.8vw;
+                border-radius: 2.2vh 0 5vh 2.2vh;
+                box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4);
+            }
+            body.style-bandeau #text .vnum, body.style-agoe #text .vnum, body.style-agoe-logope #text .vnum {
+                display: inline; font-size: 0.6em; font-weight: 800; color: #0b1d45;
+                vertical-align: super; line-height: 0; margin-right: 0.08em;
+            }
+            body.style-bandeau #edition, body.style-agoe #edition, body.style-agoe-logope #edition { display: none; }
+            body.style-bandeau #text.karaoke .w, body.style-agoe #text.karaoke .w, body.style-agoe-logope #text.karaoke .w { color: rgba(11, 29, 69, 0.32); }
+            body.style-bandeau #text.karaoke .w.read, body.style-agoe #text.karaoke .w.read, body.style-agoe-logope #text.karaoke .w.read { color: #0b1d45; }
+
+            /* Le numéro de verset s'affiche sur les styles bandeau et agoe */
+            body:not(.style-bandeau):not(.style-agoe):not(.style-agoe-logope) #text .vnum { display: none; }
 
             /* --- STYLE: LIGNE DE BASE ---------------------------------------
                Filet pleine largeur sous le verset, référence à gauche et
@@ -991,6 +1091,13 @@ async def get_output_page():
         </style>
     </head>
     <body>
+        <!-- Habillage fourni par l'église : image plein cadre et zones de
+             texte. Reste vide et masqué tant qu'aucun PNG n'est installé. -->
+        <div id="overlay-layer">
+            <img id="overlay-image" alt="">
+            <div class="overlay-zone" id="overlay-text"></div>
+            <div class="overlay-zone" id="overlay-reference"></div>
+        </div>
         <div id="container">
             <div id="text">En attente d'affichage...</div>
             <div id="reference"></div>
@@ -1026,7 +1133,7 @@ async def get_output_page():
             let subtitleTimer = null;
 
             // Rendu du texte en mots individuels (Lecture vivante) — DOM sûr, pas d'innerHTML
-            function renderWords(text) {
+            function renderWords(text, verseNum) {
                 textEl.textContent = '';
                 // La lecture vivante éteint les mots non encore prononcés (34 %
                 // d'opacité). Poser « karaoke » dès le rendu affichait TOUT le
@@ -1035,6 +1142,15 @@ async def get_output_page():
                 // lecture qui ne venait pas. On n'arme le suivi qu'au premier
                 // événement de progression — voir applyProgress.
                 textEl.classList.remove('karaoke');
+                // Numéro de verset en exposant, à la manière d'une bible
+                // imprimée. Hors du flux des mots (.w) pour ne pas fausser le
+                // suivi karaoké, et masqué tant qu'un style ne l'appelle pas.
+                if (verseNum !== undefined && verseNum !== null && verseNum !== '') {
+                    const sup = document.createElement('sup');
+                    sup.className = 'vnum';
+                    sup.textContent = verseNum;
+                    textEl.appendChild(sup);
+                }
         (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
                     const span = document.createElement('span');
                     span.className = 'w';
@@ -1073,6 +1189,61 @@ async def get_output_page():
                 return ref;
             }
 
+            // ── Habillage personnalisé ───────────────────────────────────────
+            const overlayLayer = document.getElementById('overlay-layer');
+            const overlayImage = document.getElementById('overlay-image');
+            const overlayZones = {
+                text: document.getElementById('overlay-text'),
+                reference: document.getElementById('overlay-reference')
+            };
+            let overlayVersion = null;
+
+            function applyZone(el, zone) {
+                if (!el || !zone) return;
+                el.style.left = zone.x + '%';
+                el.style.top = zone.y + '%';
+                el.style.width = zone.w + '%';
+                el.style.height = zone.h + '%';
+                // La taille suit la HAUTEUR du cadre : c'est ce qui garde les
+                // proportions identiques d'un 720p à un 4K.
+                el.style.fontSize = zone.size + 'vh';
+                el.style.lineHeight = zone.line;
+                el.style.color = zone.color;
+                el.style.fontWeight = zone.weight;
+                el.style.textAlign = zone.align;
+                el.style.justifyContent =
+                    zone.align === 'center' ? 'center' : zone.align === 'right' ? 'flex-end' : 'flex-start';
+                el.style.alignItems =
+                    zone.valign === 'middle' ? 'center' : zone.valign === 'bottom' ? 'flex-end' : 'flex-start';
+                el.className = 'overlay-zone font-' + zone.font;
+            }
+
+            function renderOverlay(data) {
+                const info = data.overlay;
+                if (!info || !info.installed) {
+                    document.body.classList.remove('has-overlay');
+                    return false;
+                }
+                if (overlayVersion !== info.updated_at) {
+                    overlayVersion = info.updated_at;
+                    overlayImage.src = '/overlay.png?v=' + info.updated_at;
+                }
+                const zones = info.zones || {};
+                applyZone(overlayZones.text, zones.text);
+                applyZone(overlayZones.reference, zones.reference);
+                overlayZones.reference.textContent = getFullReference(data);
+                overlayZones.text.textContent = '';
+                if (data.verse_start !== undefined && data.verse_start !== null) {
+                    const sup = document.createElement('sup');
+                    sup.className = 'vnum';
+                    sup.textContent = data.verse_start;
+                    overlayZones.text.appendChild(sup);
+                }
+                overlayZones.text.appendChild(document.createTextNode(data.text || ''));
+                document.body.classList.add('has-overlay');
+                return true;
+            }
+
             function renderScene(data) {
                 const bg = forcedBg || data.background;
                 document.body.className = '';
@@ -1088,9 +1259,14 @@ async def get_output_page():
                     document.body.classList.add('style-' + forcedStyle);
                 }
 
+                // Après les classes : renderScene remet className à zéro, et
+                // « has-overlay » serait effacé s'il était posé plus tôt.
+                const overlayActif = renderOverlay(data);
+
                 // Même verset (changement de thème/fond seulement) : pas de re-animation
                 const fullRef = getFullReference(data);
-                const key = fullRef + '|' + (data.text || '') + '|' + theme + '|' + (forcedStyle || '');
+                const key = fullRef + '|' + (data.text || '') + '|' + theme + '|' + (forcedStyle || '')
+                    + '|' + (overlayActif ? (data.overlay.updated_at + JSON.stringify(data.overlay.zones)) : '');
                 if (key === currentKey) return;
                 currentKey = key;
 
@@ -1144,7 +1320,7 @@ async def get_output_page():
                             splitCols.appendChild(col);
                         });
                     } else {
-                        renderWords(data.text);
+                        renderWords(data.text, data.verse_start);
                         // Les styles « filet » et « souffle » portent l'édition dans
                         // un élément propre, en toutes lettres : « Louis Segond 1910 »
                         // plutôt qu'un « (LSG) » que personne dans l'assemblée ne sait

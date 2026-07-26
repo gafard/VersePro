@@ -469,9 +469,9 @@ export default function Settings() {
                     value={form.projection_style} 
                     onChange={(e) => updateField('projection_style', e.target.value)}
                   >
+                    <option value="agoe-logope">🔥 agoe-logope (Exact Trait pour Trait — Panneau blanc, étiquette émeraude & exposant)</option>
+                    <option value="bandeau">bandeau (Panneau blanc, étiquette turquoise)</option>
                     <option value="filet">filet (Recommandé — règle laiton, sans cadre)</option>
-                    <option value="cartouche">cartouche (Bloc laiton, registre télévision)</option>
-                    <option value="ligne">ligne (Filet pleine largeur, éditorial)</option>
                     <option value="default">default (Classique translucide)</option>
                     <option value="glass">✨ glass (Aero Dépoli Acrylique)</option>
                     <option value="neon-glow">✨ neon-glow (Cyberpunk épuré)</option>
