@@ -1,7 +1,50 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.js'
 import { BACKEND_BASE } from '../env.js'
 import OverlayEditor from './OverlayEditor.jsx'
+
+// Regroupement des réglages. L'ordre suit celui d'une mise en route : on
+// branche le micro, on choisit les moteurs, on règle ce qui s'affiche, on
+// connecte les sorties, et le reste ne sert qu'occasionnellement.
+const ONGLETS = [
+  { cle: 'audio', nom: 'Audio', note: 'micro, filtres' },
+  { cle: 'moteurs', nom: 'Moteurs', note: 'transcription, IA' },
+  { cle: 'projection', nom: 'Projection', note: 'thèmes, habillage' },
+  { cle: 'sorties', nom: 'Sorties', note: 'ProPresenter, NDI' },
+  { cle: 'avance', nom: 'Avancé', note: 'répétition, version' }
+]
+
+/**
+ * Aperçu d'un style de projection : la page /output elle-même, rendue en
+ * 1280×720 puis réduite. On ne laisse pas l'iframe s'adapter d'elle-même —
+ * les styles historiques sont dimensionnés en rem (base fixe de 16 px) et
+ * paraîtraient énormes dans une petite boîte ; à l'échelle, ils s'affichent
+ * comme sur le vidéoprojecteur.
+ */
+function StylePreview({ style }) {
+  const boite = useRef(null)
+  const [echelle, setEchelle] = useState(0.25)
+  useEffect(() => {
+    const el = boite.current
+    if (!el) return
+    const mesurer = () => setEchelle(el.clientWidth / 1280)
+    mesurer()
+    const observateur = new ResizeObserver(mesurer)
+    observateur.observe(el)
+    return () => observateur.disconnect()
+  }, [])
+  return (
+    <div className="style-preview" ref={boite}>
+      <iframe
+        key={style}
+        title={`Aperçu du style ${style}`}
+        src={`${BACKEND_BASE}/output?theme=broadcast&style=${style}`}
+        style={{ transform: `scale(${echelle})` }}
+        loading="lazy"
+      />
+    </div>
+  )
+}
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -46,6 +89,8 @@ export default function Settings() {
     propresenter_host: '127.0.0.1',
     propresenter_port: 1025,
     propresenter_message_name: 'VersePro',
+    ndi_enabled: false,
+    ndi_source_name: 'VersePro',
     deepgram_model: 'nova-2',
     deepgram_language: 'fr',
     ai_agent_enabled: true,
@@ -85,6 +130,16 @@ export default function Settings() {
   const [rehearseResults, setRehearseResults] = useState(null)
   const [rehearsing, setRehearsing] = useState(false)
   const [preparingLocal, setPreparingLocal] = useState('')
+  // Onglets de la console : onze cartes d'affilée obligeaient à faire défiler
+  // longtemps pour trouver un réglage. L'onglet est mémorisé — un bénévole qui
+  // revient tombe là où il s'était arrêté.
+  const [onglet, setOnglet] = useState(() => {
+    try { return localStorage.getItem('versepro_settings_tab') || 'audio' } catch { return 'audio' }
+  })
+  const changerOnglet = (cle) => {
+    setOnglet(cle)
+    try { localStorage.setItem('versepro_settings_tab', cle) } catch { /* stockage privé */ }
+  }
   const updateAudioDevice = (deviceId) => {
     setSelectedAudioDeviceId(deviceId)
     addToast({ message: 'Entrée micro mise à jour', kind: 'success' })
@@ -132,6 +187,8 @@ export default function Settings() {
       propresenter_host: settings.propresenter_host || '127.0.0.1',
       propresenter_port: settings.propresenter_port || 1025,
       propresenter_message_name: settings.propresenter_message_name || 'VersePro',
+      ndi_enabled: Boolean(settings.ndi?.enabled),
+      ndi_source_name: settings.ndi?.source_name || 'VersePro',
       deepgram_model: settings.deepgram_model || 'nova-2',
       deepgram_language: settings.deepgram_language || 'fr',
       ai_agent_enabled: Boolean(settings.ai_agent_enabled),
@@ -258,8 +315,26 @@ export default function Settings() {
         </div>
       </section>
 
-      <section className="settings-grid">
-        <div className="settings-card is-wide is-primary">
+      <nav className="settings-tabs" aria-label="Catégories de réglages">
+        {ONGLETS.map(({ cle, nom, note }) => (
+          <button
+            key={cle}
+            type="button"
+            className={`settings-tab ${onglet === cle ? 'is-active' : ''}`}
+            aria-current={onglet === cle ? 'page' : undefined}
+            onClick={() => changerOnglet(cle)}
+          >
+            <strong>{nom}</strong>
+            <small>{note}</small>
+          </button>
+        ))}
+      </nav>
+
+      {/* Le filtre est porté par la grille : chaque carte déclare sa catégorie
+          et le CSS masque les autres. Découper le JSX en dix fragments
+          conditionnels aurait multiplié les risques pour le même résultat. */}
+      <section className="settings-grid" data-active={onglet}>
+        <div data-cat="audio" className="settings-card is-wide is-primary">
           <div className="settings-card-head">
             <div>
               <span>Audio</span>
@@ -300,7 +375,7 @@ export default function Settings() {
           </span>
         </div>
 
-        <div className="settings-card is-wide">
+        <div data-cat="moteurs" className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
               <span>Intelligence locale</span>
@@ -400,7 +475,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <div className="settings-card is-wide">
+        <div data-cat="projection" className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
               <span>Projection</span>
@@ -439,7 +514,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <div className="settings-card is-wide">
+        <div data-cat="projection" className="settings-card is-wide">
           <span>Projection & Rendu</span>
           <h2>Thèmes & Personnalisation</h2>
           
@@ -481,6 +556,11 @@ export default function Settings() {
                     <option value="sage">sage (Sauge & Terracotta)</option>
                     <option value="split">split (Barre complète divisée)</option>
                   </select>
+                  {/* Aperçu RÉEL : la page de projection elle-même, forcée sur
+                      le style survolé par le menu. Une vignette dessinée à côté
+                      aurait fini par mentir dès qu'un style change. */}
+                  <span className="settings-muted-note">Aperçu du style sélectionné, tel qu'il sera projeté :</span>
+                  <StylePreview style={form.projection_style} />
                 </label>
               ) : (
                 <div style={{ opacity: 0.4, pointerEvents: 'none' }}>
@@ -572,7 +652,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <label className="settings-card">
+        <label data-cat="projection" className="settings-card">
           <span>Bible</span>
           <h2>Version par défaut</h2>
           <select value={form.bible_version} onChange={(e) => updateField('bible_version', e.target.value)}>
@@ -584,7 +664,51 @@ export default function Settings() {
           </select>
         </label>
 
-        <div className="settings-card">
+        <div data-cat="sorties" className="settings-card">
+          <div className="settings-card-head">
+            <div>
+              <span>NDI</span>
+              <h2>Diffusion vers le mélangeur</h2>
+            </div>
+            <span className={`vp-chip ${settings?.ndi?.sending ? 'is-ok' : settings?.ndi?.available ? '' : 'is-warn'}`}>
+              {settings?.ndi?.sending ? 'À l\'antenne' : settings?.ndi?.available ? 'Prêt' : 'Indisponible'}
+            </span>
+          </div>
+          <p>
+            Envoie le bandeau — habillage compris, fond transparent — sur le réseau
+            local. La source apparaît dans vMix, OBS ou TriCaster sans câble ni
+            capture d'écran. L'image diffusée est identique à celle de l'écran.
+          </p>
+          {settings?.ndi?.available ? (
+            <>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.ndi_enabled}
+                  onChange={(e) => updateField('ndi_enabled', e.target.checked)}
+                />
+                <span><strong>Activer la sortie NDI</strong></span>
+              </label>
+              <label>
+                <small>Nom de la source</small>
+                <input
+                  value={form.ndi_source_name}
+                  onChange={(e) => updateField('ndi_source_name', e.target.value)}
+                />
+                <span className="settings-muted-note">
+                  Nom affiché dans la liste des sources du mélangeur.
+                </span>
+              </label>
+            </>
+          ) : (
+            <span className="settings-error-note">
+              NDI n'est pas disponible sur ce poste{settings?.ndi?.last_error ? ` : ${settings.ndi.last_error}` : ''}.
+              Installez le runtime NDI de Vizrt, puis relancez VersePro.
+            </span>
+          )}
+        </div>
+
+        <div data-cat="sorties" className="settings-card">
           <span>ProPresenter</span>
           <h2>Connexion locale</h2>
           <div className="settings-two-cols">
@@ -618,7 +742,7 @@ export default function Settings() {
           </label>
         </div>
 
-        <div className="settings-card">
+        <div data-cat="moteurs" className="settings-card">
           <span>Deepgram</span>
           <h2>Transcription cloud</h2>
           <div className="settings-two-cols">
@@ -666,7 +790,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <div className="settings-card is-wide">
+        <div data-cat="moteurs" className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
               <span>Analyse intelligente</span>
@@ -780,7 +904,7 @@ export default function Settings() {
             </label>
           </div>
         </div>
-        <div className="settings-card">
+        <div data-cat="audio" className="settings-card">
           <div className="settings-card-head">
             <div>
               <span>Audio</span>
@@ -803,7 +927,7 @@ export default function Settings() {
           </p>
         </div>
 
-        <div className="settings-card">
+        <div data-cat="avance" className="settings-card">
           <span>Avant le culte</span>
           <h2>Mode répétition</h2>
           <p className="settings-rehearsal-copy">
@@ -841,7 +965,7 @@ export default function Settings() {
         </div>
       </section>
 
-      {versionInfo && (
+      {versionInfo && onglet === 'avance' && (
         <section className="settings-section">
           <div className="settings-section-head">
             <span className="settings-eyebrow">à propos</span>

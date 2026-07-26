@@ -35,7 +35,10 @@ class OutputManager:
             input_id=settings.VMIX_INPUT_ID
         ))
         self.register_output("obs", OBSOutput(enabled=False))
-        self.register_output("ndi", NDIOutput(enabled=settings.NDI_ENABLED))
+        self.register_output("ndi", NDIOutput(
+            enabled=settings.NDI_ENABLED,
+            source_name=settings.NDI_SOURCE_NAME,
+        ))
 
         # Connexions de démarrage
         for name, output in self.outputs.items():

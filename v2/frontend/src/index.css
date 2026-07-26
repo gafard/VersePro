@@ -1493,6 +1493,48 @@ body {
   margin-top: 6px;
   line-height: 1.45;
 }
+/* ── Onglets de la console de réglages ──────────────────────────────────── */
+.settings-tabs {
+  display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 18px;
+  padding: 5px; border-radius: 12px;
+  background: var(--surface-1, rgba(255,255,255,0.03));
+  border: 1px solid var(--border-weak, rgba(255,255,255,0.08));
+}
+.settings-tab {
+  flex: 1 1 130px; display: flex; flex-direction: column; gap: 1px;
+  padding: 9px 14px; border: 0; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--vp-text-dim); text-align: left;
+  font: inherit; transition: background 140ms, color 140ms;
+}
+.settings-tab strong { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.settings-tab small { font-size: 10.5px; opacity: 0.72; }
+.settings-tab:hover { background: rgba(255,255,255,0.04); color: inherit; }
+.settings-tab.is-active {
+  background: var(--surface-2, rgba(255,255,255,0.08));
+  color: inherit; box-shadow: inset 0 0 0 1px var(--border-weak, rgba(255,255,255,0.1));
+}
+.settings-tab.is-active strong { color: var(--accent, #f0a868); }
+/* Chaque carte déclare sa catégorie ; la grille n'affiche que l'active. */
+.settings-grid[data-active] > [data-cat] { display: none; }
+.settings-grid[data-active="audio"] > [data-cat="audio"],
+.settings-grid[data-active="moteurs"] > [data-cat="moteurs"],
+.settings-grid[data-active="projection"] > [data-cat="projection"],
+.settings-grid[data-active="sorties"] > [data-cat="sorties"],
+.settings-grid[data-active="avance"] > [data-cat="avance"] { display: block; }
+
+/* Aperçu de style : la page de projection réelle, réduite. Le zoom garde les
+   proportions 16:9 pour que les tailles en vh restent fidèles. */
+.style-preview {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; margin-top: 8px;
+  border: 1px solid var(--border-weak, rgba(255,255,255,0.12));
+  border-radius: 10px; overflow: hidden; background: #000;
+}
+.style-preview iframe {
+  position: absolute; top: 0; left: 0;
+  width: 1280px; height: 720px; border: 0;
+  transform-origin: top left; pointer-events: none;
+}
+
 /* ── Éditeur d'habillage : PNG de l'église + zones de texte ─────────────── */
 .overlay-editor { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
 .overlay-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

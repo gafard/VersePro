@@ -60,6 +60,8 @@ class SettingsUpdate(BaseModel):
     propresenter_message_name: Optional[str] = None
     overlay_zones: Optional[Any] = None
     overlay_shapes: Optional[Any] = None
+    ndi_enabled: Optional[bool] = None
+    ndi_source_name: Optional[str] = None
     deepgram_model: Optional[str] = None
     deepgram_language: Optional[str] = None
     ai_agent_enabled: Optional[bool] = None
@@ -562,6 +564,10 @@ async def get_settings():
         "propresenter_message_name": settings.PROPRESENTER_MESSAGE_NAME,
         "overlay_zones": overlay_store.parse_zones(settings.OVERLAY_ZONES),
         "overlay_shapes": overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
+        "ndi": (output_manager.outputs["ndi"].status()
+                if output_manager and "ndi" in output_manager.outputs
+                else {"available": False, "enabled": False, "sending": False,
+                      "source_name": settings.NDI_SOURCE_NAME, "last_error": "sortie absente"}),
         "auto_send": settings.PROPRESENTER_AUTO_SEND,
         "sunday_safe_mode": settings.SUNDAY_SAFE_MODE,
         "shadow_mode": settings.SHADOW_MODE,
@@ -655,6 +661,23 @@ async def update_settings(settings_update: SettingsUpdate):
         # l'écran de projection, elles ne doivent jamais transporter n'importe quoi.
         settings.OVERLAY_ZONES = overlay_store.dump_zones(update["overlay_zones"])
         await db.set_setting("overlay_zones", settings.OVERLAY_ZONES)
+
+    if update.get("ndi_source_name"):
+        settings.NDI_SOURCE_NAME = update["ndi_source_name"].strip()[:60]
+        await db.set_setting("ndi_source_name", settings.NDI_SOURCE_NAME)
+
+    if update.get("ndi_enabled") is not None:
+        settings.NDI_ENABLED = bool(update["ndi_enabled"])
+        await db.set_setting("ndi_enabled", settings.NDI_ENABLED)
+        if output_manager and "ndi" in output_manager.outputs:
+            pilote = output_manager.outputs["ndi"]
+            pilote.source_name = settings.NDI_SOURCE_NAME
+            pilote.enabled = settings.NDI_ENABLED
+            # Éteindre doit libérer la source tout de suite : un mélangeur qui
+            # voit encore « VersePro » alors que la sortie est coupée ferait
+            # perdre du temps à l'opérateur.
+            if not settings.NDI_ENABLED:
+                pilote.stop_sending()
 
     if update.get("overlay_shapes") is not None:
         from ..services import overlay_store

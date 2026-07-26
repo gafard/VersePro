@@ -1,176 +1,207 @@
-import os
-import sys
-import numpy as np
-from typing import Dict, Any
-from loguru import logger
-from .base import BaseOutput
-from PIL import Image, ImageDraw, ImageFont
+"""Sortie NDI : le bandeau de l'église diffusé sur le réseau de la régie.
 
-# Chargement robuste de NDI
+Deux différences avec la version précédente, qui ne servait à personne :
+
+  • le rendu n'est plus un design codé en dur (boîte sombre, filet indigo) mais
+    l'habillage RÉEL — image, formes et zones de texte — partagé avec l'écran de
+    projection. Un mélangeur branché en NDI reçoit ce que l'assemblée voit ;
+
+  • l'émission est continue. NDI n'est pas un protocole d'images isolées : un
+    récepteur qui ne reçoit plus rien considère la source perdue et décroche.
+    Un fil d'entretien réémet donc la dernière trame à cadence réduite.
+"""
+
+import threading
+from typing import Any, Dict, Optional
+
+import numpy as np
+from loguru import logger
+
+from .base import BaseOutput
+from .ndi_render import rendre_habillage, vers_bgrx
+
 try:
     import NDIlib as ndi
     NDI_AVAILABLE = True
-except Exception as e:
-    logger.warning(f"⚠️ NDIlib non importable ou DLL NDI manquante : {e}")
+except Exception as exc:  # bibliothèque native absente : la sortie se désactive
+    logger.info(f"Sortie NDI indisponible sur ce poste : {exc}")
     NDI_AVAILABLE = False
 
+LARGEUR, HAUTEUR = 1920, 1080
+# 10 images par seconde : assez pour qu'un récepteur garde la source accrochée,
+# assez peu pour ne pas disputer le processeur à la reconnaissance vocale un
+# dimanche matin. La trame est réémise telle quelle, jamais redessinée.
+FPS_ENTRETIEN = 10
+
+
 class NDIOutput(BaseOutput):
-    """
-    Driver de sortie NDI (Network Device Interface) pour diffuser
-    les versets sur le réseau local avec canal alpha transparent.
-    """
-    def __init__(self, enabled: bool = False):
+    """Émetteur NDI « VersePro » diffusant l'habillage avec son canal alpha."""
+
+    def __init__(self, enabled: bool = False, source_name: str = "VersePro"):
         super().__init__(name="ndi", enabled=enabled)
+        self.source_name = source_name
         self.functional = False
-        self.ndi_send = None
-        
+        self.last_error = "" if NDI_AVAILABLE else "NDIlib absent de ce poste"
+        self._send = None
+        self._frame_lock = threading.Lock()
+        self._frame: Optional[np.ndarray] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+
         if NDI_AVAILABLE:
             try:
                 if ndi.initialize():
                     self.functional = True
-                    logger.info("🟢 Service NDI initialisé avec succès.")
+                    logger.info("🟢 NDI initialisé.")
                 else:
-                    logger.warning("⚠️ Échec de l'initialisation de NDIlib.")
-            except Exception as e:
-                logger.error(f"❌ Erreur lors de l'initialisation de NDIlib : {e}")
+                    self.last_error = "ndi.initialize() a échoué (runtime NDI absent ?)"
+                    logger.warning(f"⚠️ {self.last_error}")
+            except Exception as exc:
+                self.last_error = f"Initialisation NDI impossible : {exc}"
+                logger.error(f"❌ {self.last_error}")
+
+    # ── Émetteur et fil d'entretien ──────────────────────────────────────────
 
     def _ensure_sender(self) -> bool:
         if not self.functional or not self.enabled:
             return False
-        if self.ndi_send is not None:
+        if self._send is not None:
             return True
-            
         try:
-            send_settings = ndi.SendCreate()
-            send_settings.ndi_name = 'VersePro - Projection'
-            self.ndi_send = ndi.send_create(send_settings)
-            if self.ndi_send:
-                logger.info("🟢 Source d'émission NDI 'VersePro - Projection' créée.")
-                return True
-        except Exception as e:
-            logger.error(f"❌ Impossible de créer l'émetteur NDI : {e}")
-        return False
+            reglages = ndi.SendCreate()
+            reglages.ndi_name = self.source_name
+            self._send = ndi.send_create(reglages)
+            if not self._send:
+                self.last_error = "Création de la source NDI refusée"
+                return False
+            logger.info(f"🟢 Source NDI « {self.source_name} » en ligne.")
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._boucle_entretien, daemon=True)
+            self._thread.start()
+            return True
+        except Exception as exc:
+            self.last_error = f"Émetteur NDI impossible : {exc}"
+            logger.error(f"❌ {self.last_error}")
+            return False
 
-    def _render_frame(self, reference: str, text: str) -> np.ndarray:
-        width, height = 1920, 1080
-        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        
-        # Tentative de chargement de polices système
-        font_path = "/System/Library/Fonts/Helvetica.ttc"
-        if not os.path.exists(font_path):
-            font_path = "/System/Library/Fonts/Supplemental/Arial.ttf"
-            
-        try:
-            if os.path.exists(font_path):
-                font_title = ImageFont.truetype(font_path, 42)
-                font_text = ImageFont.truetype(font_path, 34)
-            else:
-                font_title = ImageFont.load_default(size=40)
-                font_text = ImageFont.load_default(size=30)
-        except Exception:
-            font_title = ImageFont.load_default()
-            font_text = ImageFont.load_default()
+    def _emettre(self, trame: np.ndarray) -> None:
+        video = ndi.VideoFrameV2()
+        video.xres, video.yres = LARGEUR, HAUTEUR
+        video.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRX
+        video.frame_format_type = ndi.FRAME_FORMAT_TYPE_PROGRESSIVE
+        video.picture_aspect_ratio = LARGEUR / HAUTEUR
+        video.data = trame
+        ndi.send_send_video_v2(self._send, video)
 
-        # Rendu Lower Thirds esthétique (style régie pro)
-        # Fond sombre semi-transparent
-        bg_height = 220
-        bg_y = height - bg_height - 60
-        
-        # Boîte de fond aux coins légèrement arrondis ou rectangles imbriqués
-        draw.rectangle([120, bg_y, width - 120, bg_y + bg_height], fill=(16, 17, 20, 220))
-        # Petite ligne d'accentuation lila sur le côté gauche
-        draw.rectangle([120, bg_y, 128, bg_y + bg_height], fill=(123, 131, 235, 255))
-        
-        # Référence (Lila/Indigo #7b83eb)
-        draw.text((150, bg_y + 24), reference, fill=(123, 131, 235, 255), font=font_title)
-        
-        # Découpage du texte du verset en lignes
-        words = text.split(' ')
-        lines = []
-        current_line = ""
-        for word in words:
-            test_line = current_line + " " + word if current_line else word
-            w = draw.textlength(test_line, font=font_text)
-            if w < (width - 340):
-                current_line = test_line
-            else:
-                lines.append(current_line)
-                current_line = word
-        if current_line:
-            lines.append(current_line)
-            
-        y_offset = bg_y + 85
-        for line in lines[:3]:  # Max 3 lignes dans le lower-third
-            draw.text((150, y_offset), line, fill=(240, 241, 243, 255), font=font_text)
-            y_offset += 42
-            
-        # Conversion RGBA en BGRX (format standard requis par NDI)
-        arr = np.array(img)
-        bgrx = np.empty((height, width, 4), dtype=np.uint8)
-        bgrx[..., 0] = arr[..., 2] # B
-        bgrx[..., 1] = arr[..., 1] # G
-        bgrx[..., 2] = arr[..., 0] # R
-        bgrx[..., 3] = arr[..., 3] # X (alpha canal conservé)
-        return bgrx
+    def _boucle_entretien(self) -> None:
+        periode = 1.0 / FPS_ENTRETIEN
+        while not self._stop.wait(periode):
+            with self._frame_lock:
+                trame = self._frame
+                envoyeur = self._send
+            if trame is None or envoyeur is None:
+                continue
+            try:
+                self._emettre(trame)
+            except Exception as exc:
+                logger.debug(f"Entretien NDI interrompu : {exc}")
+                return
+
+    # ── API de sortie ────────────────────────────────────────────────────────
+
+    def _composer(self, reference: str, texte: str, numero: Any) -> np.ndarray:
+        from ..core.config import settings
+        from ..services import overlay_store
+        image = overlay_store.IMAGE_PATH if overlay_store.IMAGE_PATH.is_file() else None
+        rendu = rendre_habillage(
+            LARGEUR, HAUTEUR,
+            overlay_store.parse_zones(settings.OVERLAY_ZONES),
+            overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
+            reference, texte, numero,
+            str(image) if image else None,
+        )
+        return vers_bgrx(rendu)
 
     async def send_scene(self, scene: Dict[str, Any]) -> bool:
         if not self._ensure_sender():
             return False
-            
+        reference = scene.get("reference", "")
+        texte = scene.get("text", "")
+        if not reference and not texte:
+            return await self.clear()
         try:
-            reference = scene.get("reference", "")
-            text = scene.get("text", "")
-            if not reference or not text:
-                return await self.clear()
-                
-            frame_data = self._render_frame(reference, text)
-            
-            # Configuration de la frame NDI
-            video_frame = ndi.VideoFrameV2()
-            video_frame.xres = 1920
-            video_frame.yres = 1080
-            video_frame.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRX
-            video_frame.frame_format_type = ndi.FRAME_FORMAT_TYPE_PROGRESSIVE
-            video_frame.picture_aspect_ratio = 16.0 / 9.0
-            video_frame.data = frame_data
-            
-            # Envoi asynchrone
-            ndi.send_send_video_v2(self.ndi_send, video_frame)
+            import asyncio
+            # Le dessin d'une trame 1920×1080 prend quelques dizaines de
+            # millisecondes : hors de la boucle d'événements, qui sert le direct.
+            trame = await asyncio.to_thread(
+                self._composer, reference, texte, scene.get("verse_start")
+            )
+            with self._frame_lock:
+                self._frame = trame
+            self._emettre(trame)
             return True
-        except Exception as e:
-            logger.error(f"❌ Erreur lors de l'envoi de la trame NDI : {e}")
-        return False
+        except Exception as exc:
+            self.last_error = f"Envoi NDI impossible : {exc}"
+            logger.error(f"❌ {self.last_error}")
+            return False
 
     async def clear(self) -> bool:
         if not self._ensure_sender():
             return False
-            
         try:
-            # Envoyer une trame vide (transparente) pour vider l'écran
-            width, height = 1920, 1080
-            frame_data = np.zeros((height, width, 4), dtype=np.uint8)
-            
-            video_frame = ndi.VideoFrameV2()
-            video_frame.xres = width
-            video_frame.yres = height
-            video_frame.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRX
-            video_frame.data = frame_data
-            
-            ndi.send_send_video_v2(self.ndi_send, video_frame)
+            vide = np.zeros((HAUTEUR, LARGEUR, 4), dtype=np.uint8)
+            with self._frame_lock:
+                self._frame = vide
+            self._emettre(vide)
             return True
-        except Exception as e:
-            logger.error(f"❌ Erreur lors du nettoyage de l'écran NDI : {e}")
-        return False
+        except Exception as exc:
+            logger.error(f"❌ Nettoyage NDI impossible : {exc}")
+            return False
+
+    async def is_connected(self) -> bool:
+        return bool(self.enabled and self.functional and self._send is not None)
+
+    async def connect(self) -> bool:
+        return self._ensure_sender()
+
+    async def disconnect(self):
+        # Déconnexion ≠ extinction : le runtime reste prêt pour une réactivation.
+        self.stop_sending()
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "available": NDI_AVAILABLE and self.functional,
+            "enabled": self.enabled,
+            "sending": self._send is not None,
+            "source_name": self.source_name,
+            "last_error": self.last_error,
+        }
+
+    def stop_sending(self):
+        """Retire la source du réseau SANS libérer le runtime.
+
+        Éteindre puis rallumer la sortie doit rester possible sans redémarrer
+        VersePro : détruire le runtime ici rendait NDI « indisponible » jusqu'au
+        prochain lancement, et l'opérateur ne pouvait plus la réactiver.
+        """
+        self._stop.set()
+        fil = self._thread
+        if fil and fil.is_alive():
+            fil.join(timeout=1.0)
+        self._thread = None
+        if self._send:
+            try:
+                ndi.send_destroy(self._send)
+                logger.info("🔌 Source NDI retirée du réseau.")
+            except Exception as exc:
+                logger.debug(f"Libération de l'émetteur NDI : {exc}")
+            self._send = None
+        with self._frame_lock:
+            self._frame = None
 
     def close(self):
-        if self.ndi_send:
-            try:
-                ndi.send_destroy(self.ndi_send)
-                logger.info("🟢 Destructeur NDI appelé.")
-            except Exception as e:
-                logger.error(f"Erreur de libération NDI : {e}")
-            self.ndi_send = None
+        """Arrêt définitif : à l'extinction de l'application uniquement."""
+        self.stop_sending()
         if self.functional:
             try:
                 ndi.destroy()

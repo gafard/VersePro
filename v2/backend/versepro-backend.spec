@@ -86,9 +86,11 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    # NDIlib est optionnel (try/except) et tire une lib système lourde : on
-    # l'exclut du figé pour ne pas casser le build. La sortie NDI se dégrade.
-    excludes=["NDIlib", "PyInstaller"],
+    # NDIlib n'est plus exclu : sans lui, la sortie NDI ne pouvait exister que
+    # sur un poste de développement. La bibliothèque native reste facultative —
+    # le driver la charge dans un try/except et se désactive proprement si le
+    # runtime NDI de Vizrt n'est pas installé sur la machine.
+    excludes=["PyInstaller"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

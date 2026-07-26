@@ -153,8 +153,11 @@ class Settings(BaseSettings):
     VMIX_PORT: int = 8088
     VMIX_INPUT_ID: str = "VerseProTitle"
     
-    # NDI
+    # NDI — sortie réseau vers un mélangeur (vMix, OBS, TriCaster). Éteinte par
+    # défaut : elle émet en continu et n'a de sens que si une régie l'écoute.
     NDI_ENABLED: bool = False
+    # Nom sous lequel la source apparaît dans le mélangeur.
+    NDI_SOURCE_NAME: str = "VersePro"
 
     # OSC
     OSC_ENABLED: bool = False
