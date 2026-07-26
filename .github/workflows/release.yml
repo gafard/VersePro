@@ -65,6 +65,37 @@ jobs:
           ls dist/versepro-backend/_internal/data/semantic/index-*.npz
           echo "gel OK : ressources présentes"
 
+      # Test de démarrage RÉEL du backend figé. Vérifier la présence des
+      # fichiers ne prouve rien : un exécutable peut se construire puis mourir à
+      # l'exécution (DLL manquante, import cassé). Sans ce test, un backend mort
+      # part en production et l'utilisateur ne voit qu'un « Hors ligne ».
+      - name: Le backend figé démarre et répond
+        working-directory: v2/backend
+        run: |
+          set -u
+          EXE="dist/versepro-backend/versepro-backend"
+          [ -f "$EXE.exe" ] && EXE="$EXE.exe"
+          DATA="$(mktemp -d 2>/dev/null || echo "${TMP:-/tmp}/vp-smoke-$$")"
+          mkdir -p "$DATA"
+          VERSEPRO_HOST=127.0.0.1 VERSEPRO_PORT=17999 VERSEPRO_DATA_DIR="$DATA" \
+            "$EXE" > smoke.log 2>&1 &
+          PID=$!
+          # Le chargement (Bible, index flou, sémantique) prend ~16 s sur un PC
+          # modeste ; les runners partagés sont plus lents encore.
+          for i in $(seq 1 120); do
+            if curl -fsS -m 2 http://127.0.0.1:17999/api/v1/health > health.json 2>/dev/null; then
+              echo "✅ backend prêt après ${i}s :"; cat health.json; echo
+              kill $PID 2>/dev/null || true
+              exit 0
+            fi
+            kill -0 $PID 2>/dev/null || { echo "❌ le backend figé s'est arrêté seul"; cat smoke.log; exit 1; }
+            sleep 1
+          done
+          echo "❌ le backend figé n'a jamais répondu en 120 s"
+          cat smoke.log
+          kill $PID 2>/dev/null || true
+          exit 1
+
       # ── 2. Embarquer le backend dans les ressources Tauri ──
       - name: Copier le backend dans src-tauri/backend
         run: |
