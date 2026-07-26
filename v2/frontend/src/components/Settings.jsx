@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store.js'
 import { BACKEND_BASE } from '../env.js'
+import OverlayEditor from './OverlayEditor.jsx'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -491,6 +492,21 @@ export default function Settings() {
                   </label>
                 </div>
               )}
+            </div>
+
+            <div className="settings-divider">
+              <div className="settings-card-head">
+                <div>
+                  <small>Habillage de l'église</small>
+                  <p>
+                    Importez votre propre graphique (PNG à fond transparent, exporté de Canva,
+                    Photoshop…) : VersePro n'y pose que le verset et sa référence. Le rendu n'est
+                    pas une imitation de votre design — c'est votre fichier. Un habillage installé
+                    remplace le style choisi ci-dessus.
+                  </p>
+                </div>
+              </div>
+              <OverlayEditor />
             </div>
 
             <div className="flex flex-col gap-2 pt-2">

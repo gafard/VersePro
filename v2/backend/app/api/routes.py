@@ -58,6 +58,7 @@ class SettingsUpdate(BaseModel):
     propresenter_host: Optional[str] = None
     propresenter_port: Optional[int] = None
     propresenter_message_name: Optional[str] = None
+    overlay_zones: Optional[Any] = None
     deepgram_model: Optional[str] = None
     deepgram_language: Optional[str] = None
     ai_agent_enabled: Optional[bool] = None
@@ -85,6 +86,11 @@ class PrepareModelRequest(BaseModel):
 class SemanticSearchRequest(BaseModel):
     text: str
     top_k: int = 5
+
+
+class OverlayImageRequest(BaseModel):
+    """PNG de l'habillage, en data-URL ou base64 nu."""
+    data: str
 
 
 class ReferenceResponse(BaseModel):
@@ -407,6 +413,37 @@ async def get_vosk_status():
     }
 
 
+@router.get("/overlay/status")
+async def get_overlay_status():
+    """Habillage personnalisé : image installée et zones de texte."""
+    from ..services import overlay_store
+    from ..core.config import settings
+    return {**overlay_store.status(), "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES)}
+
+
+@router.post("/overlay/image")
+async def upload_overlay_image(request: OverlayImageRequest):
+    """Reçoit le PNG en base64 : évite la dépendance python-multipart, que le
+    backend figé n'embarque pas."""
+    import asyncio
+    from ..services import overlay_store
+    try:
+        raw = overlay_store.decode_upload(request.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        return await asyncio.to_thread(overlay_store.save_image, raw)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Écriture impossible : {exc}")
+
+
+@router.delete("/overlay/image")
+async def remove_overlay_image():
+    from ..services import overlay_store
+    overlay_store.delete_image()
+    return overlay_store.status()
+
+
 @router.post("/vosk/download")
 async def download_vosk_model():
     """Déclenche le téléchargement du modèle Vosk en tâche de fond"""
@@ -506,7 +543,8 @@ async def get_settings():
     from ..core.config import settings
     from ..main import ai_service, output_manager, semantic_service, whisper_service
     from ..services.secret_store import secret_store
-    
+    from ..services import overlay_store
+
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
         propresenter_connected = await output_manager.outputs["propresenter"].is_connected()
@@ -517,6 +555,7 @@ async def get_settings():
         "propresenter_host": settings.PROPRESENTER_HOST,
         "propresenter_port": settings.PROPRESENTER_PORT,
         "propresenter_message_name": settings.PROPRESENTER_MESSAGE_NAME,
+        "overlay_zones": overlay_store.parse_zones(settings.OVERLAY_ZONES),
         "auto_send": settings.PROPRESENTER_AUTO_SEND,
         "sunday_safe_mode": settings.SUNDAY_SAFE_MODE,
         "shadow_mode": settings.SHADOW_MODE,
@@ -604,6 +643,13 @@ async def update_settings(settings_update: SettingsUpdate):
             output_manager.outputs["propresenter"].port = settings.PROPRESENTER_PORT
             reconnect_propresenter = True
             
+    if update.get("overlay_zones") is not None:
+        from ..services import overlay_store
+        # Nettoyage AVANT stockage : les zones finissent en styles inline sur
+        # l'écran de projection, elles ne doivent jamais transporter n'importe quoi.
+        settings.OVERLAY_ZONES = overlay_store.dump_zones(update["overlay_zones"])
+        await db.set_setting("overlay_zones", settings.OVERLAY_ZONES)
+
     if update.get("propresenter_message_name"):
         settings.PROPRESENTER_MESSAGE_NAME = update["propresenter_message_name"].strip()
         await db.set_setting("propresenter_message_name", settings.PROPRESENTER_MESSAGE_NAME)

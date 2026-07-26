@@ -564,6 +564,7 @@ async def get_output_page():
             .overlay-zone.font-display { font-family: var(--font-display); }
             .overlay-zone.font-serif { font-family: Georgia, "Times New Roman", serif; }
             .overlay-zone.font-mono { font-family: var(--font-mono); }
+            .overlay-zone .overlay-inner { display: block; width: 100%; }
             .overlay-zone .vnum {
                 display: inline; font-size: 0.55em; vertical-align: super;
                 line-height: 0; margin-right: 0.06em;
@@ -1095,8 +1096,11 @@ async def get_output_page():
              texte. Reste vide et masqué tant qu'aucun PNG n'est installé. -->
         <div id="overlay-layer">
             <img id="overlay-image" alt="">
-            <div class="overlay-zone" id="overlay-text"></div>
-            <div class="overlay-zone" id="overlay-reference"></div>
+            <!-- Le texte vit dans un enfant : la zone est en flex pour son
+                 alignement vertical, et un flex y ferait de l'exposant un
+                 élément de rangée au lieu de le laisser couler dans la phrase. -->
+            <div class="overlay-zone" id="overlay-text"><span class="overlay-inner"></span></div>
+            <div class="overlay-zone" id="overlay-reference"><span class="overlay-inner"></span></div>
         </div>
         <div id="container">
             <div id="text">En attente d'affichage...</div>
@@ -1231,15 +1235,17 @@ async def get_output_page():
                 const zones = info.zones || {};
                 applyZone(overlayZones.text, zones.text);
                 applyZone(overlayZones.reference, zones.reference);
-                overlayZones.reference.textContent = getFullReference(data);
-                overlayZones.text.textContent = '';
+                const dedansRef = overlayZones.reference.querySelector('.overlay-inner');
+                const dedansTexte = overlayZones.text.querySelector('.overlay-inner');
+                dedansRef.textContent = getFullReference(data);
+                dedansTexte.textContent = '';
                 if (data.verse_start !== undefined && data.verse_start !== null) {
                     const sup = document.createElement('sup');
                     sup.className = 'vnum';
                     sup.textContent = data.verse_start;
-                    overlayZones.text.appendChild(sup);
+                    dedansTexte.appendChild(sup);
                 }
-                overlayZones.text.appendChild(document.createTextNode(data.text || ''));
+                dedansTexte.appendChild(document.createTextNode(data.text || ''));
                 document.body.classList.add('has-overlay');
                 return true;
             }

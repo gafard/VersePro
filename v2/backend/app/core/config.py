@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     UPDATE_CHECK_TIMEOUT: float = 6.0
 
     PROJECTION_THEME: str = "presentation"
+    # Zones de texte de l'habillage personnalisé (JSON, pourcentages du cadre).
+    # Vide = valeurs de départ de overlay_store.DEFAULT_ZONES.
+    OVERLAY_ZONES: str = ""
     PROJECTION_STYLE: str = "default"
     SHOW_BIBLE_VERSION: bool = True
     DUAL_TRANSLATIONS: str = "LSG,KJF"
