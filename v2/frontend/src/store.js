@@ -324,21 +324,31 @@ export const useStore = create((set, get) => ({
 
   checkBackendHealth: async () => {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 2500)
+    // Au démarrage, le backend empaqueté charge ses index (Bible, flou 64 Mo,
+    // sémantique 31k versets) et sa boucle peut rester bloquée plusieurs
+    // secondes — mesuré à ~6 s sur un PC Windows. Une patience de 2,5 s le
+    // déclarait « Hors ligne » alors qu'il démarrait normalement. On patiente
+    // franchement tant qu'on n'a jamais été connecté, puis on redevient vif
+    // pour détecter une vraie coupure pendant le direct.
+    const everConnected = get()._everConnected || get().connected
+    const timeout = setTimeout(() => controller.abort(), everConnected ? 2500 : 12000)
     try {
       const response = await fetch(`${BACKEND_BASE}/api/v1/health`, { signal: controller.signal })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       set({
         connected: true,
         backendUnreachable: false,
-        connectionStatus: 'connected'
+        connectionStatus: 'connected',
+        _everConnected: true
       })
       return true
     } catch {
       set({
         connected: false,
         backendUnreachable: true,
-        connectionStatus: get().isListening ? 'reconnecting' : 'disconnected'
+        // Tant que le backend n'a jamais répondu, on est en démarrage, pas en
+        // panne : le libellé « Hors ligne » alarmait à tort au premier lancement.
+        connectionStatus: (get().isListening || !everConnected) ? (everConnected ? 'reconnecting' : 'starting') : 'disconnected'
       })
       return false
     } finally {

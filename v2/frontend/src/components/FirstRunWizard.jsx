@@ -74,10 +74,18 @@ export default function FirstRunWizard({ onDone }) {
   const autoAdvanced = useRef(false)
 
   const pollStatuses = async () => {
+    // Sans délai, une requête émise pendant que le moteur charge ses index peut
+    // rester suspendue et figer le sondage. On abandonne au bout de 8 s : la
+    // tentative suivante (toutes les 1,5 s) reprendra la main.
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
     try {
-      const [vr, sr] = await Promise.all([fetch(`${BACKEND_BASE}/api/v1/vosk/status`), fetch(`${BACKEND_BASE}/api/v1/semantic/status`)])
+      const [vr, sr] = await Promise.all([
+        fetch(`${BACKEND_BASE}/api/v1/vosk/status`, { signal: controller.signal }),
+        fetch(`${BACKEND_BASE}/api/v1/semantic/status`, { signal: controller.signal })
+      ])
       setVosk(await vr.json()); setSem(await sr.json()); setBackendDown(false)
-    } catch { setBackendDown(true) } finally { setScanned(true) }
+    } catch { setBackendDown(true) } finally { clearTimeout(timeout); setScanned(true) }
   }
   useEffect(() => { pollStatuses(); const id = setInterval(pollStatuses, 1500); return () => clearInterval(id) }, [])
 
@@ -225,7 +233,10 @@ export default function FirstRunWizard({ onDone }) {
               </p>
 
               {backendDown && (
-                <p className="fw-warn">le moteur ne répond pas. lancez le backend puis{' '}
+                // Dans l'application empaquetée le moteur démarre seul, mais il
+                // charge d'abord ses index (~10 s sur un PC modeste) : dire
+                // « lancez le backend » n'aidait personne, c'était impossible à faire.
+                <p className="fw-warn">le moteur démarre encore — il charge la Bible et ses index. patientez quelques secondes, puis{' '}
                   <button className="vp-btn vp-btn--sm" onClick={pollStatuses}>réessayer</button></p>
               )}
 

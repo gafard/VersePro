@@ -417,12 +417,6 @@ export default function LiveDetection({ setActiveTab }) {
           </span>
         </div>
         <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
-        {item.explanation && (
-          <details className="live-card-explanation">
-            <summary>Pourquoi cette détection ?</summary>
-            <p>{item.explanation}</p>
-          </details>
-        )}
         <div className="live-card-foot">
           <span className="live-card-time">
             {new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

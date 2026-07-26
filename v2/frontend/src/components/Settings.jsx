@@ -28,6 +28,7 @@ export default function Settings() {
     prepareSemanticIndex,
     prepareWhisper,
     connected,
+    connectionStatus,
     audioDevices,
     selectedAudioDeviceId,
     setSelectedAudioDeviceId,
@@ -147,7 +148,9 @@ export default function Settings() {
   const statusCards = useMemo(() => ([
     {
       label: 'Serveur',
-      value: connected ? 'Connecté' : 'Hors ligne',
+      // Même nuance que l'en-tête : au premier lancement le moteur charge ses
+      // index pendant plusieurs secondes — « Hors ligne » faisait croire à une panne.
+      value: connected ? 'Connecté' : connectionStatus === 'starting' ? 'Démarrage' : 'Hors ligne',
       tone: connected ? 'good' : 'warn'
     },
     {
@@ -160,7 +163,7 @@ export default function Settings() {
       value: aiActive ? 'Active' : 'Inactive',
       tone: aiActive ? 'good' : 'neutral'
     }
-  ]), [connected, propresenterConnected, aiActive])
+  ]), [connected, connectionStatus, propresenterConnected, aiActive])
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }))

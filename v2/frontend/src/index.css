@@ -2632,14 +2632,6 @@ select:focus-visible,
 .preflight-row strong { color: var(--color-ink); }
 .preflight-row > span:last-child { color: var(--color-ink-muted); text-align: right; }
 
-.live-card-explanation {
-  margin: 0 0 var(--space-sm);
-  color: var(--vp-text-faint);
-  font-size: 11px;
-}
-.live-card-explanation summary { cursor: pointer; color: var(--vp-text-dim); }
-.live-card-explanation p { margin-top: var(--space-xs); line-height: 1.5; }
-
 @media (min-width: 1101px) {
   .live-shell { height: calc(100dvh - 124px); }
 }
