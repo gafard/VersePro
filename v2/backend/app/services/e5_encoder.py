@@ -76,12 +76,27 @@ class E5OnnxEncoder:
                         else:
                             self.download_progress = (idx * (100.0 / total))
                             
-                    urllib.request.urlretrieve(
-                        f"{self.REPO_URL}/{remote_path}", 
-                        str(dest) + ".part",
-                        reporthook=progress_hook
-                    )
+                    try:
+                        urllib.request.urlretrieve(
+                            f"{self.REPO_URL}/{remote_path}", 
+                            str(dest) + ".part",
+                            reporthook=progress_hook
+                        )
+                    except Exception as ssl_err:
+                        logger.warning(f"Tentative de secours SSL pour e5 : {ssl_err}")
+                        import ssl
+                        ctx = ssl.create_default_context()
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+                        urllib.request.install_opener(opener)
+                        urllib.request.urlretrieve(
+                            f"{self.REPO_URL}/{remote_path}", 
+                            str(dest) + ".part",
+                            reporthook=progress_hook
+                        )
                     os.replace(str(dest) + ".part", dest)
+
                 self.download_progress = (idx + 1) / total * 100
             logger.info("✅ Modèle e5-small téléchargé")
             return True

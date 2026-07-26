@@ -70,6 +70,7 @@ export default function FirstRunWizard({ onDone }) {
   const [sem, setSem] = useState(null)
   const [scanned, setScanned] = useState(false)
   const [backendDown, setBackendDown] = useState(false)
+  const downSinceRef = useRef(null)
   const [launched, setLaunched] = useState(false)
   const autoAdvanced = useRef(false)
 
@@ -84,10 +85,28 @@ export default function FirstRunWizard({ onDone }) {
         fetch(`${BACKEND_BASE}/api/v1/vosk/status`, { signal: controller.signal }),
         fetch(`${BACKEND_BASE}/api/v1/semantic/status`, { signal: controller.signal })
       ])
-      setVosk(await vr.json()); setSem(await sr.json()); setBackendDown(false)
-    } catch { setBackendDown(true) } finally { clearTimeout(timeout); setScanned(true) }
+      setVosk(await vr.json()); setSem(await sr.json())
+      setBackendDown(false); downSinceRef.current = null
+    } catch {
+      setBackendDown(true)
+      if (downSinceRef.current === null) downSinceRef.current = Date.now()
+    } finally { clearTimeout(timeout); setScanned(true) }
   }
   useEffect(() => { pollStatuses(); const id = setInterval(pollStatuses, 1500); return () => clearInterval(id) }, [])
+
+  // Passé un délai généreux, « patientez » devient un mensonge : un moteur qui
+  // n'a pas répondu en 45 s ne charge plus ses index, il ne démarre pas. Un
+  // poste d'église a connu ce cas — installation faite par-dessus une version
+  // en cours d'exécution, bibliothèque sautée, moteur incapable de vivre.
+  const [tropLong, setTropLong] = useState(false)
+  useEffect(() => {
+    if (!backendDown) { setTropLong(false); return }
+    const id = setInterval(() => {
+      const depuis = downSinceRef.current
+      if (depuis && Date.now() - depuis > 45000) setTropLong(true)
+    }, 2000)
+    return () => clearInterval(id)
+  }, [backendDown])
 
   const voskReady = Boolean(vosk?.installed)
   const semReady = Boolean(sem?.installed)
@@ -232,12 +251,19 @@ export default function FirstRunWizard({ onDone }) {
                   : 'versepro analyse votre poste et télécharge ce qu\'il faut pour fonctionner sans internet le dimanche.'}
               </p>
 
-              {backendDown && (
+              {backendDown && !tropLong && (
                 // Dans l'application empaquetée le moteur démarre seul, mais il
                 // charge d'abord ses index (~10 s sur un PC modeste) : dire
                 // « lancez le backend » n'aidait personne, c'était impossible à faire.
                 <p className="fw-warn">le moteur démarre encore — il charge la Bible et ses index. patientez quelques secondes, puis{' '}
                   <button className="vp-btn vp-btn--sm" onClick={pollStatuses}>réessayer</button></p>
+              )}
+              {backendDown && tropLong && (
+                <p className="fw-warn">le moteur ne démarre pas. l'installation est probablement incomplète —
+                  cela arrive quand VersePro tournait encore pendant sa propre mise à jour.
+                  <br />réinstallez après avoir fermé VersePro, puis supprimé le dossier
+                  {' '}<span className="mono">VersePro</span> dans <span className="mono">%LOCALAPPDATA%</span>.
+                  {' '}<button className="vp-btn vp-btn--sm" onClick={pollStatuses}>réessayer</button></p>
               )}
 
               {scanned && !backendDown && (

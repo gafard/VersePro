@@ -10,6 +10,13 @@ Une fois figé par PyInstaller, ce fichier devient l'exécutable autonome
 """
 import os
 import sys
+import ssl
+
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+
 
 
 def main() -> None:

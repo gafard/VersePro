@@ -7,7 +7,14 @@ projection autonome et fallback hors-ligne Vosk local ultra-léger et robuste.
 import asyncio
 import json
 import re
+import ssl
 import threading
+
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
