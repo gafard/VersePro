@@ -23,7 +23,16 @@ class Settings(BaseSettings):
     APP_NAME: str = "VersePro v2"
     VERSION: str = "2.0.0"
     API_TOKEN: str = ""
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,tauri://localhost,https://tauri.localhost"
+    # Origines de la fenêtre applicative. Tauri 2 sert la fenêtre depuis
+    # « http://tauri.localhost » sous Windows — en HTTP, là où Tauri 1 utilisait
+    # HTTPS. Oublier cette origine coupe TOUTES les requêtes HTTP côté Windows
+    # (les WebSockets, non soumis au CORS, continuent de passer : l'application
+    # semble alors « injoignable » alors que le moteur tourne parfaitement).
+    ALLOWED_ORIGINS: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3001,http://127.0.0.1:3001,"
+        "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
+    )
     
     # Deepgram API
     DEEPGRAM_API_KEY: str = ""

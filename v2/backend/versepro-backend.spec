@@ -59,6 +59,10 @@ if os.path.isdir(_fonts):
 for pkg in (
     "onnxruntime", "tokenizers", "vosk", "faster_whisper", "ctranslate2",
     "huggingface_hub", "keyring",
+    # certifi : sans son cacert.pem embarqué, l'application figée n'a AUCUNE
+    # autorité de certification et tout téléchargement de modèle meurt en
+    # CERTIFICATE_VERIFY_FAILED (constaté sur macOS et Windows).
+    "certifi",
 ):
     d, b, h = collect_all(pkg)
     datas += d

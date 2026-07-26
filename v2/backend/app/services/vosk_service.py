@@ -6,7 +6,7 @@ import tempfile
 import shutil
 from loguru import logger
 from ..core.config import settings, DATA_DIR
-from .download_utils import safe_extract_zip, verify_sha256
+from .download_utils import safe_extract_zip, verify_sha256, download_file
 
 class VoskService:
     """Service asynchrone pour la transcription locale hors-ligne avec Vosk (supporte les modèles small et large)"""
@@ -98,9 +98,8 @@ class VoskService:
             
             # Callback de progression pour le téléchargement
             last_percent = -1
-            def progress_callback(blocknum, blocksize, totalsize):
+            def progress_callback(readsofar, totalsize):
                 nonlocal last_percent
-                readsofar = blocknum * blocksize
                 if totalsize > 0:
                     percent = min(100.0, (readsofar * 100.0) / totalsize)
                     self.download_progress = percent
@@ -109,17 +108,7 @@ class VoskService:
                         last_percent = percent_int
                         logger.info(f"📥 Téléchargement Vosk: {percent_int}% ({readsofar / (1024**2):.1f} Mo / {totalsize / (1024**2):.1f} Mo)")
             
-            try:
-                urllib.request.urlretrieve(self.url, part_path, progress_callback)
-            except Exception as ssl_err:
-                logger.warning(f"Tentative de secours SSL pour Vosk : {ssl_err}")
-                import ssl
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-                urllib.request.install_opener(opener)
-                urllib.request.urlretrieve(self.url, part_path, progress_callback)
+            download_file(self.url, part_path, progress_callback)
 
             verify_sha256(part_path, settings.VOSK_MODEL_SHA256)
             os.replace(part_path, zip_path)

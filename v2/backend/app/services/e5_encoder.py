@@ -14,6 +14,7 @@ mean pooling masqué, normalisation L2.
 import os
 import threading
 import urllib.request
+from .download_utils import download_file
 from pathlib import Path
 from typing import List, Optional
 
@@ -68,33 +69,19 @@ class E5OnnxEncoder:
                 if not dest.exists():
                     logger.info(f"📥 Téléchargement {self.variant} : {local_name}")
                     
-                    def progress_hook(count, block_size, total_size):
+                    def progress_hook(received, total_size):
                         if total_size > 0:
-                            percent = min(100.0, count * block_size * 100.0 / total_size)
+                            percent = min(100.0, received * 100.0 / total_size)
                             # Division de la progression globale sur le nombre de fichiers
                             self.download_progress = (idx * (100.0 / total)) + (percent / total)
                         else:
                             self.download_progress = (idx * (100.0 / total))
                             
-                    try:
-                        urllib.request.urlretrieve(
-                            f"{self.REPO_URL}/{remote_path}", 
-                            str(dest) + ".part",
-                            reporthook=progress_hook
-                        )
-                    except Exception as ssl_err:
-                        logger.warning(f"Tentative de secours SSL pour e5 : {ssl_err}")
-                        import ssl
-                        ctx = ssl.create_default_context()
-                        ctx.check_hostname = False
-                        ctx.verify_mode = ssl.CERT_NONE
-                        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-                        urllib.request.install_opener(opener)
-                        urllib.request.urlretrieve(
-                            f"{self.REPO_URL}/{remote_path}", 
-                            str(dest) + ".part",
-                            reporthook=progress_hook
-                        )
+                    download_file(
+                        f"{self.REPO_URL}/{remote_path}",
+                        str(dest) + ".part",
+                        progress_hook
+                    )
                     os.replace(str(dest) + ".part", dest)
 
                 self.download_progress = (idx + 1) / total * 100

@@ -26,6 +26,9 @@ pillow>=10.0.0
 # Database
 aiosqlite>=0.19.0
 keyring>=25.0.0,<26.0.0
+# Autorites TLS : indispensable une fois l'application figee (PyInstaller),
+# sinon les telechargements de modeles echouent en CERTIFICATE_VERIFY_FAILED.
+certifi>=2024.2.2
 
 # Utils
 python-dotenv>=1.0.0
