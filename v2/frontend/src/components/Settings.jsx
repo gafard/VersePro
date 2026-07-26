@@ -220,8 +220,12 @@ export default function Settings() {
         await prepareSemanticIndex()
         addToast({ message: 'Indexation sémantique lancée', kind: 'success' })
       }
-    } catch {
-      addToast({ message: 'Préparation locale impossible', kind: 'error' })
+    } catch (error) {
+      // Le message générique masquait la vraie cause (souvent : pas d'Internet
+      // pour ce premier téléchargement, ou serveur local injoignable). On la dit.
+      const isNetwork = error?.name === 'TypeError' || /fetch/i.test(error?.message || '')
+      const reason = isNetwork ? 'serveur local injoignable' : (error?.message || 'raison inconnue')
+      addToast({ message: `Préparation locale impossible : ${reason}`, kind: 'error', duration: 7000 })
     } finally {
       setPreparingLocal('')
     }
@@ -339,6 +343,11 @@ export default function Settings() {
                 {asrStatus?.whisper?.ready ? 'Prêt' : 'Optionnel'}
               </span>
             </div>
+            {asrStatus?.whisper?.last_error && !asrStatus?.whisper?.ready && (
+              <span className="settings-error-note" role="alert">
+                Échec : {asrStatus.whisper.last_error}
+              </span>
+            )}
             <button
               type="button"
               className="vp-btn vp-btn--sm"
@@ -371,6 +380,11 @@ export default function Settings() {
               <input type="range" min="0.50" max="0.95" step="0.005" value={form.local_semantic_threshold} onChange={(e) => updateField('local_semantic_threshold', Number(e.target.value))} />
               <span className="settings-muted-note">Calibré automatiquement selon le moteur actif — n'ajustez qu'en cas de faux positifs ou d'oublis répétés.</span>
             </label>
+            {semanticStatus?.last_error && !semanticStatus?.installed && (
+              <span className="settings-error-note" role="alert">
+                Échec : {semanticStatus.last_error}
+              </span>
+            )}
             <button type="button" className="vp-btn vp-btn--sm" onClick={() => prepareLocalEngine('semantic')} disabled={preparingLocal === 'semantic' || semanticStatus?.indexing}>
               {semanticStatus?.installed ? 'Réindexer' : semanticStatus?.indexing ? 'Indexation…' : 'Installer et indexer'}
             </button>

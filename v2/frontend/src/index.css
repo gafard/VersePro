@@ -1493,6 +1493,14 @@ body {
   margin-top: 6px;
   line-height: 1.45;
 }
+.settings-error-note {
+  font-size: 11px;
+  color: var(--vp-danger, #f87171);
+  display: block;
+  margin: 6px 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
 .settings-result-list {
   margin-top: 12px;
   display: flex;

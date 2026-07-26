@@ -812,7 +812,10 @@ export const useStore = create((set, get) => ({
 
   prepareSemanticIndex: async () => {
     const response = await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' })
-    const data = await response.json()
+    const data = await response.json().catch(() => ({}))
+    // Ne pas avaler un échec HTTP (503 service absent, etc.) : le remonter pour
+    // que l'écran affiche la vraie cause au lieu d'un succès trompeur.
+    if (!response.ok) throw new Error(data?.detail || `Erreur serveur ${response.status}`)
     get().fetchIntelligenceStatus()
     return data
   },
@@ -823,7 +826,8 @@ export const useStore = create((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model })
     })
-    const data = await response.json()
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data?.detail || `Erreur serveur ${response.status}`)
     get().fetchIntelligenceStatus()
     return data
   },
