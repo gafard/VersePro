@@ -334,15 +334,40 @@ def _hex_valide(valeur: Any, defaut: str) -> str:
     return defaut
 
 
+_CORNER_MODES = ("out", "in", "cut")
+
+
+def _sanitize_corners(brut: Any, rayon_global: float) -> list:
+    """Quatre coins, dans le sens horaire depuis le haut-gauche.
+
+    Un habillage enregistré avant les coins indépendants ne porte qu'un rayon
+    global : il doit continuer de s'afficher exactement pareil, d'où le repli.
+    """
+    if not isinstance(brut, list) or not brut:
+        return [{"r": rayon_global, "mode": "out"} for _ in range(4)]
+    coins = []
+    for index in range(4):
+        c = brut[index] if index < len(brut) and isinstance(brut[index], dict) else {}
+        mode = c.get("mode")
+        coins.append({
+            "r": _clamp(c.get("r"), 0, 50, rayon_global),
+            "mode": mode if mode in _CORNER_MODES else "out",
+        })
+    return coins
+
+
 def _sanitize_shape(brut: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(brut, dict):
         return None
+    rayon = _clamp(brut.get("radius"), 0, 50, 0.0)
     return {
         "x": _clamp(brut.get("x"), -20, 120, 0.0),
         "y": _clamp(brut.get("y"), -20, 120, 0.0),
         "w": _clamp(brut.get("w"), 0.5, 140, 20.0),
         "h": _clamp(brut.get("h"), 0.5, 140, 10.0),
-        "radius": _clamp(brut.get("radius"), 0, 50, 0.0),
+        # Conservé pour les habillages antérieurs et comme valeur de repli.
+        "radius": rayon,
+        "corners": _sanitize_corners(brut.get("corners"), rayon),
         "opacity": _clamp(brut.get("opacity"), 0, 1, 1.0),
         "fill": _hex_valide(brut.get("fill"), "#ffffff"),
     }

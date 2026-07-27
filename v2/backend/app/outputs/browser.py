@@ -20,11 +20,35 @@ class BrowserOutput(BaseOutput):
             "translations": {}
         }
 
+    def _scene_initiale(self) -> Dict[str, Any]:
+        """Scène d'accueil enrichie des réglages d'affichage du moment.
+
+        Tant qu'aucun verset n'a été projeté, la scène par défaut ne portait ni
+        habillage ni style : un écran allumé avant le culte, ou rouvert après un
+        redémarrage du moteur, restait nu jusqu'à la première projection. Les
+        réglages, eux, sont connus dès le démarrage — autant les envoyer.
+        """
+        scene = dict(self.current_scene)
+        if scene.get("reference"):
+            return scene  # un verset est à l'antenne : sa scène fait foi
+        try:
+            from ..core.config import settings
+            from ..services import overlay_store
+            scene.setdefault("style", settings.PROJECTION_STYLE)
+            scene.setdefault("show_version", settings.SHOW_BIBLE_VERSION)
+            scene.setdefault("active_version", settings.BIBLE_VERSION)
+            scene["overlay"] = overlay_store.resolve_overlay(
+                settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES
+            )
+        except Exception as exc:  # un écran nu vaut mieux qu'un écran en erreur
+            logger.debug(f"Scène initiale sans habillage : {exc}")
+        return scene
+
     async def register_connection(self, websocket: WebSocket):
         """Enregistre un nouveau client d'affichage et lui envoie la scène courante"""
         self.connections.add(websocket)
         try:
-            await websocket.send_json(self.current_scene)
+            await websocket.send_json(self._scene_initiale())
         except Exception as e:
             logger.debug(f"Erreur envoi initial client navigateur: {e}")
 

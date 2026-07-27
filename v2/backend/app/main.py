@@ -1261,25 +1261,76 @@ async def get_output_page():
                 el.className = 'overlay-zone font-' + zone.font;
             }
 
+            // Contour d'une forme, coin par coin. Doit rester le jumeau exact de
+            // shape_geometry.py, qui sert la sortie NDI : mêmes angles, même
+            // ordre, même nombre de segments.
+            const SEGMENTS_ARC = 10;
+            function contourForme(L, H, coins) {
+                const limite = Math.max(0, Math.min(L, H) / 2);
+                const r = [], m = [];
+                for (let i = 0; i < 4; i++) {
+                    const c = (coins && coins[i]) || {};
+                    r.push(Math.max(0, Math.min(limite, Number(c.r) || 0)));
+                    m.push(['out', 'in', 'cut'].includes(c.mode) ? c.mode : 'out');
+                }
+                const P = Math.PI;
+                const sommets = [[0, 0], [L, 0], [L, H], [0, H]];
+                const entrees = [[0, r[0]], [L - r[1], 0], [L, H - r[2]], [r[3], H]];
+                const sorties = [[r[0], 0], [L, r[1]], [L - r[2], H], [0, H - r[3]]];
+                const centres = [[r[0], r[0]], [L - r[1], r[1]], [L - r[2], H - r[2]], [r[3], H - r[3]]];
+                const angles = [[P, 1.5 * P], [1.5 * P, 2 * P], [0, 0.5 * P], [0.5 * P, P]];
+                const rentrants = [[0.5 * P, 0], [P, 0.5 * P], [1.5 * P, P], [0, -0.5 * P]];
+                const pts = [];
+                const arc = (centre, rayon, a, b) => {
+                    for (let i = 0; i <= SEGMENTS_ARC; i++) {
+                        const t = a + (b - a) * i / SEGMENTS_ARC;
+                        pts.push([centre[0] + rayon * Math.cos(t), centre[1] + rayon * Math.sin(t)]);
+                    }
+                };
+                for (let i = 0; i < 4; i++) {
+                    if (r[i] <= 0) { pts.push(sommets[i]); continue; }
+                    pts.push(entrees[i]);
+                    if (m[i] === 'in') arc(sommets[i], r[i], rentrants[i][0], rentrants[i][1]);
+                    else if (m[i] !== 'cut') arc(centres[i], r[i], angles[i][0], angles[i][1]);
+                    pts.push(sorties[i]);
+                }
+                return pts;
+            }
+
             function renderShapes(formes) {
                 const hote = document.getElementById('overlay-shapes');
                 hote.textContent = '';
+                // Les coins peuvent être creusés ou biseautés : border-radius ne
+                // sait faire que l'arrondi sortant, on trace donc le contour.
+                const cadreL = window.innerWidth, cadreH = window.innerHeight;
                 (formes || []).forEach((f) => {
-                    const el = document.createElement('div');
-                    el.className = 'overlay-shape';
-                    el.style.left = f.x + '%';
-                    el.style.top = f.y + '%';
-                    el.style.width = f.w + '%';
-                    el.style.height = f.h + '%';
-                    el.style.background = f.fill;
-                    el.style.opacity = f.opacity;
-                    // Rayon rapporté à la HAUTEUR du cadre : un rayon en
-                    // pourcentage de la boîte déformerait les angles dès que la
-                    // forme n'est pas carrée.
-                    el.style.borderRadius = f.radius + 'vh';
-                    hote.appendChild(el);
+                    const L = f.w * cadreL / 100, H = f.h * cadreH / 100;
+                    const coins = (f.corners && f.corners.length)
+                        ? f.corners.map((c) => ({ r: (c.r || 0) * cadreH / 100, mode: c.mode }))
+                        : Array.from({ length: 4 }, () => ({ r: (f.radius || 0) * cadreH / 100, mode: 'out' }));
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('class', 'overlay-shape');
+                    svg.setAttribute('viewBox', `0 0 ${L} ${H}`);
+                    svg.setAttribute('preserveAspectRatio', 'none');
+                    svg.style.left = f.x + '%';
+                    svg.style.top = f.y + '%';
+                    svg.style.width = f.w + '%';
+                    svg.style.height = f.h + '%';
+                    svg.style.opacity = f.opacity;
+                    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    poly.setAttribute('points', contourForme(L, H, coins).map((p) => p.join(',')).join(' '));
+                    poly.setAttribute('fill', f.fill);
+                    svg.appendChild(poly);
+                    hote.appendChild(svg);
                 });
             }
+
+            // Les contours sont calculés en pixels : un changement de taille de
+            // fenêtre doit les refaire, sinon les coins se déforment.
+            let dernieresFormes = null;
+            window.addEventListener('resize', () => {
+                if (dernieresFormes) renderShapes(dernieresFormes);
+            });
 
             function renderOverlay(data) {
                 const info = data.overlay;
@@ -1298,6 +1349,7 @@ async def get_output_page():
                     overlayVersion = urlImage;
                     overlayImage.src = urlImage;
                 }
+                dernieresFormes = formes;
                 renderShapes(formes);
                 const zones = info.zones || {};
                 applyZone(overlayZones.text, zones.text);

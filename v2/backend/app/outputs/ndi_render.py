@@ -15,6 +15,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from loguru import logger
 
+from .shape_geometry import normalise_corners, polygon_points
+
 # Polices réelles du système : Pillow ne sait pas lire les woff2 embarqués pour
 # le navigateur. On vise les mêmes familles que la projection (« sans » = Arial)
 # afin que les deux rendus se ressemblent vraiment.
@@ -139,10 +141,17 @@ def rendre_habillage(
         crayon = ImageDraw.Draw(calque)
         x0 = forme["x"] * largeur / 100
         y0 = forme["y"] * hauteur / 100
-        boite = [x0, y0, x0 + forme["w"] * largeur / 100, y0 + forme["h"] * hauteur / 100]
-        rayon = max(0, int(forme.get("radius", 0) * hauteur / 100))
-        crayon.rounded_rectangle(boite, radius=rayon,
-                                 fill=_rgba(forme.get("fill"), forme.get("opacity", 1.0)))
+        L = forme["w"] * largeur / 100
+        H = forme["h"] * hauteur / 100
+        # Contour tracé point par point : les coins peuvent être creusés ou
+        # biseautés, ce qu'un rectangle arrondi ne saurait rendre. La géométrie
+        # est partagée avec l'écran, si bien que les deux rendus coïncident.
+        coins = [
+            {"r": c["r"] * hauteur / 100, "mode": c["mode"]}
+            for c in normalise_corners(forme)
+        ]
+        points = [(x0 + px, y0 + py) for px, py in polygon_points(L, H, coins)]
+        crayon.polygon(points, fill=_rgba(forme.get("fill"), forme.get("opacity", 1.0)))
         cadre.alpha_composite(calque)
 
     crayon = ImageDraw.Draw(cadre)

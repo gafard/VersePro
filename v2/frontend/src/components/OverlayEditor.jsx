@@ -15,6 +15,15 @@ const ZONES = [
   { cle: 'reference', nom: 'Référence' }
 ]
 
+// Coins dans le sens horaire depuis le haut-gauche, comme la géométrie du
+// serveur : l'ordre du tableau EST celui du contour tracé.
+const COINS = [
+  { index: 0, nom: 'Haut gauche' },
+  { index: 1, nom: 'Haut droit' },
+  { index: 2, nom: 'Bas droit' },
+  { index: 3, nom: 'Bas gauche' }
+]
+
 const POLICES = [
   { valeur: 'sans', nom: 'Sans (Arial)' },
   { valeur: 'display', nom: 'Space Grotesk' },
@@ -30,6 +39,43 @@ const FAMILLES = {
 }
 
 const borne = (v, bas, haut) => Math.max(bas, Math.min(haut, v))
+
+// Jumeau de shape_geometry.py et du tracé de la page de projection : mêmes
+// angles, même ordre, même nombre de segments. Trois copies, une seule
+// géométrie — c'est le prix à payer pour que l'aperçu, l'écran et NDI
+// s'accordent au pixel près.
+const SEGMENTS_ARC = 10
+function contourForme(L, H, coins) {
+  const limite = Math.max(0, Math.min(L, H) / 2)
+  const r = [], m = []
+  for (let i = 0; i < 4; i++) {
+    const c = (coins && coins[i]) || {}
+    r.push(Math.max(0, Math.min(limite, Number(c.r) || 0)))
+    m.push(['out', 'in', 'cut'].includes(c.mode) ? c.mode : 'out')
+  }
+  const P = Math.PI
+  const sommets = [[0, 0], [L, 0], [L, H], [0, H]]
+  const entrees = [[0, r[0]], [L - r[1], 0], [L, H - r[2]], [r[3], H]]
+  const sorties = [[r[0], 0], [L, r[1]], [L - r[2], H], [0, H - r[3]]]
+  const centres = [[r[0], r[0]], [L - r[1], r[1]], [L - r[2], H - r[2]], [r[3], H - r[3]]]
+  const angles = [[P, 1.5 * P], [1.5 * P, 2 * P], [0, 0.5 * P], [0.5 * P, P]]
+  const rentrants = [[0.5 * P, 0], [P, 0.5 * P], [1.5 * P, P], [0, -0.5 * P]]
+  const pts = []
+  const arc = (centre, rayon, a, b) => {
+    for (let i = 0; i <= SEGMENTS_ARC; i++) {
+      const t = a + (b - a) * i / SEGMENTS_ARC
+      pts.push([centre[0] + rayon * Math.cos(t), centre[1] + rayon * Math.sin(t)])
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    if (r[i] <= 0) { pts.push(sommets[i]); continue }
+    pts.push(entrees[i])
+    if (m[i] === 'in') arc(sommets[i], r[i], rentrants[i][0], rentrants[i][1])
+    else if (m[i] !== 'cut') arc(centres[i], r[i], angles[i][0], angles[i][1])
+    pts.push(sorties[i])
+  }
+  return pts
+}
 
 export default function OverlayEditor() {
   const { addToast } = useStore()
@@ -164,6 +210,25 @@ export default function OverlayEditor() {
   const majForme = (index, champ, valeur) =>
     setFormes((p) => p.map((f, i) => (i === index ? { ...f, [champ]: valeur } : f)))
 
+  const coinsDe = (f) =>
+    (f.corners && f.corners.length === 4)
+      ? f.corners
+      : Array.from({ length: 4 }, () => ({ r: f.radius || 0, mode: 'out' }))
+
+  const majCoin = (indexForme, indexCoin, champ, valeur) =>
+    setFormes((p) => p.map((f, i) => {
+      if (i !== indexForme) return f
+      const coins = coinsDe(f).map((c, k) => (k === indexCoin ? { ...c, [champ]: valeur } : c))
+      return { ...f, corners: coins }
+    }))
+
+  const uniformiserCoins = (indexForme) =>
+    setFormes((p) => p.map((f, i) => {
+      if (i !== indexForme) return f
+      const premier = coinsDe(f)[0]
+      return { ...f, corners: Array.from({ length: 4 }, () => ({ ...premier })) }
+    }))
+
   const ajouterForme = () => {
     setFormes((p) => {
       if (p.length >= 12) {
@@ -295,12 +360,20 @@ export default function OverlayEditor() {
           <div
             key={i}
             className={`overlay-box overlay-box--shape ${selection === i ? 'is-selected' : ''}`}
-            style={{
-              left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%`,
-              background: f.fill, opacity: f.opacity, borderRadius: `${f.radius}cqh`
-            }}
+            style={{ left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%` }}
             onPointerDown={(e) => demarrerGlisse(e, i, 'move')}
           >
+            {/* Tracé SVG et non border-radius : l'aperçu doit montrer les coins
+                creusés et biseautés, sans quoi il mentirait sur le résultat. */}
+            <svg className="overlay-shape-svg" viewBox={`0 0 ${f.w * 16} ${f.h * 9}`} preserveAspectRatio="none">
+              <polygon
+                points={contourForme(f.w * 16, f.h * 9,
+                  coinsDe(f).map((c) => ({ r: (c.r || 0) * 9, mode: c.mode })))
+                  .map((p) => p.join(',')).join(' ')}
+                fill={f.fill}
+                opacity={f.opacity}
+              />
+            </svg>
             <span className="overlay-box-tag">Forme {i + 1}</span>
             <span className="overlay-handle" onPointerDown={(e) => demarrerGlisse(e, i, 'resize')} />
           </div>
@@ -375,11 +448,28 @@ export default function OverlayEditor() {
               onChange={(e) => majForme(selection, 'opacity', Number(e.target.value))} />
             <span className="settings-muted-note">{Math.round(formes[selection].opacity * 100)} %</span>
           </label>
-          <label>
-            <small>Arrondi des angles</small>
-            <input type="range" min="0" max="20" step="0.1" value={formes[selection].radius}
-              onChange={(e) => majForme(selection, 'radius', Number(e.target.value))} />
-            <span className="settings-muted-note">{formes[selection].radius.toFixed(1)}</span>
+          <label className="overlay-corners">
+            <small>Coins — chacun son rayon et sa forme</small>
+            <div className="overlay-corner-grid">
+              {COINS.map(({ index, nom }) => {
+                const coin = (formes[selection].corners || [])[index] || { r: formes[selection].radius, mode: 'out' }
+                return (
+                  <div key={index} className="overlay-corner">
+                    <small>{nom}</small>
+                    <input type="range" min="0" max="20" step="0.1" value={coin.r}
+                      onChange={(e) => majCoin(selection, index, 'r', Number(e.target.value))} />
+                    <select value={coin.mode} onChange={(e) => majCoin(selection, index, 'mode', e.target.value)}>
+                      <option value="out">Arrondi</option>
+                      <option value="in">Creusé</option>
+                      <option value="cut">Biseauté</option>
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+            <button className="vp-btn vp-btn--sm" onClick={() => uniformiserCoins(selection)}>
+              Appliquer le premier coin aux quatre
+            </button>
           </label>
           <label>
             <small>Ordre et suppression</small>
