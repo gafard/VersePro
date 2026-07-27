@@ -6,13 +6,29 @@ projection autonome et fallback hors-ligne Vosk local ultra-léger et robuste.
 
 import asyncio
 import json
+import os
 import re
-import ssl
 import threading
 
+# Autorités TLS de l'application figée.
+#
+# Cette ligne remplace un « ssl._create_default_https_context =
+# ssl._create_unverified_context » qui désactivait la vérification des
+# certificats pour TOUT le processus — bibliothèques tierces comprises. Le
+# symptôme qu'il masquait est réel : empaquetée par PyInstaller, l'application
+# n'a pas de magasin d'autorités et le moindre téléchargement échoue en
+# CERTIFICATE_VERIFY_FAILED. Mais la réponse était pire que le mal : un modèle
+# de reconnaissance vocale est du code qui s'exécutera sur le poste de
+# l'église, et l'accepter sans vérifier revient à laisser un intermédiaire le
+# remplacer.
+#
+# On fournit donc de VRAIES autorités, celles de certifi embarquées dans le
+# gel, à toutes les bibliothèques d'un coup — et la vérification reste active.
 try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except Exception:  # pragma: no cover - certifi absent : magasin système
     pass
 
 from typing import Any, Dict, List, Optional
