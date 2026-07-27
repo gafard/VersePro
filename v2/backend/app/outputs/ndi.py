@@ -112,12 +112,18 @@ class NDIOutput(BaseOutput):
     def _composer(self, reference: str, texte: str, numero: Any) -> np.ndarray:
         from ..core.config import settings
         from ..services import overlay_store
-        info = overlay_store.resolve_overlay_info(settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES)
+        info = overlay_store.resolve_overlay_info(
+            settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES
+        )
         image = info.get("image_path") if info.get("installed") else None
+        # Une liste de formes VIDE est une réponse, pas une absence de réponse :
+        # elle signifie « aucun habillage sélectionné ». Un « or » retombait ici
+        # sur le brouillon de l'éditeur, et la régie recevait alors un bandeau
+        # que l'écran n'affichait pas.
         rendu = rendre_habillage(
             LARGEUR, HAUTEUR,
             info.get("zones") or overlay_store.parse_zones(settings.OVERLAY_ZONES),
-            info.get("shapes") or overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
+            info.get("shapes") or [],
             reference, texte, numero,
             str(image) if image else None,
         )

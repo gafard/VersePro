@@ -628,12 +628,13 @@ export default function Settings() {
             <div className="settings-divider">
               <div className="settings-card-head">
                 <div>
-                  <small>Habillage de l'église</small>
+                  <small>Atelier d'habillage</small>
                   <p>
-                    Importez votre propre graphique (PNG à fond transparent, exporté de Canva,
-                    Photoshop…) : VersePro n'y pose que le verset et sa référence. Le rendu n'est
-                    pas une imitation de votre design — c'est votre fichier. Un habillage installé
-                    remplace le style choisi ci-dessus.
+                    C'est ici qu'on <strong>compose</strong>, pas qu'on projette. Importez votre
+                    graphique (PNG à fond transparent, exporté de Canva, Photoshop…), placez les
+                    zones, puis <strong>enregistrez</strong> : l'habillage rejoint alors la liste
+                    « Style de Lower-Third » ci-contre. C'est celui que vous y choisissez qui part
+                    à l'écran, en NDI et par les liens — jamais le brouillon de cet atelier.
                   </p>
                 </div>
               </div>

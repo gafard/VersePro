@@ -269,7 +269,12 @@ def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
                 "shapes": preset["shapes"],
                 "preset": preset["slug"],
             }
-        logger.warning(f"Habillage « {slug} » introuvable.")
+        logger.warning(f"Habillage « {slug} » introuvable ; le style natif s'affiche.")
+    # Aucun habillage forcé. L'éditeur est un ATELIER : son brouillon sert à
+    # composer puis à enregistrer, jamais à projeter. Renvoyer ici les formes en
+    # cours d'édition masquait le style natif choisi — et, comme parse_shapes
+    # retourne les formes de départ quand le réglage est vide, un poste neuf
+    # projetait un bandeau que personne n'avait demandé.
     return {
         "installed": False,
         "width": 0, "height": 0,
@@ -277,7 +282,7 @@ def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
         "image_url": "",
         "image_path": None,
         "zones": parse_zones(zones_actives),
-        "shapes": parse_shapes(formes_actives),
+        "shapes": [],
         "preset": None,
     }
 

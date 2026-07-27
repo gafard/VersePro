@@ -298,7 +298,14 @@ export default function OverlayEditor() {
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
-      addToast({ message: `« ${d.name} » enregistré dans ${d.category}`, kind: 'success' })
+      // On boucle explicitement : enregistrer ne projette pas, il faut encore
+      // choisir l'habillage dans la liste des styles. Sans ce rappel,
+      // l'opérateur croit avoir terminé et ne voit rien changer à l'écran.
+      addToast({
+        message: `« ${d.name} » enregistré dans ${d.category} — choisissez-le dans « Style de Lower-Third » pour le projeter`,
+        kind: 'success',
+        duration: 8000
+      })
       setNomPreset('')
       chargerPresets()
     } catch (err) {

@@ -99,16 +99,40 @@ def test_resolution_prefere_lhabillage_designe_par_le_style():
     assert resolu["shapes"][0]["fill"] == "#ff0000"
 
 
-def test_un_habillage_introuvable_retombe_sur_lactif():
-    """Un préréglage supprimé ne doit pas laisser l'écran vide un dimanche."""
+def test_un_habillage_introuvable_laisse_le_style_natif_safficher():
+    """Un préréglage supprimé ne doit pas imposer un bandeau à sa place."""
     resolu = overlay_store.resolve_overlay("habillage:disparu", "", "")
     assert resolu["preset"] is None
-    assert len(resolu["shapes"]) == len(overlay_store.DEFAULT_SHAPES)
+    assert resolu["shapes"] == [] and resolu["image_url"] == ""
 
 
-def test_sans_preset_la_resolution_donne_lhabillage_en_cours():
-    resolu = overlay_store.resolve_overlay("filet", "", "[]")
-    assert resolu["preset"] is None and resolu["shapes"] == []
+def test_un_style_natif_nest_jamais_recouvert_par_un_habillage():
+    """Le menu des styles commande seul : choisir « filet » affiche « filet ».
+
+    Le brouillon de l'atelier n'est pas une sortie. Le renvoyer ici masquait le
+    style choisi — et comme les formes de départ apparaissent dès que le réglage
+    est vide, un poste neuf projetait un bandeau que personne n'avait demandé.
+    """
+    for natif in ("filet", "cartouche", "agoe-logope", "default"):
+        resolu = overlay_store.resolve_overlay(natif, "", "")
+        assert resolu["shapes"] == [], f"{natif} recouvert par un habillage"
+        assert resolu["image_url"] == "" and resolu["preset"] is None
+
+
+def test_le_brouillon_de_latelier_nest_jamais_projete():
+    """Composer dans l'atelier ne change rien à l'écran tant qu'on n'a pas
+    enregistré PUIS choisi l'habillage."""
+    brouillon = json.dumps([{"x": 1, "y": 1, "w": 50, "h": 20, "fill": "#ff0000"}])
+    resolu = overlay_store.resolve_overlay("filet", "", brouillon)
+    assert resolu["shapes"] == []
+
+
+def test_seul_un_habillage_choisi_est_projete():
+    overlay_store.save_preset("Dimanche", "Bandeaux", overlay_store.DEFAULT_ZONES,
+                              [{"x": 5, "y": 80, "w": 90, "h": 15, "fill": "#123456"}])
+    resolu = overlay_store.resolve_overlay("habillage:dimanche", "", "")
+    assert resolu["preset"] == "dimanche"
+    assert resolu["shapes"][0]["fill"] == "#123456"
 
 
 # ── Import de l'image ────────────────────────────────────────────────────────
