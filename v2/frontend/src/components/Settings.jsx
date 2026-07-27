@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.js'
 import { BACKEND_BASE } from '../env.js'
 import OverlayEditor from './OverlayEditor.jsx'
+import BibleImport from './BibleImport.jsx'
 
 // Regroupement des réglages. L'ordre suit celui d'une mise en route : on
 // branche le micro, on choisit les moteurs, on règle ce qui s'affiche, on
@@ -697,17 +698,25 @@ export default function Settings() {
           </div>
         </div>
 
-        <label data-cat="projection" className="settings-card">
+        <div data-cat="projection" className="settings-card">
           <span>Bible</span>
           <h2>Version par défaut</h2>
-          <select value={form.bible_version} onChange={(e) => updateField('bible_version', e.target.value)}>
-            {availableBibles.map((code) => (
-              <option key={code} value={code}>
-                {code} - {BIBLE_NAMES[code] || code}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="settings-two-cols">
+            <label>
+              <small>Version projetée</small>
+              <select value={form.bible_version} onChange={(e) => updateField('bible_version', e.target.value)}>
+                {availableBibles.map((code) => (
+                  <option key={code} value={code}>
+                    {code} - {BIBLE_NAMES[code] || code}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {/* Import à droite du sélecteur, là où on cherche naturellement à
+                compléter la liste. */}
+            <BibleImport />
+          </div>
+        </div>
 
         <div data-cat="sorties" className="settings-card">
           <div className="settings-card-head">

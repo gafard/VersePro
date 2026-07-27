@@ -96,6 +96,12 @@ class OverlayImageRequest(BaseModel):
     data: str
 
 
+class BibleImportRequest(BaseModel):
+    """Contenu JSON d'une traduction, et le sigle sous lequel l'installer."""
+    content: str
+    version_id: Optional[str] = ""
+
+
 class OverlayPresetRequest(BaseModel):
     """Enregistrement d'un habillage dans la bibliothèque."""
     name: str
@@ -458,6 +464,39 @@ async def remove_overlay_image():
     from ..services import overlay_store
     overlay_store.delete_image()
     return overlay_store.status()
+
+
+@router.get("/bibles/imported")
+async def list_imported_bibles():
+    """Traductions ajoutées par l'église, distinctes de celles livrées."""
+    from ..services import bible_import
+    return {"versions": bible_import.lister(), "reserved": sorted(bible_import.SIGLES_RESERVES)}
+
+
+@router.post("/bibles/import")
+async def import_bible(request: BibleImportRequest):
+    """Installe une traduction au format du corpus VersePro.
+
+    Le fichier reste sur le poste de l'église : VersePro ne le rediffuse pas.
+    La responsabilité des droits appartient à qui l'ajoute (voir CONDITIONS.md).
+    """
+    import asyncio
+    from ..services import bible_import
+    try:
+        resume = await asyncio.to_thread(bible_import.importer, request.content, request.version_id or "")
+    except bible_import.BibleInvalide as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {**resume, "restart_required": True}
+
+
+@router.delete("/bibles/imported/{version_id}")
+async def delete_imported_bible(version_id: str):
+    from ..services import bible_import
+    try:
+        bible_import.supprimer(version_id)
+    except bible_import.BibleInvalide as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"versions": bible_import.lister(), "restart_required": True}
 
 
 @router.get("/overlay/library")

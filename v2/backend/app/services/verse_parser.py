@@ -218,6 +218,8 @@ class BibleLoader:
             
         # 2. Charge les autres versions converties (celles présentes seulement :
         #    l'app distribuée n'embarque que le domaine public — LSG + KJF).
+        from pathlib import Path
+        from ..core.config import DATA_DIR
         cache_dirs = [
             str(RESOURCE_DIR / "data" / "bibles_cache"),
             "data/bibles_cache",
@@ -225,16 +227,26 @@ class BibleLoader:
             "../data/bibles_cache",
             "../../data/bibles_cache"
         ]
-        
-        cache_dir = None
+
+        # On retenait le PREMIER dossier trouvé. Dans l'application installée,
+        # c'était celui du paquet — en lecture seule — et une traduction
+        # importée par l'église, forcément écrite dans le dossier de données,
+        # restait invisible. On parcourt donc les deux : le paquet d'abord, puis
+        # les imports, qui peuvent ainsi compléter la liste.
+        dossiers_retenus = []
         for cd in cache_dirs:
             if os.path.exists(cd):
-                cache_dir = cd
+                dossiers_retenus.append(cd)
                 break
-                
-        if cache_dir and os.path.exists(cache_dir):
+        dossier_imports = str(Path(DATA_DIR) / "bibles_cache")
+        if os.path.exists(dossier_imports) and dossier_imports not in dossiers_retenus:
+            dossiers_retenus.append(dossier_imports)
+
+        for cache_dir in dossiers_retenus:
             for filename in os.listdir(cache_dir):
-                if filename.endswith(".json"):
+                # Les fiches .meta.json accompagnent un import ; ce ne sont pas
+                # des bibles et elles n'ont rien à faire dans la liste.
+                if filename.endswith(".json") and not filename.endswith(".meta.json"):
                     v_id = filename.replace(".json", "").upper()
                     if v_id == "SEMEUR":
                         v_id = "SEM"
