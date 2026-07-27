@@ -536,6 +536,11 @@ export default function Settings() {
           <h2>Thèmes & Personnalisation</h2>
           
           <div className="settings-form-grid" style={{ marginTop: '16px' }}>
+            {/* Colonne de gauche : les menus, puis l'aperçu juste dessous. Il
+                comble ainsi le vide d'origine sans repousser l'habillage, qui
+                garde sa place à droite — là où l'opérateur a l'habitude de le
+                chercher. */}
+            <div className="settings-stack">
             <div className="settings-two-cols">
               <label>
                 <small>Thème d'affichage</small>
@@ -605,8 +610,7 @@ export default function Settings() {
 
             {/* Aperçu RÉEL : la page de projection elle-même, sur le thème ET
                 le style choisis. Une vignette dessinée à la main aurait fini
-                par mentir dès qu'un style change ; ici c'est le vrai rendu.
-                Placé sous les deux menus, il occupe la largeur laissée vide. */}
+                par mentir dès qu'un style change ; ici c'est le vrai rendu. */}
             <div className="settings-divider">
               <div className="settings-card-head">
                 <div>
@@ -618,6 +622,7 @@ export default function Settings() {
                 </span>
               </div>
               <StylePreview theme={form.projection_theme} style={form.projection_style} />
+            </div>
             </div>
 
             <div className="settings-divider">
