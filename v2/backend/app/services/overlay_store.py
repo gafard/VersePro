@@ -12,8 +12,10 @@ portable en 720p reste juste sur le vidéoprojecteur en 4K.
 import base64
 import json
 import os
+import shutil
 import struct
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -131,6 +133,148 @@ def status() -> Dict[str, Any]:
         # l'écran garderait l'ancienne image en cache après un remplacement.
         "updated_at": int(IMAGE_PATH.stat().st_mtime),
         "bytes": len(raw),
+    }
+
+
+# ── Bibliothèque d'habillages ────────────────────────────────────────────────
+# Jusqu'ici VersePro n'avait qu'UN habillage, écrasé à chaque modification :
+# essayer une variante détruisait la précédente. La bibliothèque enregistre des
+# habillages nommés et rangés par catégorie, que le menu des styles propose à
+# côté des styles livrés.
+
+LIBRARY_DIR = OVERLAY_DIR / "bibliotheque"
+MAX_PRESETS = 60
+PREFIXE_STYLE = "habillage:"
+
+
+def slugify(nom: str) -> str:
+    """Nom de dossier sûr : jamais de séparateur, jamais de remontée de chemin."""
+    base = unicodedata.normalize("NFKD", str(nom or "")).encode("ascii", "ignore").decode()
+    slug = "".join(c if c.isalnum() else "-" for c in base.lower()).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug[:48] or "habillage"
+
+
+def _dossier_preset(slug: str) -> Path:
+    """Résout le dossier d'un habillage en refusant toute évasion de chemin."""
+    cible = (LIBRARY_DIR / slugify(slug)).resolve()
+    if not str(cible).startswith(str(LIBRARY_DIR.resolve())):
+        raise ValueError("Identifiant d'habillage invalide.")
+    return cible
+
+
+def list_presets() -> list:
+    if not LIBRARY_DIR.is_dir():
+        return []
+    presets = []
+    for dossier in sorted(LIBRARY_DIR.iterdir()):
+        fiche = dossier / "habillage.json"
+        if not fiche.is_file():
+            continue
+        try:
+            donnees = json.loads(fiche.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            logger.warning(f"Habillage illisible ignoré : {dossier.name}")
+            continue
+        image = dossier / "image.png"
+        presets.append({
+            "slug": dossier.name,
+            "name": str(donnees.get("name") or dossier.name),
+            "category": str(donnees.get("category") or "Mes habillages"),
+            "has_image": image.is_file(),
+            "updated_at": int(fiche.stat().st_mtime),
+        })
+    return presets
+
+
+def load_preset(slug: str) -> Optional[Dict[str, Any]]:
+    dossier = _dossier_preset(slug)
+    fiche = dossier / "habillage.json"
+    if not fiche.is_file():
+        return None
+    try:
+        donnees = json.loads(fiche.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    image = dossier / "image.png"
+    return {
+        "slug": dossier.name,
+        "name": str(donnees.get("name") or dossier.name),
+        "category": str(donnees.get("category") or "Mes habillages"),
+        "zones": parse_zones(json.dumps(donnees.get("zones"))),
+        "shapes": parse_shapes(json.dumps(donnees.get("shapes"))),
+        "image_path": image if image.is_file() else None,
+        "updated_at": int(fiche.stat().st_mtime),
+    }
+
+
+def save_preset(nom: str, categorie: str, zones: Any, formes: Any,
+                image_source: Optional[Path] = None) -> Dict[str, Any]:
+    """Enregistre l'habillage courant sous un nom. Réenregistrer écrase le même."""
+    slug = slugify(nom)
+    existants = {p["slug"] for p in list_presets()}
+    if slug not in existants and len(existants) >= MAX_PRESETS:
+        raise ValueError(f"Bibliothèque pleine ({MAX_PRESETS} habillages).")
+    dossier = _dossier_preset(slug)
+    dossier.mkdir(parents=True, exist_ok=True)
+    fiche = {
+        "name": str(nom or slug).strip()[:80],
+        "category": str(categorie or "Mes habillages").strip()[:40],
+        "zones": json.loads(dump_zones(zones)),
+        "shapes": json.loads(dump_shapes(formes)),
+    }
+    (dossier / "habillage.json").write_text(
+        json.dumps(fiche, ensure_ascii=False, indent=2), encoding="utf-8")
+    if image_source and Path(image_source).is_file():
+        shutil.copyfile(image_source, dossier / "image.png")
+    logger.info(f"🖼️ Habillage « {fiche['name']} » enregistré ({fiche['category']}).")
+    return {"slug": slug, **fiche}
+
+
+def delete_preset(slug: str) -> None:
+    dossier = _dossier_preset(slug)
+    if dossier.is_dir():
+        shutil.rmtree(dossier)
+        logger.info(f"🖼️ Habillage « {dossier.name} » supprimé.")
+
+
+def style_slug(style: Optional[str]) -> Optional[str]:
+    """Extrait le slug d'un style de la forme « habillage:mon-bandeau »."""
+    if isinstance(style, str) and style.startswith(PREFIXE_STYLE):
+        return style[len(PREFIXE_STYLE):]
+    return None
+
+
+def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
+                    formes_actives: Optional[str]) -> Dict[str, Any]:
+    """Habillage à envoyer aux écrans : celui d'un préréglage, sinon l'actif.
+
+    Choisir un habillage de la bibliothèque ne détruit pas celui en cours
+    d'édition : l'écran affiche le préréglage, l'éditeur garde son brouillon.
+    """
+    slug = style_slug(style)
+    if slug:
+        preset = load_preset(slug)
+        if preset:
+            return {
+                "installed": preset["image_path"] is not None,
+                "width": 0, "height": 0,
+                "updated_at": preset["updated_at"],
+                "image_url": (f"/overlay/bibliotheque/{preset['slug']}/image.png"
+                              f"?v={preset['updated_at']}") if preset["image_path"] else "",
+                "zones": preset["zones"],
+                "shapes": preset["shapes"],
+                "preset": preset["slug"],
+            }
+        logger.warning(f"Habillage « {slug} » introuvable ; retour à l'habillage courant.")
+    etat = status()
+    return {
+        **etat,
+        "image_url": f"/overlay.png?v={etat['updated_at']}" if etat["installed"] else "",
+        "zones": parse_zones(zones_actives),
+        "shapes": parse_shapes(formes_actives),
+        "preset": None,
     }
 
 

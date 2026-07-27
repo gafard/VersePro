@@ -34,6 +34,81 @@ def _dossier_isole(tmp_path, monkeypatch):
     """Aucun test n'écrit dans le dossier de données réel."""
     monkeypatch.setattr(overlay_store, "OVERLAY_DIR", tmp_path / "overlay")
     monkeypatch.setattr(overlay_store, "IMAGE_PATH", tmp_path / "overlay" / "habillage.png")
+    monkeypatch.setattr(overlay_store, "LIBRARY_DIR", tmp_path / "overlay" / "bibliotheque")
+
+
+# ── Bibliothèque d'habillages ────────────────────────────────────────────────
+
+def test_un_nom_devient_un_identifiant_de_dossier_sur():
+    assert overlay_store.slugify("Bandeau Agoé-Logopé 2026 !") == "bandeau-agoe-logope-2026"
+
+
+def test_un_nom_vide_reste_utilisable():
+    assert overlay_store.slugify("") == "habillage"
+
+
+def test_une_remontee_de_chemin_reste_dans_la_bibliotheque():
+    """L'identifiant vient du réseau : il ne doit jamais désigner un dossier
+    en dehors de la bibliothèque."""
+    racine = overlay_store.LIBRARY_DIR.resolve()
+    for hostile in ("../../etc/passwd", "/etc/shadow", "..\\..\\windows"):
+        assert str(overlay_store._dossier_preset(hostile)).startswith(str(racine))
+
+
+def test_enregistrer_puis_relire_un_habillage():
+    overlay_store.save_preset("Mon Bandeau", "Bandeaux",
+                              overlay_store.DEFAULT_ZONES, overlay_store.DEFAULT_SHAPES)
+    liste = overlay_store.list_presets()
+    assert [p["name"] for p in liste] == ["Mon Bandeau"]
+    assert liste[0]["category"] == "Bandeaux"
+    charge = overlay_store.load_preset("mon-bandeau")
+    assert charge["shapes"][0]["fill"] == "#ffffff"
+
+
+def test_reenregistrer_le_meme_nom_ecrase_sans_doublon():
+    overlay_store.save_preset("Bandeau", "Bandeaux", overlay_store.DEFAULT_ZONES, [])
+    overlay_store.save_preset("Bandeau", "Annonces", overlay_store.DEFAULT_ZONES, [])
+    liste = overlay_store.list_presets()
+    assert len(liste) == 1 and liste[0]["category"] == "Annonces"
+
+
+def test_un_habillage_enregistre_est_nettoye_comme_les_autres():
+    """Ce qui entre dans la bibliothèque subit le même contrôle que l'actif."""
+    overlay_store.save_preset("Sale", "Test", overlay_store.DEFAULT_ZONES,
+                              [{"fill": "url(javascript:0)", "x": 9999}])
+    assert overlay_store.load_preset("sale")["shapes"][0]["fill"] == "#ffffff"
+
+
+def test_supprimer_un_habillage():
+    overlay_store.save_preset("Temporaire", "Test", overlay_store.DEFAULT_ZONES, [])
+    overlay_store.delete_preset("temporaire")
+    assert overlay_store.list_presets() == []
+
+
+def test_un_style_designe_un_habillage_de_la_bibliotheque():
+    assert overlay_store.style_slug("habillage:mon-bandeau") == "mon-bandeau"
+    assert overlay_store.style_slug("filet") is None
+    assert overlay_store.style_slug(None) is None
+
+
+def test_resolution_prefere_lhabillage_designe_par_le_style():
+    overlay_store.save_preset("Rouge", "Test", overlay_store.DEFAULT_ZONES,
+                              [{"x": 10, "y": 10, "w": 20, "h": 20, "fill": "#ff0000"}])
+    resolu = overlay_store.resolve_overlay("habillage:rouge", "", "")
+    assert resolu["preset"] == "rouge"
+    assert resolu["shapes"][0]["fill"] == "#ff0000"
+
+
+def test_un_habillage_introuvable_retombe_sur_lactif():
+    """Un préréglage supprimé ne doit pas laisser l'écran vide un dimanche."""
+    resolu = overlay_store.resolve_overlay("habillage:disparu", "", "")
+    assert resolu["preset"] is None
+    assert len(resolu["shapes"]) == len(overlay_store.DEFAULT_SHAPES)
+
+
+def test_sans_preset_la_resolution_donne_lhabillage_en_cours():
+    resolu = overlay_store.resolve_overlay("filet", "", "[]")
+    assert resolu["preset"] is None and resolu["shapes"] == []
 
 
 # ── Import de l'image ────────────────────────────────────────────────────────

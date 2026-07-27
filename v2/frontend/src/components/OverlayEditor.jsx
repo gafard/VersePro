@@ -42,6 +42,17 @@ export default function OverlayEditor() {
   const cadreRef = useRef(null)
   const glisseRef = useRef(null)
 
+  const [presets, setPresets] = useState([])
+  const [nomPreset, setNomPreset] = useState('')
+  const [categoriePreset, setCategoriePreset] = useState('Bandeaux')
+
+  const chargerPresets = useCallback(async () => {
+    try {
+      const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/library`)
+      setPresets((await r.json()).presets || [])
+    } catch { /* la bibliothèque reste vide, l'éditeur fonctionne quand même */ }
+  }, [])
+
   const charger = useCallback(async () => {
     try {
       const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/status`)
@@ -49,10 +60,11 @@ export default function OverlayEditor() {
       setEtat(d)
       setZones(d.zones)
       setFormes(d.shapes || [])
+      chargerPresets()
     } catch {
       addToast({ message: 'Habillage : serveur injoignable', kind: 'error' })
     }
-  }, [addToast])
+  }, [addToast, chargerPresets])
 
   useEffect(() => { charger() }, [charger])
 
@@ -200,6 +212,48 @@ export default function OverlayEditor() {
     } finally {
       setOccupe('')
     }
+  }
+
+  // ── Bibliothèque ───────────────────────────────────────────────────────────
+  const enregistrerSous = async () => {
+    const nom = nomPreset.trim()
+    if (!nom) { addToast({ message: 'Donnez un nom à cet habillage', kind: 'error' }); return }
+    setOccupe('bibliotheque')
+    try {
+      // On envoie l'état de l'éditeur, pas celui de la base : ce que l'opérateur
+      // voit à l'écran est ce qui part dans la bibliothèque.
+      const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/library`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nom, category: categoriePreset.trim() || 'Mes habillages', zones, shapes: formes })
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
+      addToast({ message: `« ${d.name} » enregistré dans ${d.category}`, kind: 'success' })
+      setNomPreset('')
+      chargerPresets()
+    } catch (err) {
+      addToast({ message: `Enregistrement impossible : ${err.message}`, kind: 'error' })
+    } finally { setOccupe('') }
+  }
+
+  const appliquerPreset = async (slug, nom) => {
+    setOccupe('bibliotheque')
+    try {
+      const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/library/${slug}/apply`, { method: 'POST' })
+      if (!r.ok) throw new Error(`Erreur ${r.status}`)
+      addToast({ message: `« ${nom} » chargé dans l'éditeur`, kind: 'success' })
+      charger()
+    } catch (err) {
+      addToast({ message: `Chargement impossible : ${err.message}`, kind: 'error' })
+    } finally { setOccupe('') }
+  }
+
+  const supprimerPreset = async (slug) => {
+    setOccupe('bibliotheque')
+    try {
+      const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/library/${slug}`, { method: 'DELETE' })
+      setPresets((await r.json()).presets || [])
+    } finally { setOccupe('') }
   }
 
   if (!zones) return <p className="settings-muted-note">Chargement de l'habillage…</p>
@@ -398,6 +452,58 @@ export default function OverlayEditor() {
         Déplacez une zone en la faisant glisser ; la poignée en bas à droite la redimensionne.
         Les positions sont en pourcentages du cadre : le réglage fait ici tient du 720p au 4K.
       </span>
+
+      {/* Bibliothèque : sans elle, l'habillage est unique et essayer une
+          variante détruit la précédente. */}
+      <div className="settings-divider">
+        <div className="settings-card-head">
+          <div>
+            <small>Bibliothèque d'habillages</small>
+            <p>
+              Enregistrez celui-ci sous un nom : il rejoindra la liste des styles,
+              rangé dans sa catégorie, et restera disponible pour les cultes suivants.
+            </p>
+          </div>
+        </div>
+        <div className="settings-two-cols">
+          <label>
+            <small>Nom</small>
+            <input value={nomPreset} placeholder="ex. Bandeau dimanche"
+              onChange={(e) => setNomPreset(e.target.value)} />
+          </label>
+          <label>
+            <small>Catégorie</small>
+            <input value={categoriePreset} list="overlay-categories"
+              onChange={(e) => setCategoriePreset(e.target.value)} />
+            <datalist id="overlay-categories">
+              <option value="Bandeaux" />
+              <option value="Annonces" />
+              <option value="Plein écran" />
+              <option value="Fêtes" />
+            </datalist>
+          </label>
+        </div>
+        <button className="vp-btn vp-btn--sm" onClick={enregistrerSous} disabled={occupe === 'bibliotheque'}>
+          Enregistrer sous ce nom
+        </button>
+
+        {presets.length > 0 && (
+          <ul className="overlay-presets">
+            {presets.map((p) => (
+              <li key={p.slug}>
+                <span className="overlay-preset-nom">
+                  <strong>{p.name}</strong>
+                  <small>{p.category}{p.has_image ? ' · avec image' : ''}</small>
+                </span>
+                <button className="vp-btn vp-btn--sm" onClick={() => appliquerPreset(p.slug, p.name)}
+                  disabled={occupe === 'bibliotheque'}>Charger</button>
+                <button className="vp-btn vp-btn--sm vp-btn--danger" onClick={() => supprimerPreset(p.slug)}
+                  disabled={occupe === 'bibliotheque'}>Supprimer</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }

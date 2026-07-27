@@ -129,11 +129,11 @@ async def broadcast_projection(text: str, reference: str, background: str | None
         "dual_translations": settings.DUAL_TRANSLATIONS,
         # Habillage personnalisé : l'écran n'a besoin que de savoir qu'une image
         # existe, de sa version (anti-cache) et de l'emplacement des textes.
-        "overlay": {
-            **overlay_store.status(),
-            "zones": overlay_store.parse_zones(settings.OVERLAY_ZONES),
-            "shapes": overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
-        },
+        # Un style « habillage:xxx » désigne un habillage de la bibliothèque ;
+        # sinon l'écran reçoit celui en cours d'édition.
+        "overlay": overlay_store.resolve_overlay(
+            settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES
+        ),
     }
 
     # Nouveau verset à l'écran : la lecture vivante repart de zéro
@@ -320,6 +320,20 @@ async def health_check():
 async def get_projection_page_legacy():
     """Redirige les anciennes requêtes d'affichage vers le nouvel endpoint Output unifié"""
     return RedirectResponse(url="/output")
+
+
+@app.get("/overlay/bibliotheque/{slug}/image.png")
+async def get_preset_image(slug: str):
+    """Sert l'image d'un habillage enregistré (le slug est assaini en amont)."""
+    from fastapi.responses import FileResponse, Response
+    try:
+        chemin = overlay_store._dossier_preset(slug) / "image.png"
+    except ValueError:
+        return Response(status_code=400)
+    if not chemin.is_file():
+        return Response(status_code=404)
+    return FileResponse(str(chemin), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/overlay.png")
@@ -1272,14 +1286,17 @@ async def get_output_page():
                 const formes = (info && info.shapes) || [];
                 // L'habillage vit dès qu'il y a une image OU des formes : une
                 // église sans graphiste doit pouvoir composer sans fichier.
-                if (!info || (!info.installed && !formes.length)) {
+                if (!info || (!info.image_url && !formes.length)) {
                     document.body.classList.remove('has-overlay');
                     return false;
                 }
-                overlayImage.style.display = info.installed ? '' : 'none';
-                if (info.installed && overlayVersion !== info.updated_at) {
-                    overlayVersion = info.updated_at;
-                    overlayImage.src = '/overlay.png?v=' + info.updated_at;
+                // L'URL vient du serveur : elle désigne l'habillage courant ou
+                // celui d'un préréglage, et porte sa version pour le cache.
+                const urlImage = info.image_url || '';
+                overlayImage.style.display = urlImage ? '' : 'none';
+                if (urlImage && overlayVersion !== urlImage) {
+                    overlayVersion = urlImage;
+                    overlayImage.src = urlImage;
                 }
                 renderShapes(formes);
                 const zones = info.zones || {};

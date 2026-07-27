@@ -143,6 +143,19 @@ export default function Settings() {
     setOnglet(cle)
     try { localStorage.setItem('versepro_settings_tab', cle) } catch { /* stockage privé */ }
   }
+  // Habillages enregistrés : ils s'ajoutent au menu des styles, dans leur
+  // catégorie. Rechargés à chaque passage sur l'onglet Projection pour refléter
+  // un enregistrement fait juste en dessous, dans l'éditeur.
+  const [presetsHabillage, setPresetsHabillage] = useState([])
+  useEffect(() => {
+    if (onglet !== 'projection') return
+    let vivant = true
+    fetch(`${BACKEND_BASE}/api/v1/overlay/library`)
+      .then((r) => r.json())
+      .then((d) => { if (vivant) setPresetsHabillage(d.presets || []) })
+      .catch(() => {})
+    return () => { vivant = false }
+  }, [onglet, savedAt])
   const updateAudioDevice = (deviceId) => {
     setSelectedAudioDeviceId(deviceId)
     addToast({ message: 'Entrée micro mise à jour', kind: 'success' })
@@ -558,6 +571,23 @@ export default function Settings() {
                     <option value="pill">pill (Capsule arrondie)</option>
                     <option value="sage">sage (Sauge & Terracotta)</option>
                     <option value="split">split (Barre complète divisée)</option>
+                    {/* Habillages de l'église, rangés par catégorie, à côté des
+                        styles livrés : un habillage créé devient un choix comme
+                        un autre. */}
+                    {Object.entries(
+                      presetsHabillage.reduce((groupes, p) => {
+                        (groupes[p.category] ||= []).push(p)
+                        return groupes
+                      }, {})
+                    ).map(([categorie, liste]) => (
+                      <optgroup key={categorie} label={categorie}>
+                        {liste.map((p) => (
+                          <option key={p.slug} value={`habillage:${p.slug}`}>
+                            {p.name}{p.has_image ? ' (avec image)' : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </label>
               ) : (

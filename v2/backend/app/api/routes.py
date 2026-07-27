@@ -96,6 +96,15 @@ class OverlayImageRequest(BaseModel):
     data: str
 
 
+class OverlayPresetRequest(BaseModel):
+    """Enregistrement d'un habillage dans la bibliothèque."""
+    name: str
+    category: Optional[str] = "Mes habillages"
+    # Absents : on enregistre l'habillage tel qu'il est déjà en base.
+    zones: Optional[Any] = None
+    shapes: Optional[Any] = None
+
+
 class ReferenceResponse(BaseModel):
     """Réponse de référence"""
     success: bool
@@ -449,6 +458,61 @@ async def remove_overlay_image():
     from ..services import overlay_store
     overlay_store.delete_image()
     return overlay_store.status()
+
+
+@router.get("/overlay/library")
+async def list_overlay_presets():
+    """Habillages enregistrés, pour le menu des styles."""
+    from ..services import overlay_store
+    return {"presets": overlay_store.list_presets()}
+
+
+@router.post("/overlay/library")
+async def save_overlay_preset(request: OverlayPresetRequest):
+    """Enregistre l'habillage courant sous un nom, dans sa catégorie."""
+    from ..core.config import settings
+    from ..services import overlay_store
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="Un nom est requis.")
+    try:
+        return overlay_store.save_preset(
+            request.name, request.category,
+            request.zones if request.zones is not None else settings.OVERLAY_ZONES,
+            request.shapes if request.shapes is not None else settings.OVERLAY_SHAPES,
+            overlay_store.IMAGE_PATH if overlay_store.IMAGE_PATH.is_file() else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/overlay/library/{slug}/apply")
+async def apply_overlay_preset(slug: str):
+    """Recopie un habillage enregistré dans l'habillage en cours d'édition."""
+    import shutil
+    from ..core.config import settings
+    from ..services import overlay_store
+    from ..services.database import get_database
+    preset = overlay_store.load_preset(slug)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Habillage introuvable.")
+    db = get_database()
+    settings.OVERLAY_ZONES = overlay_store.dump_zones(preset["zones"])
+    settings.OVERLAY_SHAPES = overlay_store.dump_shapes(preset["shapes"])
+    await db.set_setting("overlay_zones", settings.OVERLAY_ZONES)
+    await db.set_setting("overlay_shapes", settings.OVERLAY_SHAPES)
+    if preset["image_path"]:
+        overlay_store.OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(preset["image_path"], overlay_store.IMAGE_PATH)
+    else:
+        overlay_store.delete_image()
+    return {"applied": preset["slug"], **overlay_store.status()}
+
+
+@router.delete("/overlay/library/{slug}")
+async def remove_overlay_preset(slug: str):
+    from ..services import overlay_store
+    overlay_store.delete_preset(slug)
+    return {"presets": overlay_store.list_presets()}
 
 
 @router.post("/vosk/download")
