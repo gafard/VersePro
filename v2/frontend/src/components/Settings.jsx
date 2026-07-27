@@ -21,7 +21,7 @@ const ONGLETS = [
  * paraîtraient énormes dans une petite boîte ; à l'échelle, ils s'affichent
  * comme sur le vidéoprojecteur.
  */
-function StylePreview({ style }) {
+function StylePreview({ theme = 'broadcast', style = 'default' }) {
   const boite = useRef(null)
   const [echelle, setEchelle] = useState(0.25)
   useEffect(() => {
@@ -33,12 +33,15 @@ function StylePreview({ style }) {
     observateur.observe(el)
     return () => observateur.disconnect()
   }, [])
+  // `demo` demande à la page d'afficher un verset d'exemple si rien n'est
+  // projeté : sans lui, l'aperçu reste noir tant que le culte n'a pas commencé.
+  const url = `${BACKEND_BASE}/output?theme=${theme}&style=${style}&demo=1`
   return (
     <div className="style-preview" ref={boite}>
       <iframe
-        key={style}
-        title={`Aperçu du style ${style}`}
-        src={`${BACKEND_BASE}/output?theme=broadcast&style=${style}`}
+        key={url}
+        title={`Aperçu du thème ${theme}`}
+        src={url}
         style={{ transform: `scale(${echelle})` }}
         loading="lazy"
       />
@@ -556,11 +559,6 @@ export default function Settings() {
                     <option value="sage">sage (Sauge & Terracotta)</option>
                     <option value="split">split (Barre complète divisée)</option>
                   </select>
-                  {/* Aperçu RÉEL : la page de projection elle-même, forcée sur
-                      le style survolé par le menu. Une vignette dessinée à côté
-                      aurait fini par mentir dès qu'un style change. */}
-                  <span className="settings-muted-note">Aperçu du style sélectionné, tel qu'il sera projeté :</span>
-                  <StylePreview style={form.projection_style} />
                 </label>
               ) : (
                 <div style={{ opacity: 0.4, pointerEvents: 'none' }}>
@@ -572,6 +570,23 @@ export default function Settings() {
                   </label>
                 </div>
               )}
+            </div>
+
+            {/* Aperçu RÉEL : la page de projection elle-même, sur le thème ET
+                le style choisis. Une vignette dessinée à la main aurait fini
+                par mentir dès qu'un style change ; ici c'est le vrai rendu.
+                Placé sous les deux menus, il occupe la largeur laissée vide. */}
+            <div className="settings-divider">
+              <div className="settings-card-head">
+                <div>
+                  <small>Aperçu</small>
+                  <p>Le rendu exact, thème et style combinés, tel qu'il sortira sur l'écran.</p>
+                </div>
+                <span className="vp-chip">
+                  {form.projection_theme}{form.projection_theme === 'broadcast' ? ` · ${form.projection_style}` : ''}
+                </span>
+              </div>
+              <StylePreview theme={form.projection_theme} style={form.projection_style} />
             </div>
 
             <div className="settings-divider">

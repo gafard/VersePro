@@ -1141,6 +1141,20 @@ async def get_output_page():
             const forcedTheme = params.get('theme');
             const scale = parseFloat(params.get('scale') || '1');
             const subtitlesEnabled = params.get('subtitle') !== 'off';
+            // Mode démonstration : sert les aperçus de réglages. Tant qu'aucun
+            // verset n'est projeté, la page reste noire — un opérateur qui
+            // compare des styles avant le culte ne verrait donc rien. Le verset
+            // d'exemple ne s'affiche JAMAIS sur un écran de projection : il faut
+            // le demander explicitement par l'URL.
+            const modeDemo = params.get('demo') === '1';
+            const SCENE_DEMO = {
+                type: 'scripture',
+                text: "Lorsque Moïse élevait sa main, Israël était le plus fort; et lorsqu'il baissait sa main, Amalek était le plus fort.",
+                reference: 'Exode 17:11',
+                book: 'Exode', chapter: 17, verse_start: 11,
+                active_version: 'LSG', active_version_label: 'Louis Segond 1910',
+                show_version: true, background: 'black'
+            };
             // Le zoom s'applique à TOUS les thèmes (tout est dimensionné en rem)
             if (scale && scale !== 1) document.documentElement.style.fontSize = (16 * scale) + 'px';
 
@@ -1404,6 +1418,14 @@ async def get_output_page():
                     if (data.type === 'reading_progress') { applyProgress(data.matched); return; }
                     if (data.type === 'live_translation') { showSubtitle(data); return; }
                     if (data.type && data.type !== 'scripture') return;
+                    // En aperçu, tant qu'aucun verset n'est projeté on montre
+                    // l'exemple ; l'habillage et les réglages restent ceux du
+                    // serveur. La RÉFÉRENCE est le signal fiable : la scène au
+                    // repos porte déjà le texte « En attente d'affichage… ».
+                    if (modeDemo && !data.reference) {
+                        renderScene({ ...data, ...SCENE_DEMO });
+                        return;
+                    }
                     renderScene(data);
                 };
                 ws.onclose = () => { signalEl.classList.add('lost'); setTimeout(connect, 2000); };
