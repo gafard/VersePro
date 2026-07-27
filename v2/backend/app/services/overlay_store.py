@@ -246,8 +246,8 @@ def style_slug(style: Optional[str]) -> Optional[str]:
     return None
 
 
-def resolve_overlay_info(style: Optional[str], zones_actives: Optional[str],
-                        formes_actives: Optional[str]) -> Dict[str, Any]:
+def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
+                    formes_actives: Optional[str]) -> Dict[str, Any]:
     """Habillage à envoyer aux écrans : celui d'un préréglage de la bibliothèque
     si l'opérateur a sélectionné 'habillage:slug' dans le menu des styles.
 
@@ -280,6 +280,9 @@ def resolve_overlay_info(style: Optional[str], zones_actives: Optional[str],
         "shapes": parse_shapes(formes_actives),
         "preset": None,
     }
+
+
+resolve_overlay_info = resolve_overlay
 
 
 def _clamp(value: Any, bas: float, haut: float, defaut: float) -> float:
