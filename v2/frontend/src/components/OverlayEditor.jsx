@@ -77,10 +77,15 @@ function contourForme(L, H, coins) {
   return pts
 }
 
+const DEFAUT_ZONES = {
+  text: { x: 6.5, y: 81.0, w: 87.0, h: 13.5, size: 5.0, color: '#1d2b63', align: 'left', valign: 'middle', weight: 700, font: 'sans', line: 1.16 },
+  reference: { x: 63.5, y: 74.5, w: 32.0, h: 5.4, size: 2.8, color: '#ffffff', align: 'center', valign: 'middle', weight: 700, font: 'sans', line: 1.2 }
+}
+
 export default function OverlayEditor() {
   const { addToast } = useStore()
   const [etat, setEtat] = useState(null)
-  const [zones, setZones] = useState(null)
+  const [zones, setZones] = useState(DEFAUT_ZONES)
   const [formes, setFormes] = useState([])
   // Sélection : 'text' / 'reference' pour une zone, ou l'indice d'une forme.
   const [selection, setSelection] = useState('text')
@@ -104,13 +109,13 @@ export default function OverlayEditor() {
       const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/status`)
       const d = await r.json()
       setEtat(d)
-      setZones(d.zones)
+      if (d.zones) setZones(d.zones)
       setFormes(d.shapes || [])
       chargerPresets()
     } catch {
-      addToast({ message: 'Habillage : serveur injoignable', kind: 'error' })
+      /* si le serveur met quelques secondes à répondre, les zones par défaut restent actives */
     }
-  }, [addToast, chargerPresets])
+  }, [chargerPresets])
 
   useEffect(() => { charger() }, [charger])
 
