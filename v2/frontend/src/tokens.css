@@ -69,6 +69,13 @@
   --text-md:  1.125rem;
   --text-sm:  0.875rem;
   --text-xs:  0.75rem;
+  /* Crans fins de la console. Ils manquaient : les composants descendaient
+     sous --text-xs avec des valeurs improvisées (9,5 / 10 / 10,5 / 11 / 11,5 /
+     12,5 / 13 px). Huit tailles pour un même registre, donc aucun rythme —
+     l'interface paraît « presque juste » sans qu'on sache dire pourquoi. */
+  --text-2xs: 0.6875rem;  /* 11px — libellés secondaires, notes */
+  --text-3xs: 0.625rem;   /* 10px — micro-étiquettes, badges */
+  --text-label: 0.8125rem; /* 13px — libellés de contrôle, onglets */
   --tracking-display: -0.02em;
   --tracking-micro:   0.10em;
 

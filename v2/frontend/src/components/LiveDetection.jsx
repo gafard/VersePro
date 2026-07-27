@@ -416,6 +416,21 @@ export default function LiveDetection({ setActiveTab }) {
             {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Copilote ${confidencePct ?? 95}%` : 'Direct')}
           </span>
         </div>
+        {/* Jauge de confiance : l'opérateur décide de projeter ou non, et lire
+            un pourcentage prend plus longtemps que voir une barre. Trois
+            paliers seulement — au-delà, la nuance ne se lit plus à distance. */}
+        {!isProjected && confidencePct != null && (
+          <div
+            className={`live-card-gauge ${confidencePct >= 95 ? 'is-sure' : confidencePct >= 80 ? 'is-likely' : 'is-doubtful'}`}
+            role="meter"
+            aria-valuenow={confidencePct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Confiance de la détection : ${confidencePct} %`}
+          >
+            <span style={{ width: `${Math.max(4, Math.min(100, confidencePct))}%` }} />
+          </div>
+        )}
         <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
         <div className="live-card-foot">
           <span className="live-card-time">
@@ -556,10 +571,14 @@ export default function LiveDetection({ setActiveTab }) {
               </span>
             </div>
 
-            {/* Contrôle micro */}
+            {/* Contrôle micro. Le halo suit l'amplitude réelle : il dit à
+                l'opérateur, d'un seul regard et sans lire un chiffre, que le
+                micro entend quelque chose. C'est de l'état, pas du décor —
+                d'où l'absence d'animation quand le micro est à l'arrêt. */}
             <div className="flex flex-col gap-2">
-              <button 
-                className={`vp-btn ${isListening ? 'vp-btn--ghost' : 'vp-btn--primary'} w-full py-1.5`} 
+              <button
+                className={`vp-btn ${isListening ? 'vp-btn--ghost' : 'vp-btn--primary'} w-full py-1.5 mic-button ${isListening ? 'is-live' : ''}`}
+                style={isListening ? { '--mic-level': Math.min(1, volume / 100) } : undefined}
                 onClick={handleToggleListening}
               >
                 {isListening ? 'Arrêter Micro' : 'Démarrer Micro'}
