@@ -1183,7 +1183,11 @@ async def get_output_page():
                 reference: 'Exode 17:11',
                 book: 'Exode', chapter: 17, verse_start: 11,
                 active_version: 'LSG', active_version_label: 'Louis Segond 1910',
-                show_version: true, background: 'black'
+                show_version: true, background: 'black',
+                translations: {
+                    LSG: "Lorsque Moïse élevait sa main, Israël était le plus fort; et lorsqu'il baissait sa main, Amalek était le plus fort.",
+                    SEM: "Tant que Moïse tenait ses mains levées, Israël était le plus fort, mais dès qu'il les laissait retomber, Amalek l'emportait."
+                }
             };
             // Le zoom s'applique à TOUS les thèmes (tout est dimensionné en rem)
             if (scale && scale !== 1) document.documentElement.style.fontSize = (16 * scale) + 'px';
@@ -1351,9 +1355,13 @@ async def get_output_page():
             function renderOverlay(data) {
                 const info = data.overlay;
                 const formes = (info && info.shapes) || [];
-                // L'habillage vit dès qu'il y a une image OU des formes : une
-                // église sans graphiste doit pouvoir composer sans fichier.
-                if (!info || (!info.image_url && !formes.length)) {
+                const forcedStyle = params.get('style') || data.style || '';
+                const estHabillageStyle = forcedStyle.startsWith('habillage:');
+                // En mode aperçu des thèmes (boîte d'aperçu des paramètres), on laisse
+                // l'opérateur prévisualiser librement tous les thèmes standards (presentation,
+                // agoe-logope, glass, dual, etc.). L'habillage ne s'affiche dans l'aperçu
+                // que si un habillage spécifique est sélectionné dans le menu.
+                if ((modeDemo && !estHabillageStyle) || !info || (!info.image_url && !formes.length)) {
                     document.body.classList.remove('has-overlay');
                     return false;
                 }
