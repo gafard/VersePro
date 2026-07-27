@@ -246,12 +246,13 @@ def style_slug(style: Optional[str]) -> Optional[str]:
     return None
 
 
-def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
-                    formes_actives: Optional[str]) -> Dict[str, Any]:
-    """Habillage à envoyer aux écrans : celui d'un préréglage, sinon l'actif.
+def resolve_overlay_info(style: Optional[str], zones_actives: Optional[str],
+                        formes_actives: Optional[str]) -> Dict[str, Any]:
+    """Habillage à envoyer aux écrans : celui d'un préréglage de la bibliothèque
+    si l'opérateur a sélectionné 'habillage:slug' dans le menu des styles.
 
-    Choisir un habillage de la bibliothèque ne détruit pas celui en cours
-    d'édition : l'écran affiche le préréglage, l'éditeur garde son brouillon.
+    Si le style sélectionné est un style natif (agoe-logope, glass, neon-glow, etc.),
+    aucun habillage n'est forcé et le style natif s'affiche.
     """
     slug = style_slug(style)
     if slug:
@@ -263,15 +264,18 @@ def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
                 "updated_at": preset["updated_at"],
                 "image_url": (f"/overlay/bibliotheque/{preset['slug']}/image.png"
                               f"?v={preset['updated_at']}") if preset["image_path"] else "",
+                "image_path": preset["image_path"],
                 "zones": preset["zones"],
                 "shapes": preset["shapes"],
                 "preset": preset["slug"],
             }
-        logger.warning(f"Habillage « {slug} » introuvable ; retour à l'habillage courant.")
-    etat = status()
+        logger.warning(f"Habillage « {slug} » introuvable.")
     return {
-        **etat,
-        "image_url": f"/overlay.png?v={etat['updated_at']}" if etat["installed"] else "",
+        "installed": False,
+        "width": 0, "height": 0,
+        "updated_at": 0,
+        "image_url": "",
+        "image_path": None,
         "zones": parse_zones(zones_actives),
         "shapes": parse_shapes(formes_actives),
         "preset": None,

@@ -112,11 +112,12 @@ class NDIOutput(BaseOutput):
     def _composer(self, reference: str, texte: str, numero: Any) -> np.ndarray:
         from ..core.config import settings
         from ..services import overlay_store
-        image = overlay_store.IMAGE_PATH if overlay_store.IMAGE_PATH.is_file() else None
+        info = overlay_store.resolve_overlay_info(settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES)
+        image = info.get("image_path") if info.get("installed") else None
         rendu = rendre_habillage(
             LARGEUR, HAUTEUR,
-            overlay_store.parse_zones(settings.OVERLAY_ZONES),
-            overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
+            info.get("zones") or overlay_store.parse_zones(settings.OVERLAY_ZONES),
+            info.get("shapes") or overlay_store.parse_shapes(settings.OVERLAY_SHAPES),
             reference, texte, numero,
             str(image) if image else None,
         )
