@@ -1022,7 +1022,10 @@ async def generate_session_summary(session_id: int):
     # Génération du résumé par l'Agent IA
     summary = await ai_service.generate_sermon_summary(transcript)
     if not summary:
-        raise HTTPException(status_code=500, detail="Échec de la génération du résumé par l'Agent IA")
+        # La raison précise vaut mieux qu'un « échec » muet : clé absente,
+        # quota dépassé, délai expiré ne se corrigent pas de la même façon.
+        raison = getattr(ai_service, "last_summary_error", "") or "cause inconnue"
+        raise HTTPException(status_code=502, detail=f"Résumé impossible — {raison}")
         
     # Enregistrement
     await db.update_session_summary(session_id, summary)

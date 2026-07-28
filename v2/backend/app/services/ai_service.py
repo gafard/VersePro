@@ -20,6 +20,8 @@ class AIService:
         
         self.ollama_active = False
         self.ollama_reachable = False
+        # Dernière raison d'échec d'un résumé, remontée telle quelle à l'écran.
+        self.last_summary_error = ""
         self.ollama_model_available = False
         # Caches bornés (FIFO) : sans plafond, un culte de 2h avec traduction simultanée
         # ferait croître la mémoire indéfiniment (une entrée par phrase finale)
@@ -508,12 +510,30 @@ class AIService:
         """
         Génère un résumé structuré en Markdown d'une transcription de sermon complet (en texte brut).
         """
-        if not self.enabled or not transcript or len(transcript.strip()) < 50:
+        self.last_summary_error = ""
+        if not self.enabled:
+            self.last_summary_error = (
+                "Aucun moteur IA disponible : renseignez une clé OpenRouter ou Gemini "
+                "dans les Paramètres, ou installez Ollama en local."
+            )
+            return None
+        if not transcript or len(transcript.strip()) < 50:
+            self.last_summary_error = "Transcription trop courte pour être résumée."
             return None
 
         cache_key = self._normalize_cache_key(transcript, "summary")
-        if cache_key in self._summary_cache:
-            return self._summary_cache[cache_key]
+        # On ne relit le cache QUE s'il contient un vrai résumé. Auparavant les
+        # échecs y étaient mémorisés eux aussi : une seule panne réseau
+        # condamnait définitivement cette transcription, chaque nouvel essai
+        # renvoyant l'échec sans même appeler l'IA. Un bouton « Générer » qui ne
+        # peut plus jamais aboutir, sans que rien ne l'explique.
+        cached = self._summary_cache.get(cache_key)
+        if cached:
+            return cached
+
+        # Chaque moteur ajoute ici la raison de son échec : sans cela
+        # l'opérateur ne voit qu'un « échec de génération » muet.
+        echecs: List[str] = []
 
         prompt = (
             "À partir de la transcription brute suivante d'une prédication de culte, génère un résumé structuré et édifiant "
@@ -544,7 +564,10 @@ class AIService:
                 ]
             }
             try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
+                # Résumer une prédication entière est une génération longue :
+                # 15 s suffisaient à peine, et le délai expirait avant la
+                # réponse — ce qui passait ensuite pour une panne définitive.
+                async with httpx.AsyncClient(timeout=90.0) as client:
                     response = await client.post(url, json=payload, headers=headers)
                     if response.status_code == 200:
                         content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -552,8 +575,12 @@ class AIService:
                             summary = content.strip()
                             self._cache_put(self._summary_cache, cache_key, summary)
                             return summary
+                        echecs.append("OpenRouter : réponse vide")
+                    else:
+                        echecs.append(f"OpenRouter : HTTP {response.status_code}")
             except Exception as e:
                 logger.error(f"❌ Erreur résumé OpenRouter: {e}")
+                echecs.append(f"OpenRouter : {type(e).__name__}")
 
         # 2. Utilisation de l'API Gemini directe
         if self.api_key:
@@ -564,7 +591,7 @@ class AIService:
                 "systemInstruction": {"parts": [{"text": "Tu es un théologien et rédacteur d'église. Rédige un résumé édifiant et structuré d'un sermon sous forme de Markdown."}]}
             }
             try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
+                async with httpx.AsyncClient(timeout=90.0) as client:
                     response = await client.post(url, json=payload, headers=headers)
                     if response.status_code == 200:
                         text_res = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
@@ -572,8 +599,12 @@ class AIService:
                             summary = text_res.strip()
                             self._cache_put(self._summary_cache, cache_key, summary)
                             return summary
+                        echecs.append("Gemini : réponse vide")
+                    else:
+                        echecs.append(f"Gemini : HTTP {response.status_code}")
             except Exception as e:
                 logger.error(f"❌ Erreur résumé Gemini Direct: {e}")
+                echecs.append(f"Gemini : {type(e).__name__}")
 
         # 3. Fallback sur Ollama local
         if self.ollama_active:
@@ -585,7 +616,9 @@ class AIService:
                 "stream": False
             }
             try:
-                async with httpx.AsyncClient(timeout=20.0) as client:
+                # Un modèle local sur le processeur d'un poste d'église met
+                # plusieurs minutes à rédiger un résumé complet.
+                async with httpx.AsyncClient(timeout=300.0) as client:
                     response = await client.post(url, json=payload)
                     if response.status_code == 200:
                         response_text = response.json().get("response", "")
@@ -593,8 +626,18 @@ class AIService:
                             summary = response_text.strip()
                             self._cache_put(self._summary_cache, cache_key, summary)
                             return summary
+                        echecs.append("Ollama : réponse vide")
+                    else:
+                        echecs.append(f"Ollama : HTTP {response.status_code}")
             except Exception as e:
                 logger.error(f"❌ Erreur résumé Ollama: {e}")
+                echecs.append(f"Ollama : {type(e).__name__}")
 
-        self._cache_put(self._summary_cache, cache_key, None)
+        # Aucun échec n'est mis en cache : la panne d'aujourd'hui ne doit pas
+        # interdire la tentative de demain.
+        self.last_summary_error = (
+            " · ".join(echecs) if echecs
+            else "Aucun moteur n'a répondu. Vérifiez la clé API et la connexion."
+        )
+        logger.warning(f"Résumé impossible — {self.last_summary_error}")
         return None
