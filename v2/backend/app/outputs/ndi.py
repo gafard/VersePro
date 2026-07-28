@@ -20,6 +20,45 @@ from loguru import logger
 from .base import BaseOutput
 from .ndi_render import rendre_habillage, vers_bgrx
 
+import os
+import sys
+
+def _charger_ndilib_windows():
+    """Sur Windows, recherche dynamique des DLLs natives Vizrt NDI."""
+    if sys.platform != "win32":
+        return
+
+    candidats = []
+    for var in ("NDI_RUNTIME_DIR_V6", "NDI_RUNTIME_DIR_V5", "NDI_RUNTIME_DIR_V4"):
+        d = os.environ.get(var)
+        if d and os.path.isdir(d):
+            candidats.append(d)
+
+    for p_var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
+        pf = os.environ.get(p_var)
+        if not pf:
+            continue
+        for folder in ("NDI", "Vizrt"):
+            base_ndi = os.path.join(pf, folder)
+            if not os.path.isdir(base_ndi):
+                continue
+            for root, dirs, files in os.walk(base_ndi):
+                if any(f.lower().startswith("processing.ndi.lib") and f.endswith(".dll") for f in files):
+                    candidats.append(root)
+
+    for path in set(candidats):
+        try:
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(path)
+            if path not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f"{path};{os.environ.get('PATH', '')}"
+            logger.info(f"🔍 DLL NDI Windows détectée et ajoutée: {path}")
+        except Exception as err:
+            logger.debug(f"Impossible d'ajouter le chemin DLL NDI {path}: {err}")
+
+
+_charger_ndilib_windows()
+
 try:
     import NDIlib as ndi
     NDI_AVAILABLE = True

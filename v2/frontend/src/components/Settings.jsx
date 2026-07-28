@@ -761,10 +761,23 @@ export default function Settings() {
               </label>
             </>
           ) : (
-            <span className="settings-error-note">
-              NDI n'est pas disponible sur ce poste{settings?.ndi?.last_error ? ` : ${settings.ndi.last_error}` : ''}.
-              Installez le runtime NDI de Vizrt, puis relancez VersePro.
-            </span>
+            <div className="settings-error-note flex flex-col gap-2 p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-200">
+              <div>
+                <strong>NDIlib (Runtime NDI de Vizrt) est absent de ce poste.</strong>
+                {settings?.ndi?.last_error ? ` (${settings.ndi.last_error})` : ''}
+              </div>
+              <p className="text-xs opacity-90">
+                Pour diffuser le flux vidéo NDI vers vMix, OBS Studio ou TriCaster sur votre réseau d'église, installez le runtime gratuit NDI de Vizrt puis relancez VersePro :
+              </p>
+              <a
+                href="https://ndi.video/tools/ndi-core-suite/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-amber-400 underline font-medium hover:text-amber-300 w-fit"
+              >
+                <span>Télécharger le Runtime NDI gratuit de Vizrt (NDI Core Suite) ↗</span>
+              </a>
+            </div>
           )}
         </div>
 
