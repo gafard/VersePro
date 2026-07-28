@@ -1083,8 +1083,63 @@ async def get_session_detail(session_id: int):
     session = await db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session non trouvée")
-    
+
     return session
+
+
+async def _session_et_versets(session_id: int):
+    """Session + versets projetés dans l'ORDRE DU CULTE.
+
+    `get_recent_verses` trie du plus récent au plus ancien, ce qui convient à
+    un panneau d'historique mais inverserait un compte rendu. On remet dans
+    l'ordre où l'assemblée les a vus.
+    """
+    from ..services.database import get_database
+
+    db = get_database()
+    session = await db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+    versets = await db.get_recent_verses(limit=1000, session_id=session_id)
+    return session, list(reversed(versets))
+
+
+@router.get("/history/sessions/{session_id}/export.md")
+async def export_session_markdown(session_id: int):
+    """Le compte rendu du culte : résumé, versets horodatés, transcription.
+
+    Produit hors ligne, sans clé d'API. C'est aussi le fichier à déposer dans
+    un outil de synthèse (NotebookLM ou autre) si l'église veut en tirer un
+    podcast ou une vidéo — VersePro n'envoie rien lui-même.
+    """
+    from fastapi.responses import Response
+    from ..services.session_export import vers_markdown, nom_fichier
+
+    session, versets = await _session_et_versets(session_id)
+    contenu = vers_markdown(session, versets)
+    nom = nom_fichier(session, "md")
+    return Response(
+        content=contenu.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nom}"'},
+    )
+
+
+@router.get("/history/sessions/{session_id}/export.pptx")
+async def export_session_pptx(session_id: int):
+    """Les versets du culte en diapositives, réutilisables en semaine."""
+    from fastapi.responses import Response
+    from ..services.session_export import vers_pptx, nom_fichier
+
+    session, versets = await _session_et_versets(session_id)
+    archive = vers_pptx(session, versets)
+    nom = nom_fichier(session, "pptx")
+    return Response(
+        content=archive,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".presentationml.presentation"),
+        headers={"Content-Disposition": f'attachment; filename="{nom}"'},
+    )
 
 
 @router.post("/history/sessions/{session_id}/summary")
