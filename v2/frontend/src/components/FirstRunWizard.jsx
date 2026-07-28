@@ -282,7 +282,7 @@ export default function FirstRunWizard({ onDone }) {
                   <li className={`fw-comp fw-comp--in ${voskReady ? 'is-ready' : voskBusy ? 'is-busy' : ''}`}>
                     {voskReady ? <Icon name="check" size={15} /> : voskBusy ? <span className="fw-mini-pct">{Math.round(voskPct)}%</span> : <span className="fw-dot" />}
                     <div><strong>reconnaissance vocale hors-ligne</strong>
-                      <small>{vosk?.last_error ? vosk.last_error : voskReady ? 'Vosk français grand modèle prêt' : voskBusy ? `téléchargement de Vosk… ${Math.round(voskPct)}%` : 'Vosk français grand modèle — à télécharger'}</small></div>
+                      <small>{vosk?.last_error ? vosk.last_error : voskReady ? 'Vosk français grand modèle prêt' : voskBusy ? (vosk?.download_status === 'extraction' ? 'extraction du modèle…' : `téléchargement de Vosk… ${Math.round(voskPct)}%`) : 'Vosk français grand modèle — à télécharger'}</small></div>
                     <span className="fw-comp-size">{fmtSize(voskSize)}</span>
                   </li>
                   )}

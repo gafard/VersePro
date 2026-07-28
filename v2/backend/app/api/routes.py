@@ -418,13 +418,13 @@ async def get_vosk_status():
     from ..main import vosk_service
     if not vosk_service:
         return {"installed": False, "downloading": False, "model_name": "", "model_type": ""}
-    
-    import os
-    installed = os.path.exists(vosk_service.model_dir) and vosk_service.initialized
+
+    installed = vosk_service.initialized or vosk_service.is_installed()
     return {
         "installed": installed,
-        "downloading": vosk_service.downloading,
+        "downloading": vosk_service.downloading and not installed,
         "download_progress": getattr(vosk_service, "download_progress", 0.0),
+        "download_status": getattr(vosk_service, "download_status", ""),
         "model_name": vosk_service.model_name,
         "model_type": vosk_service.model_type,
         "last_error": getattr(vosk_service, "last_error", "")
