@@ -89,7 +89,19 @@ class VerseGraphService:
         une citation explicite : c'est la confirmation par l'étage A qui donne
         à VerseGraph le droit de parler ensuite.
         """
-        if not reference or reference.get("detection_method") != "explicit":
+        # « chapter_candidate » sort de la MÊME analyse par expressions
+        # régulières que « explicit » : un livre et un chapitre confirmés,
+        # sans numéro de verset. C'est même l'ancre la plus fidèle au réel —
+        # « allons maintenant dans Exode chapitre dix-sept » est la façon
+        # normale d'ouvrir un passage avant de l'expliquer. L'écoute d'un
+        # enregistrement l'a montré : sans cette forme, l'allusion qui suit
+        # deux phrases plus loin était perdue.
+        # Ce qui reste exclu, et c'est là qu'est la sûreté : tout ce qui vient
+        # du sémantique ou de l'IA. Seule une citation énoncée par un humain
+        # peut ouvrir un passage.
+        if not reference or reference.get("detection_method") not in (
+            "explicit", "chapter_candidate"
+        ):
             return False
         livre = reference.get("book_abbr")
         chapitre = reference.get("chapter")

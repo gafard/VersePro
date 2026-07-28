@@ -49,6 +49,36 @@ def test_verse_graph_ancrage_explicite():
     assert vg.etat()["ancre"] == "Exode 17"
 
 
+def test_verse_graph_ancre_sur_un_chapitre_sans_verset():
+    """« Allons dans Exode chapitre dix-sept » doit ouvrir le passage.
+
+    C'est la façon NORMALE d'ouvrir un texte avant de l'expliquer, et le
+    parseur la rend en « chapter_candidate » — même analyse par expressions
+    régulières que « explicit », simplement sans numéro de verset.
+
+    L'écoute d'un enregistrement l'a révélé : tant que cette forme n'ancrait
+    pas, l'allusion prononcée deux phrases plus loin était perdue.
+    """
+    vg = VerseGraphService(MockSemantic())
+    assert vg.ancrer({"detection_method": "chapter_candidate", "book_abbr": "Ex",
+                      "chapter": 17, "reference": "Exode 17"}) is True
+    assert vg.etat()["ancre"] == "Exode 17"
+
+
+def test_verse_graph_refuse_d_ancrer_sur_une_hypothese():
+    """La sûreté tient à ceci : seule une citation ÉNONCÉE ouvre un passage.
+
+    Si une détection sémantique pouvait ancrer, une erreur en entraînerait
+    d'autres dans le même chapitre — l'écart d'un faux positif deviendrait
+    une dérive sur toute la prédication.
+    """
+    vg = VerseGraphService(MockSemantic())
+    for methode in ("semantic_local", "semantic_anchored", "ai_semantic", "fusion"):
+        assert vg.ancrer({"detection_method": methode, "book_abbr": "Jn",
+                          "chapter": 11, "reference": "Jean 11:43"}) is False
+    assert vg.etat()["ancre"] is None
+
+
 def test_verse_graph_resoudre_allusion():
     sem = MockSemantic()
     vg = VerseGraphService(sem)
