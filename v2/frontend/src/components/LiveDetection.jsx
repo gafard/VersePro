@@ -64,6 +64,7 @@ export default function LiveDetection({ setActiveTab }) {
     translationLang, currentTranslation, setTranslationLang,
     autopilotMode, setAutopilotMode,
     projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearProjectionQueue,
+    preparedVerses, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
     lastAiRejection,
     onAir, clearProjectionScreen,
     statistics,
@@ -80,6 +81,7 @@ export default function LiveDetection({ setActiveTab }) {
   const [preflightOpen, setPreflightOpen] = useState(false)
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [failedIds, setFailedIds] = useState(new Set())
+  const [preparingReference, setPreparingReference] = useState(false)
   const [dismissedPpAlert, setDismissedPpAlert] = useState(() => {
     try { return localStorage.getItem('versepro_dismiss_pp_alert') === 'true' } catch { return false }
   })
@@ -214,6 +216,18 @@ export default function LiveDetection({ setActiveTab }) {
     setManualReference('')
   }
 
+  const handlePrepareManual = async () => {
+    const ref = manualReference.trim()
+    if (!ref || preparingReference) return
+    setPreparingReference(true)
+    try {
+      const prepared = await prepareReference(ref)
+      if (prepared) setManualReference('')
+    } finally {
+      setPreparingReference(false)
+    }
+  }
+
   const handleToggleListening = async () => {
     if (isListening) {
       await toggleListening()
@@ -258,6 +272,19 @@ export default function LiveDetection({ setActiveTab }) {
       setProjectingIds((prev) => {
         const next = new Set(prev)
         next.delete(queueId)
+        return next
+      })
+    }
+  }
+
+  const handleProjectPrepared = async (item) => {
+    setProjectingIds((prev) => new Set(prev).add(item.id))
+    try {
+      await projectPreparedVerse(item.id)
+    } finally {
+      setProjectingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(item.id)
         return next
       })
     }
@@ -413,6 +440,7 @@ export default function LiveDetection({ setActiveTab }) {
   const pendingLocal = pendingItems.filter((item) => !isSemanticSuggestion(item))
   const pendingAi = pendingItems.filter(isSemanticSuggestion)
   const recentDone = projectionQueue.filter((i) => i.status !== 'pending').slice(0, 3)
+  const projectedHistory = projectionQueue.filter((item) => item.status === 'projected')
   const canShift = Boolean(shiftVerse(onAirDisplay?.reference, 1))
   const selectedAudioDevice = audioDevices.find((device) => device.deviceId === selectedAudioDeviceId)
 
@@ -718,23 +746,42 @@ export default function LiveDetection({ setActiveTab }) {
               )}
             </div>
             
-            {/* Barre de recherche manuelle intégrée au centre */}
+            {/* Entrée = préparer sans projection. La projection immédiate reste
+                une action distincte pour éviter les envois accidentels. */}
             <div className="live-manual-bar mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
-              <div className="flex gap-2">
+              <div className="live-manual-actions">
                 <input
                   ref={manualInputRef}
                   className="vp-input flex-1 py-1.5 text-sm"
                   type="text"
                   value={manualReference}
                   onChange={(e) => setManualReference(e.target.value)}
-                  placeholder="Recherche ou référence directe (ex: Jn 3:16, Romains 8:28…)"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendManual()}
+                  placeholder="Ajouter au déroulé (ex : Jn 3:16, Romains 8:28…)"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handlePrepareManual()
+                    }
+                  }}
                 />
-                <button className="vp-btn vp-btn--primary px-4 text-xs" onClick={handleSendManual} disabled={!manualReference.trim()}>Projeter</button>
+                <button
+                  className="vp-btn vp-btn--primary px-4 text-xs"
+                  onClick={handlePrepareManual}
+                  disabled={!manualReference.trim() || preparingReference}
+                >
+                  {preparingReference ? 'Ajout…' : 'Ajouter'}
+                </button>
+                <button
+                  className="vp-btn vp-btn--ghost px-3 text-xs"
+                  onClick={handleSendManual}
+                  disabled={!manualReference.trim() || preparingReference}
+                >
+                  Projeter
+                </button>
               </div>
               <div className="live-quick-row flex gap-2 overflow-x-auto pb-1">
                 {quickRefs.map((sug) => (
-                  <button key={sug.ref} className="live-quick-chip text-[10px] px-2 py-0.5" onClick={() => sendReference(sug.ref)} title={`Projeter ${sug.ref} immédiatement`}>
+                  <button key={sug.ref} className="live-quick-chip text-[10px] px-2 py-0.5" onClick={() => prepareReference(sug.ref)} title={`Ajouter ${sug.ref} au déroulé`}>
                     {sug.label}
                   </button>
                 ))}
@@ -823,36 +870,80 @@ export default function LiveDetection({ setActiveTab }) {
         </div>
       </div>
 
-      {/* ── RUBAN TEMPOREL DU CULTE (TIMELINE EN BAS) ── */}
+      {/* ── DÉROULÉ PRÉPARÉ ET HISTORIQUE DU CULTE ── */}
       <div className="cult-timeline-panel">
-        <span className="cult-timeline-title">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Ruban Temporel du Culte
-        </span>
+        <div className="cult-timeline-head">
+          <span className="cult-timeline-title">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+            </svg>
+            Déroulé du culte
+            {preparedVerses.length > 0 && <span className="count">{preparedVerses.length}</span>}
+          </span>
+          {preparedVerses.length > 0 && (
+            <button className="vp-btn vp-btn--ghost vp-btn--sm cult-timeline-clear" onClick={clearPreparedVerses}>
+              Vider les préparés
+            </button>
+          )}
+        </div>
         <div className="cult-timeline-scroll">
-          {projectionQueue.filter(item => item.status === 'projected').length === 0 ? (
-            <span className="text-xs text-[var(--text-faint)] italic">Aucun jalon enregistré. Les versets projetés s'aligneront ici chronologiquement.</span>
+          {preparedVerses.length === 0 && projectedHistory.length === 0 ? (
+            <span className="text-xs text-[var(--text-faint)] italic">Aucun verset préparé. Saisissez une référence puis validez avec Entrée.</span>
           ) : (
-            projectionQueue.filter(item => item.status === 'projected').map((item, idx) => {
+            <>
+              {preparedVerses.length > 0 && <span className="cult-timeline-section">Préparés</span>}
+              {preparedVerses.map((item, idx) => {
+                const isCurrent = onAirDisplay?.reference === item.reference
+                const isLoading = projectingIds.has(item.id)
+                return (
+                  <div
+                    key={item.id}
+                    className={`cult-timeline-item is-prepared ${isCurrent ? 'is-current' : ''} ${isLoading ? 'is-loading' : ''}`}
+                  >
+                    <button
+                      className="cult-timeline-project"
+                      onClick={() => handleProjectPrepared(item)}
+                      disabled={isLoading}
+                      title={`Projeter ${item.reference}`}
+                    >
+                      <span className="cult-timeline-order">{idx + 1}</span>
+                      <span className="cult-timeline-ref">{item.reference}</span>
+                      <span className="cult-timeline-state">
+                        {isLoading ? 'Envoi…' : isCurrent ? 'À l’antenne' : item.lastProjectedAt ? 'Déjà projeté' : 'Prêt'}
+                      </span>
+                    </button>
+                    <button
+                      className="cult-timeline-remove"
+                      onClick={() => removePreparedVerse(item.id)}
+                      aria-label={`Retirer ${item.reference} du déroulé`}
+                      title="Retirer du déroulé"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )
+              })}
+
+              {projectedHistory.length > 0 && <span className="cult-timeline-section">Historique</span>}
+              {projectedHistory.map((item, idx) => {
               const isCurrent = onAirDisplay?.reference === item.reference
               const timeStr = item.detectedAt 
                 ? new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
                 : '10:00'
               
               return (
-                <div 
-                  key={idx}
+                <button
+                  key={item.queueId || idx}
                   className={`cult-timeline-item ${isCurrent ? 'is-current' : ''}`}
                   onClick={() => handleProjectFromQueue(item.queueId, item.reference, item.text)}
                   title="Cliquer pour reprojeter à l'antenne"
                 >
                   <span className="cult-timeline-time">{timeStr}</span>
                   <span className="cult-timeline-ref">{item.reference}</span>
-                </div>
+                </button>
               )
-            })
+              })}
+            </>
           )}
         </div>
       </div>

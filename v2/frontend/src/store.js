@@ -8,6 +8,28 @@ let mediaStream = null
 let processorNode = null
 let connectPromise = null
 
+const PREPARED_VERSES_STORAGE_KEY = 'versepro_prepared_verses'
+
+const readPreparedVerses = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PREPARED_VERSES_STORAGE_KEY) || '[]')
+    if (!Array.isArray(stored)) return []
+    return stored
+      .filter((item) => item && typeof item.reference === 'string' && item.reference.trim())
+      .slice(0, 100)
+  } catch {
+    return []
+  }
+}
+
+const persistPreparedVerses = (items) => {
+  try {
+    localStorage.setItem(PREPARED_VERSES_STORAGE_KEY, JSON.stringify(items.slice(0, 100)))
+  } catch {
+    /* La régie reste utilisable si le stockage navigateur est indisponible. */
+  }
+}
+
 const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
   if (inputSampleRate === outputSampleRate) return buffer
   const ratio = inputSampleRate / outputSampleRate
@@ -147,6 +169,7 @@ export const useStore = create((set, get) => ({
   autoSend: false,
   autopilotMode: true, // true: envoie direct, false: met en attente dans la file
   projectionQueue: [], // Liste des versets détectés en attente de projection
+  preparedVerses: readPreparedVerses(), // Déroulé préparé, conservé entre deux lancements
   settings: null,
   aiFilteringMode: 'strict', // 'strict' ou 'open'
   lastAiRejection: null,
@@ -254,6 +277,111 @@ export const useStore = create((set, get) => ({
       message: `File vidée (${previous.length} élément${previous.length > 1 ? 's' : ''})`,
       kind: 'success',
       action: { label: 'Annuler', onClick: () => set({ projectionQueue: previous }) }
+    })
+  },
+
+  prepareReference: async (query) => {
+    const requested = String(query || '').trim()
+    if (!requested) return null
+
+    try {
+      const response = await fetch(
+        `${BACKEND_BASE}/api/v1/bible/search?q=${encodeURIComponent(requested)}&limit=1`
+      )
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Recherche biblique indisponible')
+      }
+
+      const data = await response.json()
+      const match = data.results?.[0]
+      if (!match?.reference || !match?.text) {
+        get().addToast({ message: `Référence introuvable : ${requested}`, kind: 'error' })
+        return null
+      }
+
+      const existing = get().preparedVerses.find((item) => item.reference === match.reference)
+      if (existing) {
+        get().addToast({ message: `${match.reference} est déjà dans le déroulé`, kind: 'success' })
+        return existing
+      }
+
+      const item = {
+        id: `prepared_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        reference: match.reference,
+        text: match.text,
+        version: match.version || get().activeBible,
+        addedAt: new Date().toISOString(),
+        lastProjectedAt: null
+      }
+      const next = [...get().preparedVerses, item]
+      set({ preparedVerses: next })
+      persistPreparedVerses(next)
+      get().addToast({ message: `${item.reference} ajouté au déroulé`, kind: 'success' })
+      return item
+    } catch (error) {
+      console.error('Erreur de préparation de référence:', error)
+      get().addToast({
+        message: error.message || `Impossible d'ajouter ${requested}`,
+        kind: 'error'
+      })
+      return null
+    }
+  },
+
+  projectPreparedVerse: async (id) => {
+    const item = get().preparedVerses.find((verse) => verse.id === id)
+    if (!item) return false
+
+    const sent = await get().sendReference(item.reference)
+    if (!sent) return false
+
+    const projectedAt = new Date().toISOString()
+    const next = get().preparedVerses.map((verse) => (
+      verse.id === id ? { ...verse, lastProjectedAt: projectedAt } : verse
+    ))
+    set({ preparedVerses: next })
+    persistPreparedVerses(next)
+    return true
+  },
+
+  removePreparedVerse: (id) => {
+    const previous = get().preparedVerses
+    const removed = previous.find((item) => item.id === id)
+    if (!removed) return
+
+    const next = previous.filter((item) => item.id !== id)
+    set({ preparedVerses: next })
+    persistPreparedVerses(next)
+    get().addToast({
+      message: `${removed.reference} retiré du déroulé`,
+      kind: 'success',
+      action: {
+        label: 'Annuler',
+        onClick: () => {
+          set({ preparedVerses: previous })
+          persistPreparedVerses(previous)
+        }
+      }
+    })
+  },
+
+  clearPreparedVerses: () => {
+    const previous = get().preparedVerses
+    if (previous.length === 0) return
+
+    set({ preparedVerses: [] })
+    persistPreparedVerses([])
+    get().addToast({
+      message: `Déroulé vidé (${previous.length} verset${previous.length > 1 ? 's' : ''})`,
+      kind: 'success',
+      action: {
+        label: 'Annuler',
+        onClick: () => {
+          set({ preparedVerses: previous })
+          persistPreparedVerses(previous)
+        }
+      }
     })
   },
   

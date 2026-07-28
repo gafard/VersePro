@@ -99,6 +99,16 @@ Cette zone montre exactement la scène de projection, avec navigation dans un
 passage long. Elle peut défiler pour garder tous les versets lisibles.
 **Effacer** rend immédiatement les sorties noires.
 
+### Déroulé préparé
+
+Dans la barre de recherche, saisir une référence puis appuyer sur `Entrée`
+ajoute le passage au **Déroulé du culte** sans le projeter. Les passages restent
+dans l'ordre de préparation et sont conservés entre deux lancements.
+
+Cliquer sur un passage préparé le projette ; le bouton **Projeter** placé près
+du champ garde l'envoi immédiat pour les besoins du direct. Un passage peut être
+retiré individuellement ou toute la préparation peut être vidée avec annulation.
+
 ### Suivi lecture
 
 Le suivi lecture illumine progressivement les mots du verset en fonction de la

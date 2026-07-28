@@ -759,8 +759,17 @@ class VerseParserService:
             
             # "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
+
+            # "Jude verset 24" : livre à CHAPITRE UNIQUE, cité sans chapitre —
+            # personne ne dit « Jude chapitre un verset vingt-quatre ». Le
+            # chapitre 1 est sous-entendu, et la validation ci-dessous refuse ce
+            # motif pour tout livre en comptant plusieurs.
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:versets?|v\.?)\s*(\d+)(?:\s*(?:[-–àa])\s*(\d+))?\b', re.IGNORECASE),
         ]
         return patterns
+
+    # Index du motif « livre verset N » réservé aux livres à chapitre unique.
+    SINGLE_CHAPTER_PATTERN_INDEX = 5
 
     # Index du pattern "livre chiffre chiffre" (sans séparateur) dans la liste ci-dessus
     LOOSE_PATTERN_INDEX = 3
@@ -781,10 +790,45 @@ class VerseParserService:
             return f"{n} {m.group(2)}"
         return cls._ORDINAL_BOOK_RE.sub(repl, text)
 
+    # Ordinal désignant un VERSET ou un CHAPITRE — « au psaume 23, premier
+    # verset » est une formule courante en chaire, et elle n'était pas comprise :
+    # seule la forme « verset un » l'était. On réécrit vers cette forme.
+    _ORDINAUX_RANG = {
+        "premier": 1, "première": 1, "premiere": 1, "1er": 1, "1re": 1, "1ère": 1,
+        "deuxième": 2, "deuxieme": 2, "second": 2, "seconde": 2, "2e": 2, "2ème": 2,
+        "troisième": 3, "troisieme": 3, "3e": 3, "3ème": 3,
+        "quatrième": 4, "quatrieme": 4, "cinquième": 5, "cinquieme": 5,
+        "sixième": 6, "sixieme": 6, "septième": 7, "septieme": 7,
+        "huitième": 8, "huitieme": 8, "neuvième": 9, "neuvieme": 9,
+        "dixième": 10, "dixieme": 10, "onzième": 11, "onzieme": 11,
+        "douzième": 12, "douzieme": 12, "treizième": 13, "treizieme": 13,
+        "quatorzième": 14, "quatorzieme": 14, "quinzième": 15, "quinzieme": 15,
+        "seizième": 16, "seizieme": 16, "dix-septième": 17, "dix-huitième": 18,
+        "dix-neuvième": 19, "vingtième": 20, "vingtieme": 20,
+    }
+    _ORDINAL_RANG_RE = re.compile(
+        r"\b(" + "|".join(sorted((re.escape(o) for o in _ORDINAUX_RANG), key=len, reverse=True))
+        + r")\s+(versets?|chapitres?)\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _convert_ordinal_ranks(cls, text: str) -> str:
+        """« premier verset » devient « verset 1 », « deuxième chapitre » devient
+        « chapitre 2 » : la place du nombre est rétablie pour les motifs."""
+        def repl(m):
+            rang = cls._ORDINAUX_RANG[m.group(1).lower()]
+            mot = m.group(2).lower().rstrip("s")
+            return f"{mot} {rang}"
+        return cls._ORDINAL_RANG_RE.sub(repl, text)
+
     def _clean_homophones(self, text: str) -> str:
         """Nettoie le texte en corrigeant les homophones vocaux ASR courants en français"""
         text = text.lower()
         text = self._convert_ordinal_books(text)
+        # Après les livres ordinaux (« première épître de Jean »), pour ne pas
+        # confondre un rang de livre avec un rang de verset.
+        text = self._convert_ordinal_ranks(text)
         replacements = {
             r'\bgens\b': 'jean',
             r'\bromain\b': 'romains',
@@ -956,7 +1000,11 @@ class VerseParserService:
         CUE_RE = re.compile(r"\b(verset|versets|chapitre|lisons|lisez|lecture|ouvrez|ouvrons|bible|évangile|evangile|épître|epitre|livre|psaume|selon|écrit|ecrit|parole)\b")
         has_cue = bool(CUE_RE.search(clean_text_regex))
 
-        pattern_groups = [(0, 1, 2), (self.LOOSE_PATTERN_INDEX,), (4,)]
+        # Le motif « livre verset N » vient juste après les motifs explicites :
+        # il est aussi sûr qu'eux puisqu'il exige un livre à chapitre unique,
+        # mais il ne doit pas primer sur une référence pleinement énoncée.
+        pattern_groups = [(0, 1, 2), (self.SINGLE_CHAPTER_PATTERN_INDEX,),
+                          (self.LOOSE_PATTERN_INDEX,), (4,)]
         for group in pattern_groups:
             if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue:
                 continue
@@ -966,7 +1014,11 @@ class VerseParserService:
                     candidates.append((match.start(), idx, match))
             # Position décroissante = du plus récent au plus ancien dans la parole
             for _, idx, match in sorted(candidates, key=lambda c: -c[0]):
-                reference = self._extract_reference(match, cleaned_text, loose=(idx == self.LOOSE_PATTERN_INDEX))
+                reference = self._extract_reference(
+                    match, cleaned_text,
+                    loose=(idx == self.LOOSE_PATTERN_INDEX),
+                    single_chapter=(idx == self.SINGLE_CHAPTER_PATTERN_INDEX),
+                )
                 if reference:
                     if self._validate_reference(reference):
                         logger.info(f"📖 Référence explicite détectée: {reference['reference']}")
@@ -993,7 +1045,8 @@ class VerseParserService:
             return ""
         return self._convert_spoken_numbers(self._clean_homophones(text))
     
-    def _extract_reference(self, match: re.Match, full_text: str, loose: bool = False) -> Optional[Dict[str, Any]]:
+    def _extract_reference(self, match: re.Match, full_text: str, loose: bool = False,
+                           single_chapter: bool = False) -> Optional[Dict[str, Any]]:
         """
         Extrait les informations de référence du match regex.
 
@@ -1001,6 +1054,11 @@ class VerseParserService:
         sortie Vosk mais sujet aux faux positifs — la confiance est plafonnée à 0.85
         pour que la référence passe par la file de validation manuelle au lieu d'être
         projetée automatiquement (le seuil autopilote est de 0.95).
+
+        single_chapter=True : match issu de « Jude verset 24 ». Les groupes sont
+        décalés — pas de chapitre énoncé — et le chapitre 1 est sous-entendu. Le
+        motif est refusé si le livre en compte plusieurs, sans quoi « Jean verset
+        16 » deviendrait Jean 1:16 au lieu de rester ambigu.
         """
         try:
             book_name = match.group(1).lower().strip()
@@ -1011,20 +1069,28 @@ class VerseParserService:
                 '',
                 book_name
             )
-            
-            chapter = int(match.group(2))
-            
-            if match.lastindex >= 3 and match.group(3) is not None:
-                verse_start = int(match.group(3))
+
+            if single_chapter:
+                book_abbr = self._normalize_book(book_name)
+                if not book_abbr or self.chapter_counts.get(book_abbr) != 1:
+                    return None
+                chapter = 1
+                verse_start = int(match.group(2))
+                verse_end = int(match.group(3)) if match.lastindex and match.lastindex >= 3 and match.group(3) else None
             else:
-                verse_start = None
-                
-            if match.lastindex >= 4 and match.group(4) is not None:
-                verse_end = int(match.group(4))
-            else:
-                verse_end = None
-            
-            book_abbr = self._normalize_book(book_name)
+                chapter = int(match.group(2))
+
+                if match.lastindex >= 3 and match.group(3) is not None:
+                    verse_start = int(match.group(3))
+                else:
+                    verse_start = None
+
+                if match.lastindex >= 4 and match.group(4) is not None:
+                    verse_end = int(match.group(4))
+                else:
+                    verse_end = None
+
+                book_abbr = self._normalize_book(book_name)
             if not book_abbr:
                 return None
             

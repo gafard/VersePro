@@ -252,7 +252,7 @@ function App() {
 
         {activeTab === 'home' && <LandingPage setActiveTab={setActiveTab} />}
         {activeTab === 'live' && (
-          <div className="p-6 animate-slide-up flex-1">
+          <div className="app-live-page p-6 animate-slide-up flex-1">
             <LiveDetection setActiveTab={setActiveTab} />
           </div>
         )}
