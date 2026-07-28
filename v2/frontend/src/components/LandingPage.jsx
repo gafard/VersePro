@@ -24,7 +24,10 @@ export default function LandingPage({ setActiveTab }) {
     <div className="lp">
       {/* ── Nav · N9 edge-aligned minimal ── */}
       <nav className="lp-nav" aria-label="Navigation principale">
-        <button className="lp-wordmark" onClick={() => setActiveTab('home')}>versepro</button>
+        <button className="lp-wordmark flex items-center gap-2" onClick={() => setActiveTab('home')}>
+          <img src="/icons/icon-192.png" alt="VersePro" className="w-5 h-5 rounded object-contain" />
+          <span>versepro</span>
+        </button>
         <div className="lp-nav-right">
           <button className="lp-nav-link" onClick={() => setActiveTab('history')}>historique</button>
           <button className="lp-cta" onClick={() => setActiveTab('live')}>ouvrir la régie</button>

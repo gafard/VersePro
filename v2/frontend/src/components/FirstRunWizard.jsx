@@ -213,7 +213,10 @@ export default function FirstRunWizard({ onDone }) {
       <div className="fw-aurora" aria-hidden="true"><span /><span /><span /></div>
       <div className={`fw-panel ${entered ? 'is-in' : ''}`}>
         <header className="fw-head">
-          <span className="fw-brand">versepro</span>
+          <span className="fw-brand flex items-center gap-2">
+            <img src="/icons/icon-192.png" alt="VersePro" className="w-5 h-5 rounded object-contain" />
+            <span>versepro</span>
+          </span>
           <span className="fw-step-label">{`0${step + 1} · ${stepLabel}`}</span>
         </header>
         <div className="fw-progress" aria-hidden="true">
