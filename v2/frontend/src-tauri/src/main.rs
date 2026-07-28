@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Clone)]
 struct BackendConfig {
@@ -42,9 +42,44 @@ fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
     cmd.spawn()
 }
 
+/// Vrai quand la régie est en direct (micro ouvert). Renseigné par l'interface,
+/// lu au moment où l'on tente de fermer la fenêtre.
+struct EtatDirect(AtomicBool);
+
+/// L'interface signale l'entrée et la sortie de direct.
+#[tauri::command]
+fn definir_direct(actif: bool, etat: tauri::State<EtatDirect>) {
+    etat.0.store(actif, Ordering::SeqCst);
+}
+
+/// Fermeture confirmée par l'opérateur : on quitte pour de bon.
+#[tauri::command]
+fn fermer_vraiment(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(EtatDirect(AtomicBool::new(false)))
+        .invoke_handler(tauri::generate_handler![definir_direct, fermer_vraiment])
+        // Fermer la fenêtre pendant un culte coupait la projection sans un mot.
+        // On intercepte donc la demande : hors direct on laisse fermer, en
+        // direct on retient la fenêtre et l'interface demande confirmation.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let en_direct = window
+                    .try_state::<EtatDirect>()
+                    .map(|etat| etat.0.load(Ordering::SeqCst))
+                    .unwrap_or(false);
+                if en_direct {
+                    api.prevent_close();
+                    // Si l'interface ne répond pas, l'opérateur garde le
+                    // recours du menu Quitter : on ne bloque rien d'autre.
+                    let _ = window.emit("versepro://fermeture-demandee", ());
+                }
+            }
+        })
         .setup(|app| {
             let data_dir = app
                 .path()

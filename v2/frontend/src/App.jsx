@@ -9,6 +9,7 @@ import { ToastHost } from './components/ui.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import FirstRunWizard from './components/FirstRunWizard.jsx'
 import LaunchIntro from './components/LaunchIntro.jsx'
+import CloseGuard from './components/CloseGuard.jsx'
 
 const NAV_ITEMS = [
   {
@@ -276,6 +277,7 @@ function App() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {firstRun && <FirstRunWizard onDone={() => { setFirstRun(false); setActiveTab('live') }} />}
       {showLaunchIntro && <LaunchIntro onDone={closeLaunchIntro} />}
+      <CloseGuard />
     </div>
   )
 }

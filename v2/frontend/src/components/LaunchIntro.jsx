@@ -5,7 +5,14 @@ const VIDEO_SRC = '/media/versepro-launch.mp4'
 const POSTER_SRC = '/media/versepro-launch-poster.jpg'
 const STILL_SRC = '/media/versepro-launch-still.jpg'
 const EXIT_DURATION_MS = 300
-const SAFETY_TIMEOUT_MS = 5000
+// Le filet de sécurité surveille l'AVANCEMENT de la lecture, pas une durée
+// fixe : un délai en dur coupait l'ouverture au milieu (5 s pour une vidéo de
+// 10 s). On n'abandonne que si l'image cesse de progresser — vidéo absente,
+// codec refusé, lecture bloquée — jamais parce qu'elle dure.
+const STALL_TIMEOUT_MS = 2500
+// Plafond absolu, pour qu'une vidéo anormalement longue ou en boucle ne
+// retienne pas la régie indéfiniment.
+const HARD_CEILING_MS = 30000
 const BACKEND_TIMEOUT_MS = 3500
 
 export default function LaunchIntro({ onDone }) {
@@ -78,18 +85,46 @@ export default function LaunchIntro({ onDone }) {
 
   useEffect(() => {
     const skipTimer = window.setTimeout(() => setCanSkip(true), 400)
-    const safetyTimer = window.setTimeout(() => {
-      completeMedia()
-      finish()
-    }, reducedMotion ? 500 : SAFETY_TIMEOUT_MS)
 
     const onKeyDown = (event) => {
       if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') finish()
     }
     window.addEventListener('keydown', onKeyDown)
+
+    if (reducedMotion) {
+      const court = window.setTimeout(() => { completeMedia(); finish() }, 500)
+      return () => {
+        window.clearTimeout(skipTimer)
+        window.clearTimeout(court)
+        window.removeEventListener('keydown', onKeyDown)
+      }
+    }
+
+    // Détection d'enlisement : on relève la position de lecture et on
+    // n'abandonne que si elle n'a pas bougé. Une vidéo qui joue, si longue
+    // soit-elle, va jusqu'au bout.
+    let dernierePosition = -1
+    let immobileDepuis = 0
+    const veille = window.setInterval(() => {
+      const video = videoRef.current
+      if (!video) return
+      if (video.currentTime > dernierePosition + 0.01) {
+        dernierePosition = video.currentTime
+        immobileDepuis = 0
+        return
+      }
+      immobileDepuis += 500
+      if (immobileDepuis >= STALL_TIMEOUT_MS) {
+        completeMedia()
+        finish()
+      }
+    }, 500)
+    const plafond = window.setTimeout(() => { completeMedia(); finish() }, HARD_CEILING_MS)
+
     return () => {
       window.clearTimeout(skipTimer)
-      window.clearTimeout(safetyTimer)
+      window.clearInterval(veille)
+      window.clearTimeout(plafond)
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [completeMedia, finish, reducedMotion])
