@@ -10,6 +10,10 @@ const EXIT_DURATION_MS = 300
 // 10 s). On n'abandonne que si l'image cesse de progresser — vidéo absente,
 // codec refusé, lecture bloquée — jamais parce qu'elle dure.
 const STALL_TIMEOUT_MS = 2500
+// Délai laissé à la vidéo pour DÉMARRER : décodage du fichier, autorisation de
+// lecture, éventuelle reprise en muet si le son est refusé. Généreux à dessein
+// — un poste modeste met plusieurs secondes à ouvrir un fichier de 7 Mo.
+const STARTUP_TIMEOUT_MS = 8000
 // Plafond absolu, pour qu'une vidéo anormalement longue ou en boucle ne
 // retienne pas la régie indéfiniment.
 const HARD_CEILING_MS = 30000
@@ -100,19 +104,47 @@ export default function LaunchIntro({ onDone }) {
       }
     }
 
-    // Détection d'enlisement : on relève la position de lecture et on
-    // n'abandonne que si elle n'a pas bougé. Une vidéo qui joue, si longue
-    // soit-elle, va jusqu'au bout.
-    let dernierePosition = -1
+    // Détection d'enlisement, en DEUX temps — c'est tout l'enjeu.
+    //
+    // Tant que la lecture n'a pas démarré, `currentTime` vaut 0 : surveiller
+    // l'immobilité dès la première seconde revient à couper une vidéo qui est
+    // simplement en train de se charger. C'est l'erreur exacte que faisait la
+    // version précédente de ce garde-fou, et elle coupait plus tôt encore que
+    // le minuteur fixe qu'elle remplaçait.
+    //
+    // On laisse donc un délai d'AMORÇAGE généreux pour que l'image parte —
+    // décodage, autorisation de lecture, éventuelle reprise en muet — et on
+    // n'arme la surveillance d'immobilité qu'une fois la lecture partie.
+    let demarree = false
+    let dernierePosition = 0
     let immobileDepuis = 0
+    let attenteDemarrage = 0
     const veille = window.setInterval(() => {
       const video = videoRef.current
       if (!video) return
+
+      if (!demarree) {
+        if (video.currentTime > 0.05) {
+          demarree = true
+          dernierePosition = video.currentTime
+          return
+        }
+        attenteDemarrage += 500
+        if (attenteDemarrage >= STARTUP_TIMEOUT_MS) {
+          completeMedia()
+          finish()
+        }
+        return
+      }
+
       if (video.currentTime > dernierePosition + 0.01) {
         dernierePosition = video.currentTime
         immobileDepuis = 0
         return
       }
+      // Une pause volontaire n'est pas un enlisement : la fin de lecture est
+      // traitée par onEnded, et l'utilisateur peut passer à tout moment.
+      if (video.ended) return
       immobileDepuis += 500
       if (immobileDepuis >= STALL_TIMEOUT_MS) {
         completeMedia()
