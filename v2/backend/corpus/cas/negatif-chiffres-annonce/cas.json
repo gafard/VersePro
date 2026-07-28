@@ -1,0 +1,8 @@
+{
+  "text": "le rendez-vous est fixé au trois du mois à seize heures",
+  "expected": null,
+  "kind": "negatif",
+  "conditions": {
+    "piege": "chiffres ressemblant à chapitre:verset"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "text": "l'Éternel est celui qui me conduit, je ne manquerai de rien",
+  "expected": "Ps 23:1",
+  "kind": "paraphrase",
+  "conditions": {
+    "trait": "citation reformulée"
+  }
+}

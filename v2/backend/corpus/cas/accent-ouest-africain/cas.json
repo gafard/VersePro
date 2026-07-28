@@ -1,0 +1,8 @@
+{
+  "text": "ouvrons le livre des Psaumes au psaume vingt-trois premier verset",
+  "expected": "Ps 23:1",
+  "kind": "explicite",
+  "conditions": {
+    "accent": "afrique de l'ouest"
+  }
+}

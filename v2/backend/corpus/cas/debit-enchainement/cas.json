@@ -1,0 +1,9 @@
+{
+  "text": "Jean trois seize et puis tout de suite après Romains cinq huit",
+  "expected": "Jn 3:16",
+  "kind": "explicite",
+  "conditions": {
+    "debit": "très rapide",
+    "trait": "deux références enchaînées"
+  }
+}

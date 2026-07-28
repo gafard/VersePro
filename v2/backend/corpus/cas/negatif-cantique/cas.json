@@ -1,0 +1,8 @@
+{
+  "text": "reprenons tous ensemble le cantique numéro cent vingt-huit",
+  "expected": null,
+  "kind": "negatif",
+  "conditions": {
+    "piege": "numéro de cantique"
+  }
+}

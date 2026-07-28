@@ -1,0 +1,9 @@
+{
+  "text": "ouvrons ouvrons ensemble euh Romains chapitre huit verset vingt-huit",
+  "expected": "Rm 8:28",
+  "kind": "explicite",
+  "conditions": {
+    "debit": "rapide",
+    "trait": "hésitation et répétition"
+  }
+}

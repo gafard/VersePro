@@ -89,3 +89,10 @@ v2/backend/dist-onefile/
 v2/release/
 # Schémas générés par Tauri v2 (capabilities)
 v2/frontend/src-tauri/gen/
+
+# Corpus de rejeu : les enregistrements ne sont JAMAIS versionnés.
+# Ils captent la voix du prédicateur et de l'assemblée, et restent sur la
+# machine qui les a produits. Seuls les cas.json — transcript et référence
+# attendue — sont partagés. Voir v2/backend/corpus/README.md.
+v2/backend/corpus/cas/**/audio.wav
+v2/backend/corpus/**/*.wav

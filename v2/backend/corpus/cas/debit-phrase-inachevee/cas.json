@@ -1,0 +1,9 @@
+{
+  "text": "et Paul nous dit dans Éphésiens deux verset huit que c'est par la grâce enfin vous connaissez",
+  "expected": "Ep 2:8",
+  "kind": "explicite",
+  "conditions": {
+    "debit": "rapide",
+    "trait": "phrase inachevée"
+  }
+}

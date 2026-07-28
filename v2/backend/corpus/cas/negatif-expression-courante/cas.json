@@ -1,0 +1,8 @@
+{
+  "text": "il a traversé le désert pendant des années avant de trouver un emploi",
+  "expected": null,
+  "kind": "negatif",
+  "conditions": {
+    "piege": "métaphore biblique sans citation"
+  }
+}

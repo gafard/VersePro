@@ -1,0 +1,8 @@
+{
+  "text": "dans Jude verset vingt-quatre il est écrit",
+  "expected": "Jude 1:24",
+  "kind": "explicite",
+  "conditions": {
+    "trait": "livre à un seul chapitre"
+  }
+}

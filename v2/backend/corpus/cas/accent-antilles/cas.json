@@ -1,0 +1,8 @@
+{
+  "text": "lisons ensemble dans Matthieu chapitre cinq verset neuf",
+  "expected": "Mt 5:9",
+  "kind": "explicite",
+  "conditions": {
+    "accent": "antilles"
+  }
+}

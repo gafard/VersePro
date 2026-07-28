@@ -1,0 +1,8 @@
+{
+  "text": "nos frères de Corinthe nous ont envoyé un message de soutien",
+  "expected": null,
+  "kind": "negatif",
+  "conditions": {
+    "piege": "toponyme biblique, aucune citation"
+  }
+}

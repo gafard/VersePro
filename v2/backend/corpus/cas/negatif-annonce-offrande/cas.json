@@ -1,0 +1,8 @@
+{
+  "text": "les responsables du département jeunesse se retrouvent salle deux après le culte",
+  "expected": null,
+  "kind": "negatif",
+  "conditions": {
+    "piege": "annonce pratique"
+  }
+}

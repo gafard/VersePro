@@ -1,0 +1,8 @@
+{
+  "text": "nous savons que tout concourt au bien de ceux qui aiment Dieu",
+  "expected": "Rm 8:28",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "allusion sans référence énoncée"
+  }
+}

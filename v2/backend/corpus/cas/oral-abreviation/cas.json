@@ -1,0 +1,8 @@
+{
+  "text": "premier Corinthiens treize verset quatre nous parle de l'amour",
+  "expected": "1 Co 13:4",
+  "kind": "explicite",
+  "conditions": {
+    "trait": "livre numéroté à l'oral"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "text": "car Dieu a tellement aimé ce monde qu'il a donné son fils unique",
+  "expected": "Jn 3:16",
+  "kind": "paraphrase",
+  "conditions": {
+    "trait": "citation reformulée"
+  }
+}
