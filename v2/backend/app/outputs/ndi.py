@@ -83,62 +83,80 @@ class NDIOutput(BaseOutput):
         self.last_error = "" if NDI_AVAILABLE else "NDIlib absent de ce poste"
         self._send = None
         self._frame_lock = threading.Lock()
+        self._sender_lock = threading.RLock()
         self._frame: Optional[np.ndarray] = None
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
-        if NDI_AVAILABLE:
-            try:
-                if ndi.initialize():
-                    self.functional = True
-                    logger.info("🟢 NDI initialisé.")
-                else:
-                    self.last_error = "ndi.initialize() a échoué (runtime NDI absent ?)"
-                    logger.warning(f"⚠️ {self.last_error}")
-            except Exception as exc:
-                self.last_error = f"Initialisation NDI impossible : {exc}"
-                logger.error(f"❌ {self.last_error}")
+        # Le runtime natif n'est chargé qu'au premier usage. L'initialiser alors
+        # que NDI est désactivé faisait planter certains processus de test lors
+        # du déchargement de la bibliothèque.
+        if enabled:
+            self._initialize_runtime()
+
+    def _initialize_runtime(self) -> bool:
+        if self.functional:
+            return True
+        if not NDI_AVAILABLE:
+            return False
+        try:
+            if ndi.initialize():
+                self.functional = True
+                self.last_error = ""
+                logger.info("🟢 NDI initialisé.")
+                return True
+            self.last_error = "ndi.initialize() a échoué (runtime NDI absent ?)"
+            logger.warning(f"⚠️ {self.last_error}")
+        except Exception as exc:
+            self.last_error = f"Initialisation NDI impossible : {exc}"
+            logger.error(f"❌ {self.last_error}")
+        return False
 
     # ── Émetteur et fil d'entretien ──────────────────────────────────────────
 
     def _ensure_sender(self) -> bool:
-        if not self.functional or not self.enabled:
+        if not self.enabled or not self._initialize_runtime():
             return False
-        if self._send is not None:
-            return True
-        try:
-            reglages = ndi.SendCreate()
-            reglages.ndi_name = self.source_name
-            self._send = ndi.send_create(reglages)
-            if not self._send:
-                self.last_error = "Création de la source NDI refusée"
+        with self._sender_lock:
+            if self._send is not None:
+                return True
+            try:
+                reglages = ndi.SendCreate()
+                reglages.ndi_name = self.source_name
+                self._send = ndi.send_create(reglages)
+                if not self._send:
+                    self.last_error = "Création de la source NDI refusée"
+                    return False
+                logger.info(f"🟢 Source NDI « {self.source_name} » en ligne.")
+                self._stop.clear()
+                self._thread = threading.Thread(target=self._boucle_entretien, daemon=True)
+                self._thread.start()
+                return True
+            except Exception as exc:
+                self.last_error = f"Émetteur NDI impossible : {exc}"
+                logger.error(f"❌ {self.last_error}")
                 return False
-            logger.info(f"🟢 Source NDI « {self.source_name} » en ligne.")
-            self._stop.clear()
-            self._thread = threading.Thread(target=self._boucle_entretien, daemon=True)
-            self._thread.start()
-            return True
-        except Exception as exc:
-            self.last_error = f"Émetteur NDI impossible : {exc}"
-            logger.error(f"❌ {self.last_error}")
-            return False
 
-    def _emettre(self, trame: np.ndarray) -> None:
-        video = ndi.VideoFrameV2()
-        video.xres, video.yres = LARGEUR, HAUTEUR
-        video.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRX
-        video.frame_format_type = ndi.FRAME_FORMAT_TYPE_PROGRESSIVE
-        video.picture_aspect_ratio = LARGEUR / HAUTEUR
-        video.data = trame
-        ndi.send_send_video_v2(self._send, video)
+    def _emettre(self, trame: np.ndarray) -> bool:
+        with self._sender_lock:
+            sender = self._send
+            if sender is None:
+                return False
+            video = ndi.VideoFrameV2()
+            video.xres, video.yres = LARGEUR, HAUTEUR
+            video.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRX
+            video.frame_format_type = ndi.FRAME_FORMAT_TYPE_PROGRESSIVE
+            video.picture_aspect_ratio = LARGEUR / HAUTEUR
+            video.data = trame
+            ndi.send_send_video_v2(sender, video)
+            return True
 
     def _boucle_entretien(self) -> None:
         periode = 1.0 / FPS_ENTRETIEN
         while not self._stop.wait(periode):
             with self._frame_lock:
                 trame = self._frame
-                envoyeur = self._send
-            if trame is None or envoyeur is None:
+            if trame is None:
                 continue
             try:
                 self._emettre(trame)
@@ -184,8 +202,7 @@ class NDIOutput(BaseOutput):
             )
             with self._frame_lock:
                 self._frame = trame
-            self._emettre(trame)
-            return True
+            return self._emettre(trame)
         except Exception as exc:
             self.last_error = f"Envoi NDI impossible : {exc}"
             logger.error(f"❌ {self.last_error}")
@@ -198,8 +215,7 @@ class NDIOutput(BaseOutput):
             vide = np.zeros((HAUTEUR, LARGEUR, 4), dtype=np.uint8)
             with self._frame_lock:
                 self._frame = vide
-            self._emettre(vide)
-            return True
+            return self._emettre(vide)
         except Exception as exc:
             logger.error(f"❌ Nettoyage NDI impossible : {exc}")
             return False
@@ -216,7 +232,8 @@ class NDIOutput(BaseOutput):
 
     def status(self) -> Dict[str, Any]:
         return {
-            "available": NDI_AVAILABLE and self.functional,
+            "available": NDI_AVAILABLE,
+            "runtime_ready": self.functional,
             "enabled": self.enabled,
             "sending": self._send is not None,
             "source_name": self.source_name,
@@ -235,13 +252,14 @@ class NDIOutput(BaseOutput):
         if fil and fil.is_alive():
             fil.join(timeout=1.0)
         self._thread = None
-        if self._send:
-            try:
-                ndi.send_destroy(self._send)
-                logger.info("🔌 Source NDI retirée du réseau.")
-            except Exception as exc:
-                logger.debug(f"Libération de l'émetteur NDI : {exc}")
-            self._send = None
+        with self._sender_lock:
+            if self._send:
+                try:
+                    ndi.send_destroy(self._send)
+                    logger.info("🔌 Source NDI retirée du réseau.")
+                except Exception as exc:
+                    logger.debug(f"Libération de l'émetteur NDI : {exc}")
+                self._send = None
         with self._frame_lock:
             self._frame = None
 

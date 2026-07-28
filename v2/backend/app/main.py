@@ -9,6 +9,7 @@ import json
 import os
 import re
 import threading
+import time
 
 # Autorités TLS de l'application figée.
 #
@@ -156,7 +157,8 @@ async def broadcast_projection(text: str, reference: str, background: str | None
     reading_tracker.set_verse(text if reference else "")
 
     if output_manager:
-        await output_manager.project_scene(current_projection_slide)
+        return await output_manager.project_scene(current_projection_slide)
+    return {}
 
 
 @asynccontextmanager
@@ -229,13 +231,14 @@ async def lifespan(app: FastAPI):
     
     # Ne télécharge rien au démarrage. Un modèle Vosk déjà présent est seulement
     # chargé en arrière-plan; les installations restent des actions explicites.
-    if Path(vosk_service.model_dir).exists():
-        threading.Thread(target=vosk_service.initialize, daemon=True).start()
-    threading.Thread(
-        target=semantic_service.initialize,
-        kwargs={"allow_download": settings.LOCAL_SEMANTIC_AUTO_DOWNLOAD},
-        daemon=True,
-    ).start()
+    if os.environ.get("VERSEPRO_TESTING") != "1":
+        if Path(vosk_service.model_dir).exists():
+            threading.Thread(target=vosk_service.initialize, daemon=True).start()
+        threading.Thread(
+            target=semantic_service.initialize,
+            kwargs={"allow_download": settings.LOCAL_SEMANTIC_AUTO_DOWNLOAD},
+            daemon=True,
+        ).start()
     
     # Démarrage du service OSC pour le pilotage à distance (Stream Deck, Companion)
     from .services.osc_service import OSCService
@@ -2528,7 +2531,8 @@ async def websocket_audio(websocket: WebSocket):
     async def send_transcript_task():
         """Prend le texte transcrit, le parse et notifie le technicien + projecteur"""
         buffer_text = ""
-        last_projected_ref = None
+        last_detected_ref = None
+        last_detected_at = 0.0
         last_partial_words = []
         analysis_generation = 0
         analysis_task: asyncio.Task | None = None
@@ -2553,7 +2557,7 @@ async def websocket_audio(websocket: WebSocket):
             generation: int,
             source: str = "local",
         ) -> None:
-            nonlocal last_projected_ref
+            nonlocal last_detected_ref, last_detected_at
             if not is_current(generation):
                 return
 
@@ -2601,9 +2605,14 @@ async def websocket_audio(websocket: WebSocket):
                 f"{ref.get('book_abbr')}_{ref.get('chapter')}_"
                 f"{ref.get('verse_start')}_{ref.get('verse_end') or ''}"
             )
-            if ref_key == last_projected_ref or not is_current(generation):
+            now = time.monotonic()
+            if (
+                ref_key == last_detected_ref
+                and now - last_detected_at < 8.0
+            ) or not is_current(generation):
                 return
-            last_projected_ref = ref_key
+            last_detected_ref = ref_key
+            last_detected_at = now
 
             try:
                 await send_json({
@@ -2849,35 +2858,28 @@ async def websocket_control(websocket: WebSocket):
                 ref = data.get("reference")
                 if ref:
                     parsed = await verse_parser.parse(ref) if verse_parser else None
-                    
-                    # Rendu universel
-                    if parsed:
-                        await broadcast_projection(parsed.get("text", ""), parsed["reference"], translations=parsed.get("translations"))
-                    
-                    # Envoi à ProPresenter si configuré
-                    sent = False
-                    if pp_driver and pp_driver.enabled:
-                        sent = await pp_driver.send_scene({
-                            "reference": parsed["reference"] if parsed else ref,
-                            "text": parsed.get("text", "") if parsed else ""
-                        })
-                            
+                    receipts = {}
+                    if parsed and parsed.get("text"):
+                        receipts = await broadcast_projection(
+                            parsed["text"],
+                            parsed["reference"],
+                            translations=parsed.get("translations"),
+                        )
                     await websocket.send_json({
                         "type": "send_result",
-                        "success": sent or True, # On renvoie True si le rendu universel a réussi
-                        "reference": ref
+                        "success": bool(parsed and parsed.get("text") and receipts.get("browser")),
+                        "reference": parsed["reference"] if parsed else ref,
+                        "outputs": receipts,
+                        "error": None if parsed else "Référence biblique invalide",
                     })
                     
             elif action == "clear":
                 # Effacement universel
-                await broadcast_projection("", "")
-                cleared = False
-                if pp_driver and pp_driver.enabled:
-                    cleared = await pp_driver.clear()
-                    
+                receipts = await broadcast_projection("", "")
                 await websocket.send_json({
                     "type": "clear_result",
-                    "success": cleared or True
+                    "success": bool(receipts.get("browser")),
+                    "outputs": receipts,
                 })
                 
             elif action == "status":

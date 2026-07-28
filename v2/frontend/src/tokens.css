@@ -1,6 +1,5 @@
 /* Hallmark · genre: atmospheric · theme: Lumen (Night Foundry) · design-system: design.md · designed-as-app
- * Tokens — source de vérité du système. Importé avant index.css.
- * Aucune valeur brute dans les pages : tout référence ces noms. */
+ * Tokens — source de vérité des surfaces et états partagés. Importé avant index.css. */
 
 :root {
   /* ── Papier (studio de nuit, tirant violet) ── */
@@ -12,7 +11,7 @@
   /* ── Encre ── */
   --color-ink:        oklch(96% 0.006 262);
   --color-ink-2:      oklch(78% 0.010 262);
-  --color-muted:      oklch(58% 0.012 262);
+  --color-muted:      oklch(64% 0.012 262);
   --color-faint:      oklch(44% 0.012 262);
 
   /* ── Règles / hairlines ── */
@@ -76,8 +75,8 @@
   --text-2xs: 0.6875rem;  /* 11px — libellés secondaires, notes */
   --text-3xs: 0.625rem;   /* 10px — micro-étiquettes, badges */
   --text-label: 0.8125rem; /* 13px — libellés de contrôle, onglets */
-  --tracking-display: -0.02em;
-  --tracking-micro:   0.10em;
+  --tracking-display: 0;
+  --tracking-micro:   0;
 
   /* ── Espacement (échelle 4 pt) ── */
   --space-3xs: 0.25rem;

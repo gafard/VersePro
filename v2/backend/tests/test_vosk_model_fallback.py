@@ -1,8 +1,7 @@
 """Le secours Vosk charge la variante réellement présente sur le disque.
 
-Contexte : l'ancien défaut VOSK_MODEL_TYPE était "large", le nouveau est
-"small", et le téléchargement est devenu une action explicite. Sans repli,
-une machine existante n'ayant que le grand modèle perdait silencieusement
+Le téléchargement est une action explicite. Sans repli entre les variantes,
+une machine existante ne possédant que l'autre modèle perdrait silencieusement
 son secours local hors-ligne.
 """
 

@@ -2,8 +2,9 @@
 
 Tout le câblage est prêt : dès que les certificats existent et que les secrets
 sont renseignés sur GitHub, les installeurs sortent **signés automatiquement**
-(et notariés côté macOS). Sans secrets, le build fonctionne mais non signé
-(avertissement Gatekeeper / SmartScreen au premier lancement).
+(et notariés côté macOS). Le workflow de publication s'arrête immédiatement si
+un certificat manque : aucun artefact public non signé n'est généré. Les builds
+locaux de développement restent possibles sans certificat.
 
 ## macOS — Apple Developer (99 $/an)
 
@@ -59,5 +60,5 @@ variables dans le shell avant de lancer le script.
 - Branding **Selah Studios** : copyright, éditeur, descriptions (tauri.conf,
   Cargo.toml).
 - `release.yml` : signature macOS native Tauri via secrets ; import du
-  certificat Windows + empreinte + horodatage via secrets ; étapes sautées
-  proprement quand les secrets n'existent pas.
+  certificat Windows + empreinte + horodatage via secrets ; garde bloquant avant
+  build si le certificat requis pour l'OS est absent.

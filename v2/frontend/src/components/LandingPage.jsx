@@ -17,15 +17,33 @@ const METER_BARS = Array.from({ length: 64 }, (_, i) => {
 })
 
 export default function LandingPage({ setActiveTab }) {
-  const { history, connected, propresenterConnected, availableBibles, semanticStatus, asrStatus } = useStore()
+  const {
+    history,
+    connected,
+    propresenterConnected,
+    availableBibles,
+    semanticStatus,
+    asrStatus,
+    currentTranscript,
+    projectionQueue,
+    onAir,
+    isListening,
+    waveform
+  } = useStore()
   const recentVerses = useMemo(() => history.slice(0, 3), [history])
+  const pending = useMemo(
+    () => projectionQueue.filter((item) => item.status === 'pending').slice(0, 2),
+    [projectionQueue]
+  )
+  const previewPrimary = pending[0] || onAir || recentVerses[0]
+  const previewSecondary = pending[1]
 
   return (
     <div className="lp">
       {/* ── Nav · N9 edge-aligned minimal ── */}
       <nav className="lp-nav" aria-label="Navigation principale">
         <button className="lp-wordmark flex items-center gap-2" onClick={() => setActiveTab('home')}>
-          <img src="/icons/icon-192.png" alt="VersePro" className="w-5 h-5 rounded object-contain" />
+          <img src="/icons/icon-192.png" alt="" aria-hidden="true" className="w-5 h-5 rounded object-contain" />
           <span>versepro</span>
         </button>
         <div className="lp-nav-right">
@@ -44,7 +62,7 @@ export default function LandingPage({ setActiveTab }) {
           <p className="lp-lede">
             versepro écoute le prédicateur, reconnaît chaque référence biblique
             et prépare la projection — obs, vmix, propresenter, moniteur scène.
-            l'opérateur valide. rien ne s'affiche sans lui.
+            le mode sûr exige une validation humaine. l'autopilote reste un choix explicite.
           </p>
           <div className="lp-actions">
             <button className="lp-btn-primary" onClick={() => setActiveTab('live')}>ouvrir la régie</button>
@@ -69,35 +87,42 @@ export default function LandingPage({ setActiveTab }) {
             <div className="lp-console-main">
               <div className="lp-console-transcript">
                 <span>TRANSCRIPT DIRECT</span>
-                <p>… aujourd'hui nous lisons jean chapitre trois verset seize …</p>
+                <p>{currentTranscript || 'le signal reconnu apparaîtra ici pendant la prédication.'}</p>
               </div>
 
               <article className="lp-console-card">
                 <div>
-                  <strong>Jean 3:16</strong>
-                  <span>DIRECT</span>
+                  <strong>{previewPrimary?.reference || 'Aucune détection'}</strong>
+                  <span>{onAir?.reference === previewPrimary?.reference ? 'DIRECT' : 'À VALIDER'}</span>
                 </div>
-                <p>Car Dieu a tant aimé le monde qu'il a donné son Fils unique…</p>
-                <button type="button" onClick={() => setActiveTab('live')}>projeter</button>
+                <p>{previewPrimary?.text || 'Les versets détectés apparaîtront dans cette file.'}</p>
+                {previewPrimary?.reference && (
+                  <button type="button" onClick={() => setActiveTab('live')}>ouvrir dans la régie</button>
+                )}
               </article>
 
-              <article className="lp-console-card is-muted">
-                <div>
-                  <strong>Romains 8:28</strong>
-                  <span>IA · VALIDATION</span>
-                </div>
-                <p>Suggestion retenue en attente d'un opérateur.</p>
-              </article>
+              {previewSecondary && (
+                <article className="lp-console-card is-muted">
+                  <div>
+                    <strong>{previewSecondary.reference}</strong>
+                    <span>EN ATTENTE</span>
+                  </div>
+                  <p>{previewSecondary.text}</p>
+                </article>
+              )}
             </div>
 
             <aside className="lp-console-side">
               <div>
                 <span>ENTRÉE MICRO</span>
-                <strong>signal prêt</strong>
+                <strong>{isListening ? 'signal en direct' : 'signal prêt'}</strong>
               </div>
               <div className="lp-console-micro-bars">
-                {METER_BARS.slice(0, 22).map((h, i) => (
-                  <span key={i} style={{ height: `${Math.max(6, Math.round(h * 0.72))}px` }} />
+                {(isListening && waveform?.length ? waveform.slice(0, 22) : METER_BARS.slice(0, 22)).map((sample, i) => (
+                  <span
+                    key={i}
+                    style={{ height: `${isListening ? Math.max(4, Math.abs(sample) * 52) : Math.max(6, Math.round(sample * 0.72))}px` }}
+                  />
                 ))}
               </div>
               <button type="button" onClick={() => setActiveTab('settings')}>choisir le micro</button>
@@ -140,21 +165,20 @@ export default function LandingPage({ setActiveTab }) {
 
       {/* ── Chaîne de travail ── */}
       <section className="lp-flow" aria-label="Chaîne de travail">
-        <p className="lp-eyebrow">01 · LA CHAÎNE</p>
         <h2 className="lp-h2">trois gestes, aucun stress.</h2>
         <div className="lp-flow-grid">
           <article className="lp-card">
-            <p className="lp-card-eyebrow">ÉCOUTE</p>
+            <span className="lp-flow-index">01</span>
             <h3>le micro entre, le texte sort.</h3>
             <p>le flux audio est transcrit en direct — avec deepgram, whisper ou vosk. le prétraitement reste désactivable pour préserver une sortie console propre.</p>
           </article>
           <article className="lp-card">
-            <p className="lp-card-eyebrow">VALIDATION</p>
+            <span className="lp-flow-index">02</span>
             <h3>la machine propose, l'humain dispose.</h3>
             <p>les références détectées entrent dans une file de validation. seules les citations explicites et sûres peuvent se projeter seules — et seulement si vous l'activez.</p>
           </article>
           <article className="lp-card">
-            <p className="lp-card-eyebrow">DIFFUSION</p>
+            <span className="lp-flow-index">03</span>
             <h3>une validation, toutes les sorties.</h3>
             <p>écran autonome, obs, vmix, propresenter, moniteur scène et téléphones de l'assemblée reçoivent la même scène au même instant.</p>
           </article>
@@ -163,7 +187,6 @@ export default function LandingPage({ setActiveTab }) {
 
       {/* ── Activité récente (données : casse naturelle) ── */}
       <section className="lp-recent" aria-label="Dernières écritures détectées">
-        <p className="lp-eyebrow">02 · ACTIVITÉ</p>
         <h2 className="lp-h2">dernières écritures projetées.</h2>
         <div className="lp-recent-list">
           {recentVerses.length > 0 ? recentVerses.map((verse) => (

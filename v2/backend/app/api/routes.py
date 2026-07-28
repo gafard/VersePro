@@ -153,11 +153,20 @@ async def health_check():
 
 
 @router.get("/preflight")
-async def preflight_check():
+async def preflight_check(probe_cloud: bool = False):
     """Contrôle opérationnel avant le direct, sans déclencher de téléchargement."""
+    import asyncio
     import shutil
     from ..core.config import DATA_DIR, settings
-    from ..main import db_service, output_manager, semantic_service, verse_parser, vosk_service, whisper_service
+    from ..main import (
+        db_service,
+        deepgram_service,
+        output_manager,
+        semantic_service,
+        verse_parser,
+        vosk_service,
+        whisper_service,
+    )
     from ..services.secret_store import secret_store
 
     disk = shutil.disk_usage(DATA_DIR)
@@ -165,17 +174,80 @@ async def preflight_check():
         (whisper_service and whisper_service.ready)
         or (vosk_service and vosk_service.initialized)
     )
-    cloud_asr = bool(settings.DEEPGRAM_API_KEY)
-    browser_output = bool(output_manager and "browser" in output_manager.outputs)
+    cloud_configured = bool(settings.DEEPGRAM_API_KEY)
+    cloud_verified = False
+    cloud_error = ""
+    if probe_cloud and cloud_configured and deepgram_service and deepgram_service.client:
+        session = None
+        async def ignore_probe_message(_):
+            return None
+        try:
+            session = await asyncio.wait_for(
+                deepgram_service.create_session(ignore_probe_message),
+                timeout=5.0,
+            )
+            cloud_verified = bool(session.is_active)
+        except Exception as exc:
+            cloud_error = type(exc).__name__
+        finally:
+            if session:
+                await session.close()
+
+    browser = output_manager.outputs.get("browser") if output_manager else None
+    browser_output = False
+    browser_clients = 0
+    if browser:
+        try:
+            browser_output = bool(await browser.send_scene(dict(browser.current_scene)))
+            browser_clients = len(browser.connections)
+        except Exception:
+            browser_output = False
+
+    configured_outputs = []
+    if output_manager:
+        for name, output in output_manager.outputs.items():
+            if name == "browser" or not output.enabled:
+                continue
+            try:
+                connected = bool(await output.is_connected())
+            except Exception:
+                connected = False
+            configured_outputs.append((name, connected))
+
+    cloud_ready = cloud_verified if probe_cloud else cloud_configured
+    models_need_space = not local_asr or not bool(semantic_service and semantic_service.initialized)
+    required_free = (4 if models_need_space else 1) * 1024 ** 3
+    cloud_detail = (
+        "Deepgram vérifié"
+        if cloud_verified
+        else f"Deepgram inaccessible ({cloud_error})"
+        if probe_cloud and cloud_configured
+        else "Deepgram configuré, test au démarrage du micro"
+        if cloud_configured
+        else ""
+    )
+    output_detail = (
+        f"Moteur prêt · {browser_clients} écran(s) connecté(s)"
+        if browser_output
+        else "Le moteur d'affichage ne répond pas"
+    )
+    if configured_outputs:
+        summary = ", ".join(f"{name}: {'prêt' if ok else 'indisponible'}" for name, ok in configured_outputs)
+        output_detail = f"{output_detail} · {summary}"
+
     checks = [
         {"id": "database", "label": "Base locale", "ok": bool(db_service and db_service.db), "critical": True},
         {"id": "bible", "label": "Corpus biblique", "ok": bool(verse_parser and verse_parser.bible_loader.versions), "critical": True},
-        {"id": "asr", "label": "Transcription", "ok": cloud_asr or local_asr, "critical": True,
-         "detail": "Deepgram" if cloud_asr else ("Local prêt" if local_asr else "Préparer Whisper/Vosk ou ajouter une clé")},
-        {"id": "output", "label": "Sortie navigateur / OBS", "ok": browser_output, "critical": True},
+        {"id": "asr", "label": "Transcription", "ok": cloud_ready or local_asr, "critical": True,
+         "detail": cloud_detail or ("Local prêt" if local_asr else "Préparer Whisper/Vosk ou ajouter une clé")},
+        {"id": "output", "label": "Moteur de sortie", "ok": browser_output, "critical": True,
+         "detail": output_detail},
+        {"id": "configured_outputs", "label": "Sorties activées",
+         "ok": all(ok for _, ok in configured_outputs), "critical": False,
+         "detail": "Toutes prêtes" if all(ok for _, ok in configured_outputs) else "Une sortie optionnelle est indisponible"},
         {"id": "semantic", "label": "Recherche sémantique locale", "ok": bool(semantic_service and semantic_service.initialized), "critical": False},
-        {"id": "disk", "label": "Espace disque", "ok": disk.free >= 500 * 1024 * 1024, "critical": True,
-         "detail": f"{disk.free / (1024 ** 3):.1f} Go libres"},
+        {"id": "disk", "label": "Espace disque", "ok": disk.free >= required_free, "critical": True,
+         "detail": f"{disk.free / (1024 ** 3):.1f} Go libres · {required_free / (1024 ** 3):.0f} Go requis"},
         {"id": "secrets", "label": "Trousseau système", "ok": secret_store.available, "critical": False},
     ]
     return {
@@ -191,9 +263,10 @@ async def preflight_check():
 
 @router.post("/safety/panic")
 async def activate_panic_mode():
-    """Coupe immédiatement tout pilotage automatique sans interrompre la régie."""
+    """Coupe les automatismes et efface immédiatement toutes les sorties."""
     from ..core.config import settings
     from ..services.database import get_database
+    from ..main import broadcast_projection
     settings.PROPRESENTER_AUTO_SEND = False
     settings.SUNDAY_SAFE_MODE = True
     settings.SHADOW_MODE = False
@@ -201,7 +274,15 @@ async def activate_panic_mode():
     await db.set_setting("auto_send", False)
     await db.set_setting("sunday_safe_mode", True)
     await db.set_setting("shadow_mode", False)
-    return {"status": "safe", "auto_send": False, "sunday_safe_mode": True, "shadow_mode": False}
+    receipts = await broadcast_projection("", "")
+    return {
+        "status": "safe",
+        "auto_send": False,
+        "sunday_safe_mode": True,
+        "shadow_mode": False,
+        "screen_cleared": bool(receipts.get("browser")),
+        "outputs": receipts,
+    }
 
 
 @router.post("/references/send")
@@ -222,34 +303,39 @@ async def send_reference(request: ReferenceRequest):
     if verse_parser:
         parsed = await verse_parser.parse(request.reference, skip_text_search=True)
 
+    if not parsed and not (request.text or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Référence biblique invalide : {request.reference}",
+        )
+
     reference = parsed or {
-        "reference": request.reference,
-        "text": request.text or "",
+        "reference": request.reference.strip(),
+        "text": request.text.strip(),
         "version": request.version,
     }
+    projected_text = reference.get("text") or request.text or ""
+    if not projected_text.strip():
+        raise HTTPException(status_code=422, detail="Aucun texte à projeter")
 
-    # 1. Écran de projection autonome (toujours disponible)
-    await broadcast_projection(
-        reference.get("text") or request.text or "",
+    # OutputManager diffuse une seule fois vers chaque sortie et renvoie leurs
+    # accusés. L'ancienne route envoyait ProPresenter une deuxième fois.
+    receipts = await broadcast_projection(
+        projected_text,
         reference.get("reference", request.reference),
         translations=reference.get("translations") if isinstance(reference, dict) else None,
     )
-
-    # 2. ProPresenter (meilleur effort via OutputManager)
-    sent_propresenter = False
-    if output_manager and "propresenter" in output_manager.outputs:
-        pp_driver = output_manager.outputs["propresenter"]
-        if pp_driver.enabled:
-            sent_propresenter = await pp_driver.send_scene({
-                "reference": reference.get("reference", request.reference),
-                "text": reference.get("text") or request.text or ""
-            })
+    browser_sent = bool(receipts.get("browser"))
+    if not browser_sent:
+        raise HTTPException(status_code=503, detail="Le moteur d'affichage n'a pas confirmé la scène")
+    sent_propresenter = bool(receipts.get("propresenter"))
 
     return {
-        "success": True,
+        "success": browser_sent,
         "reference": reference.get("reference", request.reference),
-        "text": reference.get("text") or request.text or "",
+        "text": projected_text,
         "propresenter_sent": sent_propresenter,
+        "outputs": receipts,
         "message": "Verset projeté" + (" (+ ProPresenter)" if sent_propresenter else " (écran autonome)"),
     }
 

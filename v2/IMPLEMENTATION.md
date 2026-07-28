@@ -1,294 +1,232 @@
-# 🚀 VersePro v2 - Guide d'Implémentation
+# VersePro V2 - Carte d'implémentation
 
-## ✅ Ce qui a été créé
+> État de référence : 28 juillet 2026  
+> Ce document décrit le code livré. Les travaux futurs sont isolés dans
+> [`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md).
 
-### Architecture Complète
+## Vue d'ensemble
 
+```text
+Microphone
+   |
+   v
+Web Audio API -> PCM mono 16 kHz -> WebSocket authentifié
+   |
+   v
+ASR Deepgram / Whisper / Vosk
+   |
+   v
+Parser explicite -> recherche lexicale -> e5 ONNX -> LLM fermé
+   |
+   v
+Politique de sûreté -> file de validation -> scène canonique
+   |
+   +-> Écran web / OBS / moniteur scène
+   +-> ProPresenter
+   +-> vMix
+   +-> NDI
 ```
-VersePro/v2/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI + WebSocket
-│   │   ├── api/
-│   │   │   ├── __init__.py
-│   │   │   └── routes.py        # API REST endpoints
-│   │   ├── core/
-│   │   │   ├── __init__.py
-│   │   │   └── config.py        # Configuration centralisée
-│   │   └── services/
-│   │       ├── __init__.py
-│   │       ├── deepgram_service.py    # Transcription ~300ms
-│   │       ├── propresenter_service.py # API TCP/IP native
-│   │       └── verse_parser.py        # Parser regex + NER
-│   ├── requirements.txt
-│   ├── .env.example
-│   └── test_parser.py
-└── README.md
+
+Le frontend React est une console de régie. FastAPI porte les pipelines audio,
+les règles métier, la persistance et les pilotes de sortie. Tauri lance les deux
+composants comme une application desktop signable.
+
+## Modules principaux
+
+| Responsabilité | Emplacement |
+| --- | --- |
+| Application FastAPI et cycle de vie | `backend/app/main.py` |
+| API REST et WebSockets | `backend/app/api/routes.py` |
+| Configuration validée | `backend/app/core/config.py` |
+| Authentification locale | `backend/app/core/security.py` |
+| Transcription cloud | `backend/app/services/deepgram_service.py` |
+| Transcription Whisper | `backend/app/services/whisper_service.py` |
+| Transcription Vosk | `backend/app/services/vosk_service.py` |
+| Parser et recherche de versets | `backend/app/services/verse_parser.py` |
+| Embeddings e5 ONNX | `backend/app/services/e5_encoder.py` |
+| Fournisseurs LLM | `backend/app/services/llm_service.py` |
+| Orchestration des sorties | `backend/app/outputs/manager.py` |
+| Écran, OBS et scène | `backend/app/outputs/web.py` |
+| ProPresenter, vMix et NDI | `backend/app/outputs/` |
+| Base SQLite | `backend/app/services/database.py` |
+| Secrets système | `backend/app/services/secret_store.py` |
+| Téléchargements vérifiés | `backend/app/services/download_utils.py` |
+| Console React | `frontend/src/components/LiveDetection.jsx` |
+| Paramètres | `frontend/src/components/Settings.jsx` |
+| État global | `frontend/src/store.js` |
+| Shell desktop | `frontend/src-tauri/src/main.rs` |
+
+## Démarrage desktop
+
+1. Tauri génère un jeton de session cryptographique.
+2. Le backend PyInstaller démarre sur `127.0.0.1:17871` avec ce jeton.
+3. Le frontend récupère le jeton par commande Tauri et l'ajoute aux requêtes
+   locales ainsi qu'aux WebSockets.
+4. Le watchdog contrôle le processus et le relance avec backoff en cas de chute.
+5. Les journaux sont écrits dans `backend-desktop.log` du dossier de données.
+6. La CSP limite le WebView aux ressources de l'application et au backend local.
+
+Une page web externe ouverte sur le même poste ne peut donc pas envoyer une
+commande de projection sans connaître le jeton éphémère.
+
+## Pipeline audio et ASR
+
+Le navigateur demande explicitement l'accès au microphone, sélectionne la
+source enregistrée dans Paramètres et convertit le signal en PCM mono 16 kHz.
+Chaque paquet alimente :
+
+- le vumètre et les 64 crêtes visuelles de l'onde ;
+- le WebSocket audio authentifié ;
+- le moteur ASR sélectionné ;
+- les événements de transcript intermédiaire et final.
+
+Le filtre audio est désactivé par défaut. Les profils proposés évitent un
+traitement agressif qui supprimerait une partie de la voix. Le mode `auto`
+essaie Deepgram puis un moteur local déjà préparé ; il ne télécharge jamais un
+modèle silencieusement pendant un culte.
+
+## Pipeline de détection
+
+### 1. Référence explicite
+
+Le parser normalise les livres, abréviations, chapitres et plages de versets,
+puis vérifie la référence dans le corpus local. C'est le seul type de signal
+éligible à l'automatisation, et seulement lorsque le mode dimanche sûr est
+désactivé.
+
+### 2. Recherche locale
+
+En fin de phrase, deux voies recherchent dans le texte biblique :
+
+- correspondance lexicale et floue ;
+- embedding multilingue e5 exécuté par ONNX Runtime.
+
+La fusion canonise les références, mesure l'accord des moteurs et vérifie le
+recouvrement des mots. Les index proviennent du corpus biblique local réel.
+
+### 3. IA de dernier recours
+
+Le LLM ne reçoit pas la Bible entière et ne peut pas inventer une référence. Il
+choisit dans un top-k local fermé. Une référence hors liste est rejetée et la
+confiance finale est recalibrée avec le score du candidat local.
+
+### 4. Protection asynchrone
+
+Chaque nouveau transcript augmente la génération courante et annule l'analyse
+précédente. Une réponse tardive d'un embedding ou d'un LLM ne peut donc ni
+écraser la file ni déclencher une projection devenue obsolète.
+
+## Politique de direct
+
+| Signal | Mode dimanche sûr | Mode manuel | Automatisation autorisée |
+| --- | --- | --- | --- |
+| Référence explicite vérifiée | File | File | Oui, si activée |
+| Citation ou paraphrase locale | File | File | Non |
+| Proposition LLM | File | File | Non |
+| Mode ombre | Journal seulement | Journal seulement | Non |
+
+L'arrêt d'urgence force le mode sûr, arrête le microphone et le suivi lecture,
+annule les automatismes et efface la scène canonique.
+
+## Scène et pilotes de sortie
+
+La scène canonique contient la référence, le texte, la version biblique, la
+position dans un passage et l'état du suivi lecture. L'écran autonome, OBS et le
+moniteur scène consomment le même WebSocket, ce qui évite trois vérités
+différentes.
+
+Les pilotes ProPresenter, vMix et NDI sont orchestrés séparément. Chacun renvoie
+un reçu structuré. Une sortie en échec ne valide pas globalement la projection ;
+la régie peut signaler le problème et conserver une sortie locale fonctionnelle.
+
+Adresses empaquetées :
+
+```text
+http://127.0.0.1:17871/projection
+http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent
+http://127.0.0.1:17871/stage
 ```
 
----
+## Configuration, secrets et modèles
 
-## 🎯 Améliorations Clés
+- Les réglages non sensibles sont persistés dans SQLite.
+- Deepgram, OpenRouter et Gemini utilisent le trousseau du système via
+  `keyring`.
+- L'API ne renvoie que l'état présent/absent des secrets.
+- Gemini reçoit sa clé dans l'en-tête `x-goog-api-key`.
+- Les migrations ne suppriment une ancienne clé SQLite qu'après transfert
+  confirmé.
+- Les téléchargements refusent les redirections non sûres et vérifient
+  taille, type et empreinte lorsque celle-ci est connue.
+- Whisper, Vosk et e5 ne sont préparés qu'après une action utilisateur.
 
-### 1. Transcription Deepgram (vs Whisper)
+## Files et persistance
 
-| Avantage | Impact |
-|----------|--------|
-| Latence ~300ms | **10x plus rapide** que Whisper |
-| Streaming temps réel | Transcription pendant la parole |
-| Smart Format | Ponctuation automatique |
-| Détection de fin de phrase | Envoi au bon moment |
+Les files de transcript, de détection et d'écriture sont bornées. La
+persistance lente ne doit pas bloquer la boucle audio. Les événements
+opérationnels conservent assez de contexte pour diagnostiquer le direct sans
+enregistrer automatiquement l'audio du culte.
 
-**Configuration:**
+## Contrats d'extension
+
+Une nouvelle sortie doit :
+
+1. recevoir la scène canonique ;
+2. implémenter projection, effacement et santé ;
+3. retourner un reçu explicite ;
+4. respecter les délais et annulations ;
+5. posséder des tests de succès, panne et reprise.
+
+Un nouveau moteur ASR doit :
+
+1. accepter le PCM mono 16 kHz ou documenter sa conversion ;
+2. émettre transcript intermédiaire, final et erreurs ;
+3. exposer un état de préparation ;
+4. ne déclencher aucun téléchargement implicite ;
+5. être testable avec un flux WebSocket distant.
+
+Un nouveau moteur sémantique doit :
+
+1. rechercher uniquement dans le corpus local versionné ;
+2. retourner référence, score et provenance ;
+3. passer par la fusion et la politique de sûreté ;
+4. ne jamais disposer d'un chemin direct vers les sorties.
+
+## Tests et seuils
+
 ```bash
-# .env
-DEEPGRAM_API_KEY=xxx  # 200$ gratuits à l'inscription
-DEEPGRAM_MODEL=nova-2  # Meilleur modèle
+cd v2/backend
+venv/bin/python -m pytest -q
+venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
+
+cd ../frontend
+npm test
+npm run build
+
+cd src-tauri
+cargo test --locked
+cargo check --locked
 ```
 
----
-
-### 2. Parser de Références Amélioré
-
-**Avant (v1):** Regex basiques, patterns limités
-
-**Maintenant (v2):**
-- ✅ Regex optimisés (5 patterns couvrant 95% des cas)
-- ✅ Validation biblique (chapitres/versets existants)
-- ✅ Support abbreviations (1 Co, 2 Th, Jn, Mt, etc.)
-- ✅ NER spaCy en fallback (phrases complexes)
-
-**Exemples détectés:**
-```
-✅ "Jean 3:16"
-✅ "Jn 3:16-18"
-✅ "Matthieu chapitre 5 verset 13 à 16"
-✅ "1 Corinthiens 13:4"
-✅ "Ouvrez vos Bibles à Psaume 23"
-❌ "Jean 100:1" (chapitre inexistant → rejeté)
-```
-
----
-
-### 3. Intégration ProPresenter Native
-
-**Avant (v1):** Simulation clavier (pyautogui)
-- Fragile (dépend du focus)
-- Lent (2-3 secondes)
-- Error-prone (fenêtres, popups)
-
-**Maintenant (v2):** API TCP/IP officielle
-- ✅ Fiable (protocole dédié)
-- ✅ Rapide (< 100ms)
-- ✅ Texte complet du verset envoyé
-- ✅ Confirmation de réception
-
-**Configuration ProPresenter:**
-1. Preferences > Network
-2. Activer "Control Server"
-3. Port: 12345 (par défaut)
-
----
-
-### 4. Architecture Moderne
-
-**Backend: FastAPI + WebSocket**
-```python
-# Streaming audio en temps réel
-@router.websocket("/ws/audio")
-async def websocket_audio(websocket: WebSocket):
-    await websocket.accept()
-    
-    # Session Deepgram
-    session = await deepgram_service.create_session()
-    
-    while True:
-        # Reçoit chunk audio
-        audio = await websocket.receive_bytes()
-        
-        # Transcription streaming
-        transcript = await session.send_audio(audio)
-        
-        # Détection référence
-        reference = await verse_parser.parse(transcript)
-        
-        # Envoi auto ProPresenter
-        if reference and settings.AUTO_SEND:
-            await propresenter_service.show_verse(reference)
-```
-
-**Avantages:**
-- Async pur (meilleure performance)
-- WebSocket (streaming bidirectionnel)
-- API REST (intégration facile)
-- Tests simplifiés
-
----
-
-## 📋 Prochaines Étapes
-
-### Étape 1: Installer les dépendances
-
-```bash
-cd VersePro/v2/backend
-
-# Créer venv
-python3 -m venv venv
-source venv/bin/activate
-
-# Installer
-pip install -r requirements.txt
-
-# Note: Deepgram nécessite une clé API
-# Inscription gratuite: https://deepgram.com
-```
-
-### Étape 2: Configurer
-
-```bash
-# Copier .env.example
-cp .env.example .env
-
-# Éditer avec ta clé Deepgram
-nano .env
-```
-
-### Étape 3: Tester le parser
-
-```bash
-python3 test_parser.py
-```
-
-### Étape 4: Lancer le serveur
-
-```bash
-python3 -m app.main
-```
-
-### Étape 5: Tester l'API
-
-```bash
-# Santé
-curl http://localhost:8000/health
-
-# Parser un texte
-curl -X POST http://localhost:8000/api/v1/references/parse \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Lisons Jean 3:16"}'
-```
-
----
-
-## 🎨 Frontend (à créer)
-
-### Option 1: Tauri (Desktop natif)
-
-```bash
-# Plus léger qu'Electron, Rust backend
-npm create tauri-app@latest
-```
-
-**Avantages:**
-- Binaire natif (Mac, Windows, Linux)
-- ~10MB (vs ~100MB Electron)
-- Performance maximale
-
-### Option 2: Web (React/Vue)
-
-```bash
-# Simple, accessible partout
-npm create vite@latest frontend -- --template react
-```
-
-**Avantages:**
-- Accessible depuis navigateur
-- Déploiement facile
-- Mobile-friendly
-
-### Option 3: Hybride (Recommandé)
-
-- **Tauri** pour desktop (église, console)
-- **Web** pour mobile (validation à distance)
-- **Même backend** (FastAPI)
-
----
-
-## 💡 Fonctionnalités à Ajouter
-
-### Priorité 1 (Core)
-- [ ] Interface de validation manuelle
-- [ ] Historique des versets (SQLite)
-- [ ] Niveau audio en temps réel
-- [ ] Indicateur de transcription
-
-### Priorité 2 (UX)
-- [ ] Thèmes (clair/sombre)
-- [ ] Raccourcis clavier
-- [ ] Notifications sonores
-- [ ] Mode "Gros culte" (validation requise)
-
-### Priorité 3 (Premium)
-- [ ] Dashboard statistiques
-- [ ] Export CSV/JSON
-- [ ] Multi-utilisateurs
-- [ ] Cloud sync
-
----
-
-## 🔧 Migration depuis v1
-
-### Ce qui change
-
-| v1 | v2 |
-|----|----|
-| `main.py` (PyQt) | `app/main.py` (FastAPI) |
-| Threads | Async/Await |
-| Simulation clavier | API TCP/IP |
-| Whisper | Deepgram (+ Whisper fallback) |
-
-### Ce qui reste
-
-- Structure `src/` modulaire
-- Configuration YAML/ENV
-- Logs structurés
-- Tests unitaires
-
----
-
-## 📊 Performance Attendue
-
-| Métrique | v1 | v2 |
-|----------|-----|-----|
-| Latence transcription | 2-5s | **< 500ms** |
-| Latence détection | 3-7s | **< 800ms** |
-| Latence ProPresenter | 1-2s | **< 100ms** |
-| **TOTAL** | **6-14s** | **< 1.5s** |
-
----
-
-## 🙋 Questions Fréquentes
-
-### Q: Deepgram est payant ?
-R: Oui, mais 200$ offerts à l'inscription (~300 heures). Ensuite ~$0.006/min.
-
-### Q: Et si pas d'internet ?
-R: Prévoir fallback Whisper local (déjà implémenté dans `deepgram_service.py`).
-
-### Q: ProPresenter 6 ou 7 ?
-R: Les deux supportés. TCP/IP disponible depuis la version 6.
-
-### Q: Peut-on garder l'interface PyQt ?
-R: Oui, mais faudra adapter la communication (HTTP au lieu de threads).
-
----
-
-## 🚀 Conclusion
-
-VersePro v2 est **10x plus rapide**, **plus fiable**, et **plus professionnel**.
-
-**Prochaine action:**
-1. Installer les dépendances
-2. Tester avec ta clé Deepgram
-3. Créer l'interface (Tauri ou Web)
-
-Besoin d'aide pour une étape ? Dis-le-moi ! 🔥
+La couverture inclut le parser, les références orales, les allusions, la fusion,
+le LLM fermé, Whisper, Vosk, les téléchargements, les secrets, la scène web, OBS,
+NDI, les commandes de sécurité et le streaming audio WebSocket distant.
+
+Référence vérifiée le 28 juillet 2026 :
+
+- 179 tests backend réussis, 4 ignorés ;
+- 4 tests frontend réussis ;
+- 1 test Rust réussi ;
+- benchmark textuel : 30/30, 0 faux positif, p95 18,32 ms ;
+- audits npm et Python : aucune vulnérabilité connue.
+
+## Publication
+
+Le workflow Release construit le frontend, le backend et les paquets Tauri. Il
+échoue si les certificats de signature requis ne sont pas disponibles. Les
+procédures macOS et Windows sont centralisées dans
+[`../SIGNING.md`](../SIGNING.md).
+
+La prochaine étape de distribution est un canal de mise à jour signé. Elle est
+définie avec ses critères d'acceptation dans
+[`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md).

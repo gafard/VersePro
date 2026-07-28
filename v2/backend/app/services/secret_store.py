@@ -60,10 +60,11 @@ class SecretStore:
             stored = await self.set(key, legacy)
             if stored:
                 logger.info(f"Secret {key} migré vers le gestionnaire système")
+                await database.delete_setting(key)
             else:
-                logger.warning(f"Secret {key} retiré de SQLite et conservé pour cette session")
-            await database.delete_setting(key)
+                logger.warning(
+                    f"Secret {key} conservé dans SQLite : le gestionnaire système est indisponible"
+                )
 
 
 secret_store = SecretStore()
-

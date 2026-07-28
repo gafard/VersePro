@@ -986,6 +986,7 @@ export default function Settings() {
             <label className="settings-switch">
               <input
                 type="checkbox"
+                aria-label="Activer la barrière vocale anti-musique"
                 checked={form.voice_gate_enabled}
                 disabled={!settings?.voice_gate_available}
                 onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}

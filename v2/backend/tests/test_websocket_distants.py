@@ -94,6 +94,43 @@ def test_remote_audio_ws_accepts_valid_token_header():
         data = websocket.receive_json()
         assert data["type"] == "ai_status"
 
+def test_local_api_requires_token_when_one_is_configured():
+    local_client = TestClient(main.app)
+    denied = local_client.get("/api/v1/control/status")
+    assert denied.status_code == 401
+
+    accepted = local_client.get(
+        "/api/v1/control/status",
+        headers={"Authorization": "Bearer secure-integration-token"},
+    )
+    assert accepted.status_code == 200
+
+
+def test_local_browser_origin_is_checked_without_token(monkeypatch):
+    monkeypatch.setattr(settings, "API_TOKEN", "")
+    local_client = TestClient(main.app)
+
+    denied = local_client.get(
+        "/api/v1/control/status",
+        headers={"Origin": "https://example.invalid"},
+    )
+    assert denied.status_code == 401
+
+    accepted = local_client.get(
+        "/api/v1/control/status",
+        headers={"Origin": "http://localhost:3000"},
+    )
+    assert accepted.status_code == 200
+
+
+def test_websocket_accepts_session_token_subprotocol():
+    remote_client = TestClient(main.app, client=("203.0.113.10", 49152))
+    with remote_client.websocket_connect(
+        "/ws/audio",
+        subprotocols=["versepro", "versepro.auth.secure-integration-token"],
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ai_status"
+
 
 def test_remote_audio_stream_reaches_production_parser(monkeypatch):
     """Intégration distante: octets audio -> ASR -> transcript -> référence."""

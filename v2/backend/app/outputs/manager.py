@@ -47,12 +47,16 @@ class OutputManager:
 
     async def disconnect_all(self):
         for name, output in self.outputs.items():
-            await output.disconnect()
+            close = getattr(output, "close", None)
+            if callable(close):
+                close()
+            else:
+                await output.disconnect()
         logger.info("🔌 Toutes les sorties ont été déconnectées")
 
     async def project(self, text: str, reference: str, background: Optional[str] = None, translations: Optional[dict] = None, theme: Optional[str] = None):
         """Compatibilité : construit la scène puis délègue à project_scene"""
-        await self.project_scene({
+        return await self.project_scene({
             "type": "scripture",
             "text": text,
             "reference": reference,
@@ -61,28 +65,36 @@ class OutputManager:
             "translations": translations or {}
         })
 
-    async def project_scene(self, scene: Dict[str, Any]):
-        """Diffuse une scène complète (avec verset suivant, thème…) à tous les drivers actifs"""
+    async def project_scene(self, scene: Dict[str, Any]) -> Dict[str, bool]:
+        """Diffuse une scène et retourne l'accusé de chaque sortie active."""
         scene = {"type": "scripture", **scene}
 
         # Envoi PARALLÈLE : un driver lent ou déconnecté (ProPresenter absent,
         # vMix qui timeout) ne retarde plus l'affichage sur les autres sorties.
         async def _safe_send(name: str, output: BaseOutput):
             try:
-                await output.send_scene(scene)
+                return name, bool(await output.send_scene(scene))
             except Exception as e:
                 logger.error(f"Erreur d'envoi vers la sortie {name}: {e}")
+                return name, False
 
-        await asyncio.gather(*(
+        results = await asyncio.gather(*(
             _safe_send(name, output)
             for name, output in self.outputs.items() if output.enabled
         ))
+        return dict(results)
 
-    async def clear(self):
-        """Efface toutes les sorties actives"""
-        for name, output in self.outputs.items():
-            if output.enabled:
-                try:
-                    await output.clear()
-                except Exception as e:
-                    logger.error(f"Erreur de nettoyage de la sortie {name}: {e}")
+    async def clear(self) -> Dict[str, bool]:
+        """Efface les sorties actives et retourne leurs accusés."""
+        async def _safe_clear(name: str, output: BaseOutput):
+            try:
+                return name, bool(await output.clear())
+            except Exception as e:
+                logger.error(f"Erreur de nettoyage de la sortie {name}: {e}")
+                return name, False
+
+        results = await asyncio.gather(*(
+            _safe_clear(name, output)
+            for name, output in self.outputs.items() if output.enabled
+        ))
+        return dict(results)

@@ -210,7 +210,6 @@ export default function FirstRunWizard({ onDone }) {
 
   return (
     <div className="fw-backdrop" role="dialog" aria-modal="true" aria-label="Premier lancement">
-      <div className="fw-aurora" aria-hidden="true"><span /><span /><span /></div>
       <div className={`fw-panel ${entered ? 'is-in' : ''}`}>
         <header className="fw-head">
           <span className="fw-brand flex items-center gap-2">

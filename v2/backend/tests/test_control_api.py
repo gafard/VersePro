@@ -68,6 +68,16 @@ def test_http_control_navigation(client):
     assert response_prev.json()["success"] is True
     assert "3:16" in response_prev.json()["reference"]
 
+
+def test_manual_reference_rejects_invalid_input(client):
+    response = client.post(
+        "/api/v1/references/send",
+        json={"reference": "ceci-n-est-pas-un-verset"},
+    )
+    assert response.status_code == 422
+    assert "invalide" in response.json()["detail"]
+
+
 def test_osc_service_init():
     service = OSCService()
     assert service.server is None

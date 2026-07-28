@@ -34,6 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Refuser une publication non signée
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ] && [ "$HAS_APPLE_CERT" != "true" ]; then
+            echo "::error::Certificat Apple Developer ID absent. Aucun installeur public non signé ne sera produit."
+            exit 1
+          fi
+          if [ "$RUNNER_OS" = "Windows" ] && [ "$HAS_WIN_CERT" != "true" ]; then
+            echo "::error::Certificat Windows absent. Aucun installeur public non signé ne sera produit."
+            exit 1
+          fi
+
       # ── 1. Geler le backend Python (PyInstaller onedir) ──
       - uses: actions/setup-python@v7
         with:
@@ -115,11 +126,9 @@ jobs:
         with:
           workspaces: v2/frontend/src-tauri
 
-      # Signature Windows (optionnelle) : si le certificat est fourni en secret,
-      # on l'importe dans le magasin du runner et on renseigne son empreinte.
-      # Sans secret, l'étape est sautée et le .msi sort non signé (SmartScreen).
-      - name: Importer le certificat Windows (si fourni)
-        if: runner.os == 'Windows' && env.HAS_WIN_CERT == 'true'
+      # Le garde de publication ci-dessus rend le certificat obligatoire.
+      - name: Importer le certificat Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -148,42 +157,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm ci
-          # Un secret qui n'existe pas n'arrive pas ABSENT, il arrive en chaîne
-          # VIDE — et le bundler Tauri décide de signer sur la présence de la
-          # variable, pas sur son contenu. Sans ce nettoyage il tentait
-          # « Signing with identity "" » puis mourait sur l'import d'un
-          # certificat vide, au lieu de produire un build non signé.
-          if [ "$HAS_APPLE_CERT" != "true" ]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
-                  APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-            # Le nettoyage vaut pour les deux OS, l'avertissement non : Gatekeeper
-            # n'existe pas sous Windows, et le job y annonçait un défaut de
-            # certificat Apple sans le moindre rapport avec son installeur.
-            # `if` et non `[ … ] && echo` : sous `set -e`, une liste && qui se
-            # termine en échec ferait tomber l'étape entière sur Windows.
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              echo "::notice::Aucun certificat Apple : application non signée (Gatekeeper avertira)."
-            fi
-          fi
           if [ "$RUNNER_OS" = "macOS" ]; then
             npm run tauri build -- --bundles app
           else
             npm run tauri build
           fi
-
-      # Sans certificat Developer ID, Tauri ne signe pas du tout. Sur Apple
-      # Silicon, un binaire dépourvu de TOUTE signature est tué au lancement et
-      # macOS l'annonce comme « endommagé, placez-le dans la Corbeille » — un
-      # cul-de-sac pour l'utilisateur. Une signature ad hoc (« - ») ne remplace
-      # pas un certificat, Gatekeeper avertira toujours, mais elle ramène le
-      # refus à un « développeur non identifié » que le clic droit → Ouvrir
-      # permet de lever. À faire AVANT le DMG, qui fige le contenu signé.
-      - name: Signature ad hoc (faute de certificat)
-        if: runner.os == 'macOS' && env.HAS_APPLE_CERT != 'true'
-        working-directory: v2/frontend/src-tauri/target/release/bundle/macos
-        run: |
-          codesign --force --deep --sign - VersePro.app
-          codesign --verify --deep --strict --verbose=2 VersePro.app
 
       # Le bundler DMG de Tauri met en scène la fenêtre via AppleScript et le
       # Finder — il a déjà échoué sur cette application. Aucun habillage DMG

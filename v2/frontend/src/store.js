@@ -227,15 +227,15 @@ export const useStore = create((set, get) => ({
   }),
   
   projectVerseFromQueue: async (queueId, reference, text) => {
-    // 1. Envoi au ProPresenter
+    // La file ne passe à « projeté » qu'après accusé du moteur d'affichage.
     const sent = await get().sendReference(reference)
-    
-    // 2. Met à jour le statut dans la file
-    set((state) => ({
-      projectionQueue: state.projectionQueue.map((item) => 
-        item.queueId === queueId ? { ...item, status: 'projected' } : item
-      )
-    }))
+    if (sent) {
+      set((state) => ({
+        projectionQueue: state.projectionQueue.map((item) =>
+          item.queueId === queueId ? { ...item, status: 'projected' } : item
+        )
+      }))
+    }
     
     return sent
   },
@@ -666,8 +666,8 @@ export const useStore = create((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference })
       })
-      const data = await response.json()
-      if (data?.success) {
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data?.success) {
         set({
           onAir: { reference: data.reference, text: data.text || '', at: new Date().toISOString() },
           propresenterConnected: Boolean(data.propresenter_sent)
@@ -676,11 +676,11 @@ export const useStore = create((set, get) => ({
       } else {
         get().addToast({ message: data?.detail || `Échec de projection : ${reference}`, kind: 'error' })
       }
-      return data
+      return Boolean(response.ok && data?.success)
     } catch (error) {
       console.error('Erreur send reference:', error)
       get().addToast({ message: 'Serveur injoignable — projection impossible', kind: 'error' })
-      return null
+      return false
     }
   },
 
@@ -842,12 +842,40 @@ export const useStore = create((set, get) => ({
     return data
   },
 
-  runPreflight: async () => {
+  runPreflight: async ({ probeCloud = false, requireMicro = false } = {}) => {
     set({ preflightLoading: true })
     try {
-      const response = await fetch(`${BACKEND_BASE}/api/v1/preflight`)
+      const response = await fetch(
+        `${BACKEND_BASE}/api/v1/preflight?probe_cloud=${probeCloud ? 'true' : 'false'}`
+      )
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
+      if (requireMicro) {
+        let micOk = false
+        let detail = 'Aucune entrée audio détectée'
+        try {
+          const devices = await navigator.mediaDevices?.enumerateDevices?.() || []
+          const inputs = devices.filter((device) => device.kind === 'audioinput')
+          let permission = 'unknown'
+          if (navigator.permissions?.query) {
+            permission = (await navigator.permissions.query({ name: 'microphone' })).state
+          }
+          micOk = inputs.length > 0 && permission !== 'denied'
+          detail = permission === 'denied'
+            ? 'Permission microphone refusée'
+            : `${inputs.length} entrée(s) audio détectée(s)`
+        } catch {
+          detail = 'Contrôle du microphone impossible'
+        }
+        data.checks.push({
+          id: 'microphone',
+          label: 'Entrée microphone',
+          ok: micOk,
+          critical: true,
+          detail
+        })
+        data.ready = data.ready && micOk
+      }
       set({ preflight: data, preflightCheckedAt: Date.now(), backendUnreachable: false })
       return data
     } catch {
@@ -867,8 +895,14 @@ export const useStore = create((set, get) => ({
     try {
       await fetch(`${BACKEND_BASE}/api/v1/safety/panic`, { method: 'POST' })
     } catch { /* l'arrêt micro local reste effectif même sans serveur */ }
-    set({ autoSend: false, autopilotMode: false, sundaySafeMode: true, shadowMode: false })
-    get().addToast({ message: 'Mode sûr activé. Automatisations coupées.', kind: 'success' })
+    set({
+      autoSend: false,
+      autopilotMode: false,
+      sundaySafeMode: true,
+      shadowMode: false,
+      onAir: null
+    })
+    get().addToast({ message: 'Mode sûr activé. Automatisations coupées et écran effacé.', kind: 'success' })
   },
   
   setOutputTheme: async (theme) => {

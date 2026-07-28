@@ -20,8 +20,8 @@ class VoskService:
         self.model_type = getattr(settings, "VOSK_MODEL_TYPE", "small").lower()
         if self.model_type not in self.MODEL_VARIANTS:
             self.model_type = "small"
-        # L'ancien défaut était "large" : un parc existant peut ne posséder que
-        # l'autre variante sur le disque. Faute du modèle configuré, et le
+        # Un parc existant peut ne posséder que l'autre variante sur le disque.
+        # Faute du modèle configuré, et le
         # téléchargement étant devenu explicite, on charge la variante présente
         # plutôt que de perdre silencieusement le secours local hors-ligne.
         if not os.path.isdir(os.path.join(str(DATA_DIR), self.MODEL_VARIANTS[self.model_type][0])):

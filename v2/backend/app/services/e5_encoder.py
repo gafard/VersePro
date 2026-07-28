@@ -13,8 +13,7 @@ mean pooling masqué, normalisation L2.
 
 import os
 import threading
-import urllib.request
-from .download_utils import download_file
+from .download_utils import download_file, verify_sha256
 from pathlib import Path
 from typing import List, Optional
 
@@ -27,10 +26,22 @@ class E5OnnxEncoder:
     # pooling masqué) : seule la capacité change. Permet de comparer à variable
     # isolée — small (118 Mo, dim 384) vs base (265 Mo, dim 768).
     VARIANTS = {
-        "e5-small": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main",
-        "e5-base": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/main",
+        "e5-small": {
+            "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+            "sha256": {
+                "model_quantized.onnx": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193",
+                "tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+            },
+        },
+        "e5-base": {
+            "url": "https://huggingface.co/Xenova/multilingual-e5-base/resolve/1ec9243030a27d1a115d5c340572074c125b58b2",
+            "sha256": {
+                "model_quantized.onnx": "df7a9a29309e3ad491e1783adf8baee710262cc06079c7cbab63c630277fac94",
+                "tokenizer.json": "62c24cdc13d4c9952d63718d6c9fa4c287974249e16b7ade6d5a85e7bbb75626",
+            },
+        },
     }
-    REPO_URL = VARIANTS["e5-small"]
+    REPO_URL = VARIANTS["e5-small"]["url"]
     REQUIRED_FILES = {
         "model_quantized.onnx": "onnx/model_quantized.onnx",
         "tokenizer.json": "tokenizer.json",
@@ -38,7 +49,8 @@ class E5OnnxEncoder:
 
     def __init__(self, cache_dir: Optional[Path] = None, variant: str = "e5-small"):
         self.variant = variant if variant in self.VARIANTS else "e5-small"
-        self.REPO_URL = self.VARIANTS[self.variant]
+        self.REPO_URL = self.VARIANTS[self.variant]["url"]
+        self.HASHES = self.VARIANTS[self.variant]["sha256"]
         self.cache_dir = cache_dir or Path(__file__).resolve().parents[2] / "data" / "semantic" / "models" / self.variant
         self.model_path = self.cache_dir / "model_quantized.onnx"
         self.tokenizer_path = self.cache_dir / "tokenizer.json"
@@ -66,9 +78,19 @@ class E5OnnxEncoder:
             total = len(self.REQUIRED_FILES)
             for idx, (local_name, remote_path) in enumerate(self.REQUIRED_FILES.items()):
                 dest = self.cache_dir / local_name
-                if not dest.exists():
+                valid_existing = False
+                if dest.exists() and not force:
+                    try:
+                        verify_sha256(dest, self.HASHES[local_name])
+                        valid_existing = True
+                    except ValueError:
+                        logger.warning(
+                            f"⚠️ Fichier {self.variant}/{local_name} invalide, remplacement sécurisé"
+                        )
+
+                if not valid_existing:
                     logger.info(f"📥 Téléchargement {self.variant} : {local_name}")
-                    
+
                     def progress_hook(received, total_size):
                         if total_size > 0:
                             percent = min(100.0, received * 100.0 / total_size)
@@ -76,20 +98,25 @@ class E5OnnxEncoder:
                             self.download_progress = (idx * (100.0 / total)) + (percent / total)
                         else:
                             self.download_progress = (idx * (100.0 / total))
-                            
-                    download_file(
-                        f"{self.REPO_URL}/{remote_path}",
-                        str(dest) + ".part",
-                        progress_hook
-                    )
-                    os.replace(str(dest) + ".part", dest)
+
+                    partial = Path(str(dest) + ".part")
+                    try:
+                        download_file(
+                            f"{self.REPO_URL}/{remote_path}",
+                            partial,
+                            progress_hook,
+                        )
+                        verify_sha256(partial, self.HASHES[local_name])
+                        os.replace(partial, dest)
+                    finally:
+                        partial.unlink(missing_ok=True)
 
                 self.download_progress = (idx + 1) / total * 100
-            logger.info("✅ Modèle e5-small téléchargé")
+            logger.info(f"✅ Modèle {self.variant} téléchargé et vérifié")
             return True
         except Exception as e:
             self.last_error = str(e)
-            logger.error(f"❌ Téléchargement e5-small échoué : {e}")
+            logger.error(f"❌ Téléchargement {self.variant} échoué : {e}")
             return False
         finally:
             self.downloading = False
@@ -104,6 +131,8 @@ class E5OnnxEncoder:
             if self.initialized:
                 return True
             try:
+                for local_name in self.REQUIRED_FILES:
+                    verify_sha256(self.cache_dir / local_name, self.HASHES[local_name])
                 import onnxruntime as ort
                 from tokenizers import Tokenizer
 
@@ -117,11 +146,11 @@ class E5OnnxEncoder:
                     str(self.model_path), sess_options=opts, providers=["CPUExecutionProvider"]
                 )
                 self.initialized = True
-                logger.info("🧠 Encodeur e5-small chargé")
+                logger.info(f"🧠 Encodeur {self.variant} chargé")
                 return True
             except Exception as e:
                 self.last_error = str(e)
-                logger.error(f"❌ Chargement e5-small impossible : {e}")
+                logger.error(f"❌ Chargement {self.variant} impossible : {e}")
                 return False
 
     def embed(self, texts: List[str], batch_size: int = 64, kind: str = "passage", progress=None) -> np.ndarray:

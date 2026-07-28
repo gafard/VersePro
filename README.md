@@ -26,7 +26,10 @@ dans cette section n'est nécessaire pour faire tourner un culte.
 |---|---|
 | [v2/README.md](v2/README.md) | Vue d'ensemble de l'application, lancement en développement |
 | [v2/EXPLICATION_ARCHITECTURE.md](v2/EXPLICATION_ARCHITECTURE.md) | Intentions produit et architecture |
-| [v2/IMPLEMENTATION.md](v2/IMPLEMENTATION.md) | Détail des modules |
+| [v2/GUIDE_COMPLET.md](v2/GUIDE_COMPLET.md) | Guide opérateur et dépannage détaillé |
+| [v2/IMPLEMENTATION.md](v2/IMPLEMENTATION.md) | État réel des modules et contrats internes |
+| [v2/ROADMAP_INNOVATIONS.md](v2/ROADMAP_INNOVATIONS.md) | Améliorations et innovations priorisées |
+| [SYNTHESE_EXECUTIVE.md](SYNTHESE_EXECUTIVE.md) | Positionnement, preuves, limites et prochaines décisions |
 | [SIGNING.md](SIGNING.md) | Certificats Apple et Windows, secrets CI |
 | [CONDITIONS.md](CONDITIONS.md) | Conditions d'utilisation, droits sur les textes bibliques |
 
@@ -54,7 +57,7 @@ faible connu : les moteurs comparent du texte, pas des récits.
 
 | Composant | Rôle | Poids |
 |---|---|---|
-| Vosk small `fr-0.22` | transcription hors-ligne légère | environ 45 Mo |
+| Vosk large `fr-0.22` | transcription hors-ligne française | environ 1,4 Go |
 | faster-whisper `tiny`/`base`/`small` | transcription locale robuste, installé à la demande | selon modèle |
 | e5-base (ONNX) | recherche sémantique, repli automatique sur e5-small | 265 Mo |
 
@@ -80,6 +83,21 @@ droits d'en disposer.
 - **macOS + Windows** : onglet *Actions* → workflow « Release (installeurs macOS
   + Windows) » → *Run workflow*, ou pousser un tag `v*`.
 
-Sans les secrets décrits dans [SIGNING.md](SIGNING.md), les installeurs se
-construisent quand même mais ne sont pas signés : Gatekeeper et SmartScreen
-avertissent au premier lancement.
+Le workflow de publication refuse désormais de produire un installeur public si
+les certificats décrits dans [SIGNING.md](SIGNING.md) sont absents. Un build de
+développement local reste possible sans certificat.
+
+## État vérifié
+
+Dernière validation complète le 28 juillet 2026 :
+
+- 179 tests backend réussis, 4 scénarios optionnels ignorés;
+- 4 tests frontend et 1 test Rust réussis;
+- builds Vite et Tauri vérifiés;
+- audits npm et Python sans vulnérabilité connue;
+- benchmark textuel: 30 cas sur 30, aucun faux positif, p95 à 18,32 ms avec ONNX;
+- contrôles visuels desktop, largeur minimale Tauri et mobile sans débordement.
+
+Ces mesures protègent les régressions connues. Elles ne remplacent pas encore un
+corpus audio annoté provenant de plusieurs églises, identifié comme la priorité
+scientifique de la [feuille de route](v2/ROADMAP_INNOVATIONS.md).

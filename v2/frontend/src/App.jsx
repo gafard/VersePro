@@ -222,10 +222,10 @@ function App() {
                 <span className="dot" />{serverStatus.label}
               </span>
               <span className={`vp-chip ${['vosk', 'whisper'].includes(asrMode) ? 'is-warn' : 'is-accent'}`}>
-                <span className="dot" />{asrMode === 'vosk' ? 'Vosk local' : asrMode === 'whisper' ? 'Whisper local' : 'Deepgram'}
+                <span className="dot" />{asrMode === 'vosk' ? 'Vosk sélectionné' : asrMode === 'whisper' ? 'Whisper sélectionné' : 'Deepgram sélectionné'}
               </span>
               <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
-                <span className="dot" />IA {aiActive ? 'active' : 'off'}
+                <span className="dot" />IA {aiActive ? 'prête' : 'off'}
               </span>
               <span className={`vp-chip ${propresenterConnected ? 'is-ok' : 'is-warn'}`}>
                 <span className="dot" />{propresenterConnected ? 'ProPresenter' : 'PP manuel'}

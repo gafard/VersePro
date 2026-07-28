@@ -1,258 +1,174 @@
-# 📋 Synthèse Exécutive — Audit VersePro
+# Synthèse exécutive VersePro V2
 
-> **Document de travail** — Juillet 2025  
-> **Lecture recommandée** : 5 minutes  
-> **Pour le détail complet** : voir `AUDIT_COMPLET_VERSEPRO.md`
+État au 28 juillet 2026.
 
----
+## Décision
 
-## 🎯 Résumé en 3 phrases
+VersePro V2 n'est plus un prototype de transcription relié à ProPresenter. C'est
+une régie desktop hybride qui possède son propre moteur de sortie, fonctionne en
+local ou dans le cloud et impose une politique de validation avant projection.
 
-VersePro v2 est une **base solide** (architecture FastAPI + WebSocket moderne) avec des **risques critiques** (sécurité, tests, déploiement) et un **potentiel d'innovation élevé** (RAG, multi-langue, analytics). La migration depuis v1 est justifiée. **Priorité immédiate** : sécuriser, tester, containeriser.
+La priorité stratégique n'est plus d'ajouter rapidement des fonctions. Elle est
+de démontrer la robustesse sur un corpus audio multi-églises, puis de transformer
+les incidents réels en tests reproductibles.
 
----
+## Proposition de valeur
 
-## 📊 Scorecards
+VersePro écoute la prédication, détecte les références et citations bibliques,
+prépare le texte officiel et laisse l'opérateur décider de ce qui passe à
+l'écran.
 
-### Architecture
+Le produit se place entre:
 
-| Critère | v1 (PyQt6) | v2 (FastAPI) | Cible |
-|---------|:----------:|:------------:|:-----:|
-| Modernité | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| Scalabilité | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| Testabilité | ⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| **Moyenne** | **2.0** | **4.0** | **5.0** |
+- le micro et les moteurs de transcription;
+- la compréhension biblique et la politique de sécurité;
+- l'opérateur et les sorties OBS, vMix, ProPresenter, NDI ou écran autonome.
 
-### Sécurité
+Il complète les outils de présentation existants au lieu de chercher à tous les
+remplacer.
 
-| Critère | v2 Actuel | Cible | Urgence |
-|---------|:---------:|:-----:|:-------:|
-| Auth API | ❌ | ✅ JWT | 🔴 P0 |
-| Rate limiting | ❌ | ✅ SlowAPI | 🔴 P0 |
-| WSS (TLS) | ⚠️ | ✅ Obligatoire | 🟠 P1 |
-| Input validation | ⚠️ | ✅ Pydantic strict | 🟠 P1 |
-| Audit trail | ❌ | ✅ Immuable | 🟡 P2 |
-| **Score** | **5.5/10** | **8.5/10** | |
+## Ce qui est livré
 
-### Performance (latence parole → affichage)
+### Expérience opérateur
 
-| Chemin | Latence | Cible | Action |
-|--------|:-------:|:-----:|--------|
-| Deepgram → regex → ProPresenter | ~400ms | **< 300ms** | Optimiser parser |
-| Vosk → regex → ProPresenter | ~600ms | **< 500ms** | Réduire chunk audio |
-| Avec fallback IA Gemini | ~1.5s | **< 800ms** | Cache + timeout |
-| Recherche textuelle | ~150ms | **< 10ms** | Index FAISS |
+- application macOS et Windows basée sur Tauri;
+- démarrage du frontend et du backend sans terminal;
+- page Paramètres pour micro, moteurs, modèles, Bibles, sorties et clés;
+- régie compacte avec niveau audio réel, file, écran actif et transcript;
+- préflight avant direct;
+- mode sûr par défaut, mode ombre et arrêt d'urgence;
+- écran de secours, moniteur scène et source navigateur OBS.
 
-### Maintenabilité
+### Intelligence
 
-| Indicateur | v2 | Cible | Écart |
-|------------|:--:|:-----:|:-----:|
-| Couverture tests | ~10% | **> 80%** | +70% |
-| Documentation API | Manuelle | **Auto (Swagger)** | Créer |
-| CI/CD | ❌ | **GitHub Actions** | Créer |
-| Containerisation | ❌ | **Docker + Compose** | Créer |
-| Changelog | Partiel | **Automatisé** | Améliorer |
+- parser de références explicites;
+- recherche lexicale et floue;
+- embeddings e5 ONNX locaux;
+- fusion de classements et vérification du recouvrement;
+- arbitrage LLM limité à une liste de versets locaux;
+- Deepgram, faster-whisper et Vosk;
+- annulation générationnelle des analyses devenues obsolètes.
 
----
+### Production
 
-## 🔴 Problèmes critiques (P0 — à résoudre cette semaine)
+- sorties Web, OBS, vMix, ProPresenter et NDI optionnel;
+- scène canonique partagée entre toutes les sorties;
+- accusé par sortie avant de marquer une carte comme projetée;
+- source navigateur OBS indépendante de ProPresenter;
+- watchdog du backend avec reprise;
+- session locale authentifiée par jeton aléatoire 256 bits.
 
-### P0-1 : Pas d'authentification sur les WebSocket
+### Sécurité et maintenance
 
-**Risque** : N'importe qui sur le réseau peut injecter des faux versets sur l'écran de l'église.
+- TLS vérifié;
+- modèles Vosk et e5 protégés par empreintes SHA-256;
+- téléchargements atomiques et extraction anti-Zip-Slip;
+- secrets dans le trousseau système quand il est disponible;
+- installeurs publics refusés si les certificats de signature manquent;
+- audits de dépendances dans la CI.
 
-**Solution rapide** (2-4h) :
-```python
-# Dans le query string du WebSocket
-ws = new WebSocket('wss://versepro.local/ws/audio?token=JWT_HERE')
+## Preuves actuelles
 
-# Côté serveur
-@app.websocket("/ws/audio")
-async def websocket_audio(websocket: WebSocket, token: str = Query(...)):
-    if not verify_jwt(token):
-        await websocket.close(code=1008)
-        return
-```
+| Contrôle | Résultat |
+|---|---|
+| Tests backend | 179 réussis, 4 ignorés |
+| Tests frontend | 4 réussis |
+| Test Rust | 1 réussi |
+| Audit npm | aucune vulnérabilité connue |
+| Audit Python | aucune vulnérabilité connue |
+| Benchmark textuel | 30/30, aucun faux positif |
+| Latence cascade textuelle | p95 18,32 ms avec ONNX |
+| Contrôle visuel | desktop, largeur minimale Tauri et mobile sans débordement |
 
-### P0-2 : Pas de tests automatisés
+Ces chiffres prouvent la non-régression couverte par les tests. Ils ne prouvent
+pas encore la performance acoustique dans toutes les églises.
 
-**Risque** : Régression silencieuse, peur de modifier le code.
+## Forces
 
-**Solution rapide** (1 jour) :
-```bash
-# Tests critiques à écrire immédiatement
-pytest tests/unit/test_verse_parser.py -v
-pytest tests/integration/test_websocket.py -v
-pytest tests/integration/test_api.py -v
-```
+### Sécurité opérationnelle
 
-### P0-3 : Variables globales dans `main.py`
+Les références explicites vérifiées sont les seules candidates à
+l'automatisation. Les recherches sémantiques et l'IA restent dans la file. Le
+mode sûr bloque également l'avance automatique.
 
-**Risque** : Impossible à tester unitairement, couplage fort.
+### Résilience
 
-**Solution rapide** (4-8h) :
-```python
-# Pattern Dependency Injection
-class AppState:
-    def __init__(self):
-        self.deepgram: Optional[DeepgramService] = None
-        self.propresenter: Optional[ProPresenterService] = None
-        # ...
+VersePro possède plusieurs moteurs ASR et son propre écran. Une panne Internet
+ou ProPresenter déconnecté ne rend pas la régie inutilisable si un moteur local
+est prêt.
 
-# Injection dans les routes
-@app.websocket("/ws/audio")
-async def websocket_audio(websocket: WebSocket, state: AppState = Depends(get_app_state)):
-    ...
-```
+### Intégration
 
----
+Une seule validation alimente plusieurs sorties. La source OBS est déjà
+fonctionnelle sans plugin vidéo propriétaire.
 
-## 🟠 Améliorations majeures (P1 — 2-4 semaines)
+### Architecture mesurable
 
-### P1-1 : Index sémantique pour recherche textuelle (FAISS)
+La cascade de production est appelée directement par le benchmark. Les
+décisions, sources et confiances sont persistées pour permettre l'analyse.
 
-**Impact** : Latence 150ms → **< 10ms**, précision +30%
+## Limites honnêtes
 
-**Stack** : `sentence-transformers` + `faiss-cpu`
+1. Le corpus principal de non-régression reste textuel.
+2. Whisper CPU ajoute environ une fenêtre de latence.
+3. Vosk large demande environ 1,4 Go et du CPU.
+4. Les allusions narratives restent difficiles sans contexte structuré.
+5. NDI dépend d'un runtime externe.
+6. La signature nécessite des certificats Apple et Windows externes.
+7. La mise à jour signée intégrée n'est pas encore livrée.
+8. Le pont OBS actuel fournit la vidéo mais ne contrôle pas encore OBS via son
+   WebSocket.
 
-### P1-2 : Cache intelligent Agent IA
+## Risques
 
-**Impact** : Coûts API -70%, latence moyenne < 5ms (cache hit)
+| Risque | Réponse actuelle | Travail restant |
+|---|---|---|
+| Mauvais verset projeté | mode sûr et validation | corpus audio terrain |
+| Réseau instable | moteurs locaux et backoff | course ASR mesurée |
+| Mauvais micro | Paramètres et préflight | calibration par salle |
+| Panne difficile à expliquer | logs et états | diagnostic partageable |
+| Parc non homogène | CI et installeurs signés | updater signé |
+| Surcharge CPU | choix des modèles | accélération ONNX par matériel |
+| Dérive des seuils | mode ombre | enveloppe de confiance locale |
 
-**Stack** : LRU cache en mémoire + Redis optionnel
+## Trois investissements prioritaires
 
-### P1-3 : Docker + Docker Compose
+### 1. Replay Lab et corpus audio
 
-**Impact** : Déploiement en 1 commande, environnement reproductible
+Rejouer un culte dans le pipeline réel, annoter les références attendues et
+comparer les versions. C'est le socle scientifique de toutes les optimisations.
 
-```bash
-docker-compose up -d  # Backend + Frontend + DB
-```
+### 2. Diagnostic et profils de salle
 
-### P1-4 : Monitoring Prometheus + Grafana
+Permettre au bénévole de préparer une salle en quelques minutes et d'exporter un
+rapport sans terminal lorsqu'un incident survient.
 
-**Impact** : Visibilité temps réel sur la santé du système
+### 3. Mise à jour signée
 
-```
-Métriques clés :
-- transcription_latency_seconds (histogram)
-- verse_detections_total (counter, par livre)
-- propresenter_errors_total (counter)
-- websocket_connections_active (gauge)
-```
+Distribuer les correctifs avec vérification cryptographique et installation
+différée hors session active.
 
----
+## Innovations différenciantes
 
-## 🟡 Améliorations UX (P2 — 4-6 semaines)
+- jumeau de culte rejouable;
+- course ASR cloud/local avec arbitre temporel;
+- pont OBS WebSocket 5 avec preuve de visibilité;
+- seuils recommandés à partir du mode ombre;
+- VerseGraph contextuel pour récits et enchaînements;
+- sorties bilingues distinguant Bible officielle et traduction automatique;
+- Companion local à jeton éphémère;
+- apprentissage local des corrections sans transfert du sermon.
 
-| # | Amélioration | Impact utilisateur | Effort |
-|---|-------------|-------------------|--------|
-| 1 | Thème sombre/clair + contraste | Accessibilité | 1 jour |
-| 2 | Mode kiosque (plein écran sans UI) | Projection propre | 1 jour |
-| 3 | Raccourcis clavier (Space=valider, Esc=rejeter) | Vitesse opérateur | 1/2 jour |
-| 4 | Feedback sonore sur détection | Confiance opérateur | 1/2 jour |
-| 5 | Preview du verset avant envoi | Réduction erreurs | 1 jour |
-| 6 | Onboarding guidé (tutoriel interactif) | Adoption nouveaux | 2 jours |
+Les critères, garde-fous et phases sont détaillés dans
+[v2/ROADMAP_INNOVATIONS.md](v2/ROADMAP_INNOVATIONS.md).
 
----
+## Recommandation
 
-## 🚀 Innovations proposées (P3 — 6-12 semaines)
+Ne pas lancer simultanément toutes les innovations. Livrer d'abord le Replay
+Lab, le diagnostic et la mise à jour signée. Ensuite seulement, utiliser les
+mesures obtenues pour décider si la course ASR, l'accélération ONNX ou
+VerseGraph apportent un gain réel.
 
-### Innovation A : 🧠 Contexte Sermon (RAG) — **Impact élevé**
-
-Le système comprend le contexte du sermon pour détecter les références implicites.
-
-```
-Prédicateur : "Comme Paul l'a écrit aux Corinthiens sur l'amour..."
-Système : Contexte = "amour" → Privilégie 1 Co 13
-Résultat : Affiche 1 Corinthiens 13 avant la fin de la phrase
-```
-
-**Stack** : ChromaDB + sentence-transformers + LangChain
-
-### Innovation B : 🌍 Multi-langue temps réel — **Impact marché**
-
-Détection universelle + traduction automatique vers la langue de l'église.
-
-```
-Prédicateur (anglais) : "John chapter 3 verse 16"
-Affichage (français) : "Car Dieu a tant aimé le monde..."
-```
-
-**Stack** : Whisper auto-detect + ArgosTranslate + Bible API
-
-### Innovation C : 📊 Analytics Prédicative — **Différenciation**
-
-Dashboard ML pour les pasteurs : heatmap, thèmes, suggestions de passages.
-
-**Stack** : Recharts + scikit-learn + ReportLab
-
-### Innovation D : 🤝 Multi-opérateurs — **Scalabilité équipe**
-
-Rôles différenciés (audio, vérification, projection) avec file d'attente.
-
-### Innovation E : 🎓 Mode Formation — **Adoption**
-
-Simulation de prédication + scoring gamifié pour former les opérateurs.
-
----
-
-## 📅 Plan d'action immédiat (2 semaines)
-
-### Semaine 1
-
-```
-Lundi    : P0-1 — JWT auth sur WebSocket + API
-Mardi    : P0-2 — Tests unitaires parser (100+ cas)
-Mercredi : P0-2 — Tests intégration WebSocket
-Jeudi    : P0-3 — Refactor DI (éliminer globals)
-Vendredi : P1-3 — Docker + docker-compose
-```
-
-### Semaine 2
-
-```
-Lundi    : P1-1 — Index FAISS (recherche textuelle)
-Mardi    : P1-2 — Cache IA + retry backoff
-Mercredi : P1-4 — Prometheus metrics + Grafana
-Jeudi    : P2 — Thèmes + mode kiosque + raccourcis
-Vendredi : Revue + documentation + release v2.1
-```
-
----
-
-## 💰 Estimation des ressources
-
-| Phase | Durée | Développeur | Coût estimé (si externalisé) |
-|-------|-------|------------|------------------------------|
-| P0 — Fondations | 2 semaines | 1 senior | 3 000 € |
-| P1 — Robustesse | 2 semaines | 1 senior | 3 000 € |
-| P2 — UX | 2 semaines | 1 senior + 1 junior | 4 000 € |
-| P3 — Innovation A (RAG) | 2 semaines | 1 senior ML | 4 000 € |
-| P3 — Innovation B (Multi-langue) | 2 semaines | 1 senior | 3 000 € |
-| **TOTAL** | **10 semaines** | | **17 000 €** |
-
----
-
-## ✅ Checklist de validation
-
-Avant de considérer v2 comme "production-ready" :
-
-```
-□ JWT auth sur tous les endpoints et WebSocket
-□ Rate limiting (100 req/min par IP)
-□ Tests unitaires > 80% couverture
-□ Tests intégration WebSocket + API
-□ Docker Compose fonctionnel (docker-compose up -d)
-□ CI/CD GitHub Actions (lint + test + build)
-□ Documentation API Swagger UI accessible
-□ Frontend build fonctionnel et servi
-□ Monitoring Prometheus + Grafana
-□ Backup automatique de la base SQLite
-□ Guide de déploiement pour non-technicien
-```
-
----
-
-> **Document vivant** — À mettre à jour après chaque sprint  
-> **Prochaine revue** : Dans 2 semaines (après Phase P0)
+Le meilleur positionnement de VersePro n'est pas "une IA qui sait tout". C'est
+"la couche temps réel qui comprend, sécurise et distribue l'Écriture pendant un
+direct".

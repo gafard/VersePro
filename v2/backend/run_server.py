@@ -10,14 +10,15 @@ Une fois figé par PyInstaller, ce fichier devient l'exécutable autonome
 """
 import os
 import sys
-import ssl
 
+# PyInstaller n'expose pas toujours le magasin de certificats du système.
+# Certifi fournit les autorités sans jamais désactiver la vérification TLS.
 try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except Exception:
     pass
-
-
 
 def main() -> None:
     host = os.environ.get("VERSEPRO_HOST", "127.0.0.1")

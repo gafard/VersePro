@@ -186,9 +186,9 @@
       <div class="steps">
         <div class="step"><div><b>Ouvrez le fichier <span class="mono">VersePro_2.0.0.dmg</span></b>
           <p>Glissez VersePro vers le dossier Applications, comme d'habitude.</p></div></div>
-        <div class="step"><div><b>Premier lancement : clic droit → Ouvrir</b>
-          <p>macOS affiche un avertissement pour les applications hors App Store.
-          Le clic droit puis « Ouvrir » ne se fait qu'une seule fois.</p></div></div>
+        <div class="step"><div><b>Ouvrez VersePro normalement</b>
+          <p>Le paquet public doit être signé par Selah Studios. Si macOS signale une
+          signature inconnue ou invalide, arrêtez-vous et retéléchargez depuis la source officielle.</p></div></div>
         <div class="step"><div><b>Autorisez le micro</b>
           <p>À la première écoute, macOS demande l'accès au microphone : acceptez —
           c'est l'oreille de la régie.</p></div></div>
@@ -199,9 +199,9 @@
       <div class="steps">
         <div class="step"><div><b>Lancez <span class="mono">VersePro_2.0.0.msi</span></b>
           <p>Suivez l'installeur. Un raccourci apparaît dans le menu Démarrer.</p></div></div>
-        <div class="step"><div><b>SmartScreen : « Informations » → « Exécuter quand même »</b>
-          <p>Windows prévient pour les applications récentes. L'avertissement disparaît
-          une fois l'application signée par Selah Studios.</p></div></div>
+        <div class="step"><div><b>Vérifiez l'éditeur : Selah Studios</b>
+          <p>Le paquet public doit être signé. Si SmartScreen ne reconnaît pas l'éditeur,
+          ne forcez pas l'exécution : vérifiez l'origine et la signature du fichier.</p></div></div>
         <div class="step"><div><b>Autorisez le micro</b>
           <p>Windows demande l'accès au microphone au premier démarrage de l'écoute.</p></div></div>
       </div>
@@ -241,7 +241,7 @@
       autorisez le micro dans les réglages système puis revenez.</p></div></div>
     <div class="step"><div><b>Prêt</b>
       <p>Le récapitulatif confirme l'état de chaque composant. La clé Deepgram (transcription
-      cloud plus précise) est <strong>optionnelle</strong> — la régie fonctionne entièrement en local sans elle.</p></div></div>
+      cloud à faible latence) est <strong>optionnelle</strong> — la régie fonctionne entièrement en local sans elle.</p></div></div>
   </div>
   <div class="card accent">
     <p style="margin:0;">Tout se règle à nouveau plus tard dans <strong>Paramètres</strong> :
@@ -266,8 +266,9 @@
     <tr><td>Recherche</td><td>Tapez une référence (« Jn 3:16 », « Romains 8 28 ») ou un bout de texte,
         puis <strong>Projeter</strong>. Le clavier reste plus rapide que le prédicateur.</td></tr>
     <tr><td>Transcript direct</td><td>La transcription défile en continu : vous voyez ce que la régie entend.</td></tr>
-    <tr><td>Moteur vocal</td><td><strong>Auto</strong> : Deepgram (cloud) quand internet va bien, bascule
-        seule sur Vosk (local) s'il tombe. Forcez « Vosk local » pour un culte 100 % hors-ligne.</td></tr>
+    <tr><td>Moteur vocal</td><td><strong>Auto</strong> : Deepgram (cloud) si disponible, puis un moteur local
+        déjà préparé. Whisper privilégie la robustesse ; Vosk offre un flux français continu.</td></tr>
+    <tr><td>Arrêt d'urgence</td><td>Coupe le micro, les automatismes et le suivi lecture, puis efface les sorties.</td></tr>
   </table>
   <div class="card warm">
     <p style="margin:0;"><strong>Rituel d'avant-culte (2 min) :</strong> Démarrer Micro → dire
@@ -281,14 +282,14 @@
 <section class="page">
   <div class="eyebrow">04 · comprendre la détection</div>
   <h2>qui décide de ce qui s'affiche ?</h2>
-  <p class="lede">Trois oreilles écoutent en même temps. Une seule règle d'or :
+  <p class="lede">Une cascade analyse le même transcript. Une seule règle d'or :
   <strong>rien d'incertain ne part à l'écran sans vous.</strong></p>
   <table style="margin-top:4mm;">
     <tr><th>ce que dit le prédicateur</th><th>ce que fait versepro</th><th>à l'écran ?</th></tr>
     <tr><td>« Jean 3 verset 16 »</td>
         <td>Référence explicite — reconnue instantanément, formulations orales comprises
         (« première épître de Jean », « Actes des Apôtres chapitre 2 »).</td>
-        <td><strong>Direct</strong> si la diffusion auto est activée, sinon file à valider.</td></tr>
+        <td><strong>File à valider</strong> en mode dimanche sûr ; direct seulement si l'automatisation a été autorisée.</td></tr>
     <tr><td>« Car Dieu a tant aimé le monde… »</td>
         <td>Verset lu ou paraphrasé — deux moteurs indépendants (texte + sens) doivent
         être d'accord avant de proposer.</td>
@@ -304,8 +305,8 @@
   </table>
   <div class="card warm">
     <p style="margin:0;"><strong>Ce que l'IA ne peut pas faire, et ce qu'elle peut rater.</strong>
-    Sa réponse est relue contre le texte biblique : elle ne peut pas <em>fabriquer</em> un verset
-    qui n'existe pas. En revanche elle peut proposer le <em>mauvais</em> verset — un passage réel,
+    Sa réponse est limitée à une liste fermée de versets retrouvés localement : toute référence
+    hors liste est rejetée. Elle peut toutefois proposer le <em>mauvais</em> verset — un passage réel,
     mais pas celui qu'on citait. C'est exactement pour cela qu'une proposition d'IA
     n'atteint jamais l'écran toute seule : <kbd>Espace</kbd> pour accepter,
     <kbd>Échap</kbd> pour écarter. Le dernier mot vous revient, toujours.</p>
@@ -322,10 +323,12 @@
   de votre régie.</p>
   <div class="shot" style="margin-top:4mm;"><img src="img/reglages_ia.png" alt="Réglage : quand consulter l'IA"></div>
   <div class="caption">paramètres → analyse intelligente : quand consulter l'ia, et son seuil de confiance</div>
-  <p style="margin-top:4mm;"><strong>Diffusion en direct</strong> (Paramètres → Projection) : quand elle est active,
+  <p style="margin-top:4mm;"><strong>Mode dimanche sûr</strong> (Paramètres → Projection) : activé par défaut,
+  il impose une validation humaine pour toutes les détections. Quand il est désactivé et que la
+  diffusion automatique est active,
   seules les références <em>explicites et très fiables</em> partent seules à l'écran. Tout le reste
-  passe par vous. Désactivée, <em>tout</em> passe par la file à valider.</p>
-  <p><strong>Seuil de confiance</strong> (Paramètres → Analyse intelligente, 95 % par défaut) :
+  passe par vous. Si la diffusion automatique est coupée, <em>tout</em> passe par la file à valider.</p>
+  <p><strong>Seuil de confiance</strong> (Paramètres → Analyse intelligente, valeur affichée par défaut) :
   ce curseur n'est pas un réglage de précision, c'est un choix de tempérament.
   <em>Au-dessus de 95 %</em>, VersePro ne vous propose que des quasi-certitudes : peu
   d'interruptions, charge mentale légère, mais les allusions les plus fines passeront à la trappe.
@@ -444,9 +447,9 @@
   Rien à comprendre, juste à exécuter.</p>
 
   <div class="card warm" style="margin-top:4mm;">
-    <p style="margin:0;"><strong>Avant tout — le réflexe qui sauve :</strong> <kbd>Échap</kbd>
-    écarte la proposition en cours, <strong>Effacer</strong> vide l'écran de l'assemblée.
-    Aucune de ces deux touches ne casse quoi que ce soit. Reprenez votre souffle, puis diagnostiquez.</p>
+    <p style="margin:0;"><strong>Avant tout — le réflexe qui sauve :</strong> le bouton
+    <strong>Arrêt d'urgence</strong> coupe le micro et les automatismes puis vide les sorties.
+    <kbd>Échap</kbd> écarte seulement la proposition en cours. Reprenez votre souffle, puis diagnostiquez.</p>
   </div>
 
   <table style="margin-top:4mm;">
@@ -454,7 +457,7 @@
     <tr><td>Rien ne se détecte</td><td>Le vumètre bouge-t-il ? <strong>Non</strong> → Paramètres → Audio,
         mauvaise source ou micro non autorisé. <strong>Oui</strong> → voir la ligne suivante.</td></tr>
     <tr><td>Le vumètre bouge,<br>mais rien ne remonte</td><td>Vous êtes hors-ligne sans modèle local.
-        Paramètres → Intelligence locale : le modèle vocal (1,4 Go) doit être installé.</td></tr>
+	    Paramètres → Intelligence locale : Whisper ou Vosk doit être préparé.</td></tr>
     <tr><td>« Le moteur ne répond pas »</td><td>Quittez complètement l'application et relancez-la.
         Le moteur repart avec elle — comptez ~10 secondes.</td></tr>
     <tr><td>Pastille ProPresenter<br><strong>orange</strong></td><td>Projetez avec l'écran de secours intégré
@@ -468,8 +471,8 @@
   </table>
 
   <div class="card" style="margin-top:4mm;">
-    <p style="margin:0;"><strong>La sortie de secours universelle :</strong> coupez la diffusion
-    automatique (Paramètres → Projection) et pilotez à la main depuis la recherche —
+    <p style="margin:0;"><strong>La sortie de secours universelle :</strong> activez le mode
+    dimanche sûr (Paramètres → Projection) et pilotez à la main depuis la recherche —
     tapez « Jn 3:16 », <strong>Projeter</strong>. Le clavier reste plus rapide que le prédicateur.</p>
   </div>
 

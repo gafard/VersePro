@@ -52,7 +52,7 @@ def download_file(url: str, destination: str | Path, on_progress=None,
 def verify_sha256(path: str | Path, expected: str) -> None:
     expected = str(expected or "").strip().lower()
     if not expected:
-        return
+        raise ValueError("SHA-256 attendu manquant : téléchargement non vérifiable")
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -76,4 +76,3 @@ def safe_extract_zip(archive: str | Path, destination: str | Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             with bundle.open(member, "r") as source, target.open("wb") as output:
                 shutil.copyfileobj(source, output)
-

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = (
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:3001,http://127.0.0.1:3001,"
+        "http://localhost:3010,http://127.0.0.1:3010,"
         "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
     )
     
@@ -109,15 +110,14 @@ class Settings(BaseSettings):
     # montré nettement plus juste et plus réactif que Whisper fenêtré ; son
     # poids (~1,4 Go) n'est payé qu'une fois, au téléchargement explicite.
     VOSK_MODEL_TYPE: str = "large"
-    VOSK_MODEL_SHA256: str = ""  # À renseigner pour imposer la vérification du fournisseur
+    # Empreinte calculée sur l'archive officielle vosk-model-fr-0.22.zip.
+    VOSK_MODEL_SHA256: str = "b26c34e5ea1b9f9dee6cef5e910a1d93e9adb60f1a0a3f85c069976aec481e46"
 
     # Recherche sémantique locale. Le moteur ONNX est optionnel et retombe
     # automatiquement sur l'index lexical si le runtime n'est pas disponible.
     LOCAL_SEMANTIC_ENABLED: bool = True
-    # Encodeur sémantique unique : e5-small ONNX (~118 Mo). Qwen a été évalué
-    # (0,6 Md, ~585 Mo) puis écarté : sur le corpus biblique il ne séparait pas
-    # proprement signal et bruit (chevauchement des scores) — e5 fait mieux et
-    # reste léger.
+    # Famille e5 ONNX. Le défaut e5-base améliore la séparation sémantique ;
+    # e5-small reste le repli pour les machines plus modestes.
     # e5-BASE par défaut, e5-small en repli s'il n'est pas encore téléchargé.
     # Mesuré sur le corpus de référence (17 énoncés vrais / 8 de bruit) :
     #   e5-small : signal min 0.8682 < bruit max 0.8758 → SÉPARATION -0.0076,

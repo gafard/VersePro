@@ -84,6 +84,7 @@ export default function LiveDetection({ setActiveTab }) {
     try { return localStorage.getItem('versepro_dismiss_pp_alert') === 'true' } catch { return false }
   })
   const lastAdvancedRef = useRef(null)
+  const advanceTimerRef = useRef(null)
 
   const manualInputRef = useRef(null)
 
@@ -127,11 +128,10 @@ export default function LiveDetection({ setActiveTab }) {
 
   const transcriptEndRef = useRef(null)
 
-  // Auto-scroll de la transcription brute
+  // Fait défiler uniquement le journal, jamais la page entière.
   useEffect(() => {
-    if (transcriptEndRef.current) {
-      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
+    const scroll = document.getElementById('live-transcript-scroll')
+    if (scroll) scroll.scrollTo({ top: scroll.scrollHeight, behavior: 'smooth' })
   }, [currentTranscript])
 
   // Notification de rejet IA (6 s)
@@ -219,7 +219,7 @@ export default function LiveDetection({ setActiveTab }) {
       await toggleListening()
       return
     }
-    const result = await runPreflight()
+    const result = await runPreflight({ probeCloud: true, requireMicro: true })
     if (!result.ready) {
       setPreflightOpen(true)
       return
@@ -374,14 +374,37 @@ export default function LiveDetection({ setActiveTab }) {
     }
   }, [followMode, onAirDisplay, currentTranscript, serverReading])
 
+  useEffect(() => {
+    if (sundaySafeMode && followMode) {
+      clearTimeout(advanceTimerRef.current)
+      advanceTimerRef.current = null
+      setFollowMode(false)
+      lastAdvancedRef.current = null
+    }
+  }, [sundaySafeMode, followMode])
+
   // Auto-avance : quand la fin du verset est lue, projette le suivant (une seule fois par verset)
   useEffect(() => {
-    if (!followMode || !followProgress?.tailReached || !onAirDisplay?.reference) return
+    if (sundaySafeMode || !followMode || !followProgress?.tailReached || !onAirDisplay?.reference) return
     if (lastAdvancedRef.current === onAirDisplay.reference) return
     lastAdvancedRef.current = onAirDisplay.reference
-    const timer = setTimeout(() => handleShiftVerse(1), 700)
-    return () => clearTimeout(timer)
-  }, [followMode, followProgress, onAirDisplay])
+    advanceTimerRef.current = setTimeout(() => {
+      advanceTimerRef.current = null
+      handleShiftVerse(1)
+    }, 700)
+    return () => {
+      clearTimeout(advanceTimerRef.current)
+      advanceTimerRef.current = null
+    }
+  }, [sundaySafeMode, followMode, followProgress, onAirDisplay])
+
+  const handlePanic = async () => {
+    clearTimeout(advanceTimerRef.current)
+    advanceTimerRef.current = null
+    setFollowMode(false)
+    lastAdvancedRef.current = null
+    await activatePanicMode()
+  }
 
   const isSemanticSuggestion = (item) => (
     ['ai', 'semantic'].includes(item.source)
@@ -506,7 +529,11 @@ export default function LiveDetection({ setActiveTab }) {
               ))}
             </div>
             <div className="flex gap-2 justify-end">
-              <button className="vp-btn" onClick={runPreflight} disabled={preflightLoading}>
+              <button
+                className="vp-btn"
+                onClick={() => runPreflight({ probeCloud: true, requireMicro: true })}
+                disabled={preflightLoading}
+              >
                 {preflightLoading ? 'Contrôle…' : 'Recontrôler'}
               </button>
               <button className="vp-btn vp-btn--primary" onClick={() => setActiveTab('settings')}>Ouvrir Paramètres</button>
@@ -605,7 +632,7 @@ export default function LiveDetection({ setActiveTab }) {
             <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={() => setActiveTab('settings')}>
               Paramètres audio et moteurs
             </button>
-            <button className="vp-btn vp-btn--danger vp-btn--sm w-full" onClick={activatePanicMode}>
+            <button className="vp-btn vp-btn--danger vp-btn--sm w-full" onClick={handlePanic}>
               Arrêt d'urgence
             </button>
 
@@ -692,7 +719,7 @@ export default function LiveDetection({ setActiveTab }) {
             </div>
             
             {/* Barre de recherche manuelle intégrée au centre */}
-            <div className="mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
+            <div className="live-manual-bar mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
               <div className="flex gap-2">
                 <input
                   ref={manualInputRef}
@@ -761,11 +788,13 @@ export default function LiveDetection({ setActiveTab }) {
               <button
                 className={`vp-btn vp-btn--sm py-1 ${followMode ? 'vp-btn--primary' : 'vp-btn--ghost'}`}
                 onClick={() => { lastAdvancedRef.current = null; setFollowMode((v) => !v) }}
-                disabled={!canShift}
+                disabled={!canShift || sundaySafeMode}
                 aria-pressed={followMode}
-                title={followMode
-                  ? 'Désactiver l’avancement automatique à la fin du verset lu'
-                  : 'Avancer automatiquement au verset suivant quand la lecture atteint la fin'}
+                title={sundaySafeMode
+                  ? 'Indisponible en mode sûr : chaque projection exige une validation'
+                  : followMode
+                    ? 'Désactiver l’avancement automatique à la fin du verset lu'
+                    : 'Avancer automatiquement au verset suivant quand la lecture atteint la fin'}
               >
                 Avance auto · {followMode ? 'ON' : 'OFF'}
               </button>

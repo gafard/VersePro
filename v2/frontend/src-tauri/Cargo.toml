@@ -20,6 +20,7 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2", features = [] }
 # L'ouverture de liens externes (guides, dons) passe par le plugin shell en v2.
 tauri-plugin-shell = "2"
+rand = "0.8"
 
 [features]
 # this feature is used for production builds or when `devUrl` points to the filesystem and the built-in dev server is disabled.

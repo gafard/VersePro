@@ -1,6 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use rand::rngs::OsRng;
+use rand::RngCore;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -15,6 +17,7 @@ struct BackendConfig {
     executable: PathBuf,
     data_dir: PathBuf,
     db_path: PathBuf,
+    session_token: String,
 }
 
 struct BackendProcess {
@@ -32,6 +35,7 @@ fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
         .env("VERSEPRO_DB_PATH", config.db_path.to_string_lossy().to_string())
         .env("VERSEPRO_HOST", "127.0.0.1")
         .env("VERSEPRO_PORT", "17871")
+        .env("VERSEPRO_SESSION_TOKEN", &config.session_token)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
     #[cfg(windows)]
@@ -45,6 +49,19 @@ fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
 /// Vrai quand la régie est en direct (micro ouvert). Renseigné par l'interface,
 /// lu au moment où l'on tente de fermer la fenêtre.
 struct EtatDirect(AtomicBool);
+
+struct SessionToken(String);
+
+fn nouveau_jeton_session() -> String {
+    let mut bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[tauri::command]
+fn obtenir_jeton_session(token: tauri::State<SessionToken>) -> String {
+    token.0.clone()
+}
 
 /// L'interface signale l'entrée et la sortie de direct.
 #[tauri::command]
@@ -62,7 +79,11 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(EtatDirect(AtomicBool::new(false)))
-        .invoke_handler(tauri::generate_handler![definir_direct, fermer_vraiment])
+        .invoke_handler(tauri::generate_handler![
+            definir_direct,
+            fermer_vraiment,
+            obtenir_jeton_session
+        ])
         // Fermer la fenêtre pendant un culte coupait la projection sans un mot.
         // On intercepte donc la demande : hors direct on laisse fermer, en
         // direct on retient la fenêtre et l'interface demande confirmation.
@@ -107,10 +128,17 @@ fn main() {
                 }
             }
 
-            let config = BackendConfig { executable: backend_exe, data_dir, db_path };
-            let child = spawn_backend(&config).expect("échec du lancement du backend VersePro");
+            let session_token = nouveau_jeton_session();
+            app.manage(SessionToken(session_token.clone()));
+            let config = BackendConfig {
+                executable: backend_exe,
+                data_dir,
+                db_path,
+                session_token,
+            };
+            let child = spawn_backend(&config).ok();
             app.manage(BackendProcess {
-                child: Mutex::new(Some(child)),
+                child: Mutex::new(child),
                 shutting_down: AtomicBool::new(false),
                 config,
             });
@@ -127,17 +155,24 @@ fn main() {
                     if state.shutting_down.load(Ordering::SeqCst) {
                         break;
                     }
-                    let exited = {
+                    let needs_start = {
                         let mut guard = state.child.lock().unwrap();
-                        match guard.as_mut().and_then(|child| child.try_wait().ok()).flatten() {
-                            Some(_) => {
-                                guard.take();
-                                true
-                            }
-                            None => false,
+                        match guard.as_mut() {
+                            Some(child) => match child.try_wait() {
+                                Ok(Some(_)) => {
+                                    guard.take();
+                                    true
+                                }
+                                Ok(None) => false,
+                                Err(_) => {
+                                    guard.take();
+                                    true
+                                }
+                            },
+                            None => true,
                         }
                     };
-                    if !exited {
+                    if !needs_start {
                         continue;
                     }
                     if started_at.elapsed() < Duration::from_secs(10) {
@@ -150,9 +185,18 @@ fn main() {
                     if state.shutting_down.load(Ordering::SeqCst) {
                         break;
                     }
-                    if let Ok(child) = spawn_backend(&state.config) {
-                        state.child.lock().unwrap().replace(child);
-                        started_at = Instant::now();
+                    match spawn_backend(&state.config) {
+                        Ok(child) => {
+                            state.child.lock().unwrap().replace(child);
+                            started_at = Instant::now();
+                        }
+                        Err(error) => {
+                            failures = failures.saturating_add(1);
+                            let _ = handle.emit(
+                                "versepro://backend-indisponible",
+                                error.to_string(),
+                            );
+                        }
                     }
                 }
             });
@@ -171,4 +215,18 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nouveau_jeton_session;
+
+    #[test]
+    fn session_tokens_are_random_hex_256_bit_values() {
+        let first = nouveau_jeton_session();
+        let second = nouveau_jeton_session();
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
 }

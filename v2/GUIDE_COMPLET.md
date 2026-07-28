@@ -1,322 +1,217 @@
-# 🚀 VersePro v2 - Guide Complet d'Installation
+# VersePro V2 - Guide complet
 
-> **Document historique — ne pas suivre ces instructions.**
-> Il décrit l'application telle qu'elle était avant l'empaquetage Tauri : port
-> 8000, lancement manuel du backend, ni Vosk ni moteur sémantique local. Rien de
-> tout cela n'est encore vrai. Les « prochaines améliorations » listées à la fin
-> (capture audio, Tauri, streaming WebSocket) sont livrées depuis longtemps.
->
-> Pour installer et utiliser VersePro : [guide d'utilisation](../docs/GUIDE-UTILISATION.pdf).
-> Pour développer : [v2/README.md](README.md) et [l'architecture](EXPLICATION_ARCHITECTURE.md).
-> Conservé uniquement comme trace de la genèse du projet.
+> État de référence : 28 juillet 2026  
+> Public : régisseurs, responsables techniques et personnes chargées du déploiement.
 
-## ✅ Ce Qui a Été Créé
+VersePro est une application de régie de bureau. Elle écoute la prédication,
+transcrit la voix, détecte des références bibliques et prépare la projection.
+La configuration se fait dans l'interface : l'opérateur du dimanche n'a pas à
+ouvrir un terminal ni à modifier un fichier `.env`.
 
-### Backend (FastAPI + WebSocket)
-```
-v2/backend/
-├── app/
-│   ├── main.py                    # Serveur principal
-│   ├── api/routes.py              # API REST + Historique + Stats
-│   ├── core/config.py             # Configuration
-│   └── services/
-│       ├── deepgram_service.py    # Transcription (~300ms)
-│       ├── propresenter_service.py # API TCP/IP ProPresenter
-│       ├── verse_parser.py        # Parser regex + validation
-│       └── database.py            # SQLite (historique + stats)
-├── requirements.txt
-└── .env.example
-```
+Le guide illustré prêt à imprimer reste la référence pour les bénévoles :
+[`../docs/GUIDE-UTILISATION.pdf`](../docs/GUIDE-UTILISATION.pdf).
 
-### Frontend (React + Tailwind)
-```
-v2/frontend/
-├── src/
-│   ├── App.jsx                    # Application principale
-│   ├── main.jsx                   # Point d'entrée
-│   ├── store.js                   # État global (Zustand)
-│   └── components/
-│       ├── Header.jsx             # Navigation
-│       ├── LiveDetection.jsx      # Détection en direct
-│       ├── History.jsx            # Historique des versets
-│       └── Statistics.jsx         # Dashboard statistiques
-├── package.json
-├── vite.config.js
-└── tailwind.config.js
-```
+## Installer l'application
 
----
+Les paquets publics doivent être signés par Selah Studios.
 
-## 📋 Installation Étape par Étape
+### macOS
 
-### 1. Backend
+1. Ouvrir le fichier `.dmg`.
+2. Glisser VersePro dans Applications.
+3. Ouvrir VersePro normalement et accepter l'accès au microphone.
+4. Si macOS signale une signature inconnue ou invalide, ne pas contourner
+   l'avertissement : télécharger à nouveau depuis la source officielle.
+
+### Windows
+
+1. Ouvrir le fichier `.msi` ou `.exe` signé.
+2. Vérifier que l'éditeur affiché est Selah Studios.
+3. Suivre l'installeur puis accepter l'accès au microphone.
+4. Si SmartScreen ne reconnaît pas l'éditeur, ne pas forcer l'exécution :
+   vérifier l'origine et la signature du paquet.
+
+La procédure de signature et de publication est décrite dans
+[`../SIGNING.md`](../SIGNING.md).
+
+## Premier lancement
+
+L'assistant vérifie les composants locaux et permet de préparer les modèles
+sans ligne de commande :
+
+- choix et test de l'entrée microphone ;
+- préparation de Whisper local pour les accents, le multilingue et le bruit ;
+- préparation de Vosk français large comme moteur continu de secours ;
+- préparation de l'index sémantique e5 ONNX des 31 102 versets ;
+- saisie facultative d'une clé Deepgram pour la transcription cloud ;
+- choix du mode de projection initial.
+
+Les modèles ne sont téléchargés qu'après une action explicite. Les clés API
+sont enregistrées dans le gestionnaire de secrets du système d'exploitation.
+
+## Préparer un culte en cinq minutes
+
+1. Ouvrir **Paramètres > Audio**, choisir la source réelle de la console et
+   parler pour vérifier le niveau.
+2. Ouvrir **Paramètres > Moteurs**, vérifier qu'un moteur local est prêt ou que
+   Deepgram est disponible.
+3. Ouvrir **Paramètres > Projection**, conserver le mode dimanche sûr pour une
+   validation humaine systématique.
+4. Contrôler la sortie prévue : écran autonome, OBS, ProPresenter, vMix ou NDI.
+5. Dans la régie, démarrer le micro et dire « Jean chapitre trois verset
+   seize ». Vérifier la détection, la validation et l'effacement de l'écran.
+
+Le préflight intégré réalise aussi les contrôles bloquants et peut tester
+réellement Deepgram lorsque la transcription cloud est sélectionnée.
+
+## Utiliser la régie
+
+### Console audio
+
+Le bouton micro démarre et arrête l'écoute. Le vumètre et l'onde sont calculés
+depuis le signal PCM réel ; ils ne sont pas décoratifs. Les filtres audio sont
+désactivés par défaut. Deux profils conservateurs restent disponibles dans
+Paramètres pour les salles difficiles.
+
+### Transcript direct
+
+Le transcript montre ce que le moteur vocal comprend. Il défile
+automatiquement pendant l'écoute et reste consultable. Une mauvaise
+transcription explique souvent une détection absente ; une bonne transcription
+sans proposition oriente plutôt vers le moteur de détection.
+
+### À valider
+
+Les propositions s'affichent dans une file courte et opérationnelle :
+
+- `Espace` projette la proposition sélectionnée ;
+- `Échap` l'écarte ;
+- `↑` et `↓` changent de proposition ;
+- `/` place le focus dans la recherche manuelle.
+
+Les recherches floues, les embeddings et les réponses IA passent toujours par
+cette file. Le LLM ne peut choisir que dans une liste fermée de versets déjà
+retrouvés localement.
+
+### À l'antenne
+
+Cette zone montre exactement la scène de projection, avec navigation dans un
+passage long. Elle peut défiler pour garder tous les versets lisibles.
+**Effacer** rend immédiatement les sorties noires.
+
+### Suivi lecture
+
+Le suivi lecture illumine progressivement les mots du verset en fonction de la
+parole détectée. Désactivé, le verset reste statique. Ce mode n'influence ni la
+détection ni la décision de projection.
+
+## Modes de sécurité
+
+| Mode | Comportement |
+| --- | --- |
+| Dimanche sûr | Mode par défaut : toutes les détections demandent une validation humaine. |
+| Ombre | Analyse et mesure sans piloter aucune sortie. |
+| Diffusion automatique | Seules les références explicites, vérifiées et éligibles peuvent partir directement. |
+| Arrêt d'urgence | Coupe le micro, les automatisations et le suivi, puis efface toutes les sorties. |
+
+Pour une première installation, utiliser le mode ombre pendant un culte, puis
+le mode dimanche sûr. L'automatisation n'est à activer qu'après validation sur
+des enregistrements représentatifs de la salle.
+
+## Choisir le moteur vocal
+
+| Moteur | Quand l'utiliser | Limite principale |
+| --- | --- | --- |
+| Deepgram | Internet stable, faible latence, direct exigeant | Dépend du réseau et d'une clé API |
+| Whisper local | Accents, multilingue, musique ou bruit, confidentialité | Traitement par fenêtres de 2,4 s par défaut |
+| Vosk local large | Secours français continu, CPU modéré | Moins robuste que Whisper sur les accents et environnements complexes |
+| Auto | Deepgram puis moteur local déjà préparé | La qualité du repli dépend du modèle téléchargé |
+
+La rapidité réelle dépend du poste, du réseau et de la salle. Elle doit être
+mesurée avec le préflight et des extraits audio du lieu, pas déduite du seul nom
+du moteur.
+
+## Sorties
+
+Dans l'application empaquetée, le backend local écoute par défaut sur le port
+`17871`. En développement, il écoute généralement sur `8001`.
+
+| Sortie | Adresse ou connexion |
+| --- | --- |
+| Écran autonome | `http://127.0.0.1:17871/projection` |
+| Source navigateur OBS | `http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent` |
+| Moniteur scène | `http://127.0.0.1:17871/stage` |
+| ProPresenter | Hôte, port et message configurés dans Paramètres |
+| vMix | API HTTP et entrée titre configurées dans Paramètres |
+| NDI | Sortie native facultative si le runtime NDI est installé |
+
+OBS doit utiliser la source navigateur locale sur le même poste. Le pont
+ProPresenter peut viser une autre machine du réseau local. Chaque pilote renvoie
+un reçu de succès ou d'échec ; un échec n'est pas présenté comme une projection
+réussie.
+
+## Incident pendant le direct
+
+1. Cliquer **Arrêt d'urgence** si le comportement est incohérent.
+2. Vérifier le vumètre. S'il ne bouge pas, contrôler la source et l'autorisation
+   microphone dans Paramètres.
+3. Si le transcript est vide, vérifier le moteur ASR et la connexion réseau.
+4. Si ProPresenter est indisponible, basculer sur l'écran autonome ou OBS.
+5. Réactiver uniquement le micro, puis reprendre en validation manuelle.
+
+Les journaux desktop sont conservés dans `backend-desktop.log` du dossier de
+données utilisateur. Un futur paquet de diagnostic anonymisé est prioritaire
+dans [`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md).
+
+## Développement
 
 ```bash
-cd /Users/gafardgnane/Downloads/VersePro/v2/backend
-
-# Créer l'environnement virtuel
+# Terminal 1
+cd v2/backend
 python3 -m venv venv
 source venv/bin/activate
-
-# Installer les dépendances
 pip install -r requirements.txt
+python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
-# Copier le fichier d'environnement
-cp .env.example .env
-
-# Éditer .env avec ta clé Deepgram
-nano .env
-# ou ouvre avec ton éditeur préféré
-```
-
-**Contenu de `.env`:**
-```bash
-# Deepgram API (200$ gratuits: https://deepgram.com)
-DEEPGRAM_API_KEY=ta_cle_ici
-
-# ProPresenter
-PROPRESENTER_HOST=127.0.0.1
-PROPRESENTER_PORT=12345
-PROPRESENTER_AUTO_SEND=false
-
-# Application
-DEBUG=true
-BIBLE_VERSION=LSG
-```
-
-**Lancer le backend:**
-```bash
-python3 -m app.main
-```
-
-Le serveur est accessible sur: **http://localhost:8000**
-
----
-
-### 2. Frontend
-
-```bash
-cd /Users/gafardgnane/Downloads/VersePro/v2/frontend
-
-# Installer les dépendances Node.js
+# Terminal 2
+cd v2/frontend
 npm install
-
-# Lancer en mode développement
-npm run dev
+VITE_BACKEND_PORT=8001 npm run dev -- --host 127.0.0.1 --port 3001
 ```
 
-Le frontend est accessible sur: **http://localhost:3000**
+Le backend Tauri empaqueté est authentifié par un jeton cryptographique
+différent à chaque lancement. Les routes de commande et les WebSockets refusent
+les clients non authentifiés.
 
----
+## Vérification de référence
 
-## 🎯 Fonctionnalités Implémentées
-
-### 1. Détection en Temps Réel
-- ✅ Streaming audio via WebSocket
-- ✅ Transcription Deepgram (~300ms de latence)
-- ✅ Détection automatique de références
-- ✅ Envoi automatique ou manuel à ProPresenter
-- ✅ Indicateur de statut en direct
-
-### 2. Historique Complet
-- ✅ Sauvegarde automatique dans SQLite
-- ✅ Validation manuelle des versets
-- ✅ Contexte de détection (phrase complète)
-- ✅ Filtrage par session
-- ✅ Export CSV/JSON
-
-### 3. Statistiques Détaillées
-- ✅ Total de versets détectés
-- ✅ Références uniques
-- ✅ Livres les plus cités
-- ✅ Versets les plus populaires
-- ✅ Activité par jour (graphique)
-- ✅ Moyenne par session
-
-### 4. Intégration ProPresenter
-- ✅ API TCP/IP native (pas de simulation clavier)
-- ✅ Confirmation de réception
-- ✅ Envoi du texte complet du verset
-- ✅ Support multi-versions (LSG, NVI, etc.)
-
----
-
-## 🧪 Tester l'Installation
-
-### Test 1: Vérifier le backend
 ```bash
-curl http://localhost:8000/health
+cd v2/backend
+venv/bin/python -m pytest -q
+venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
+
+cd ../frontend
+npm test
+npm run build
+cd src-tauri
+cargo check --locked
 ```
 
-Réponse attendue:
-```json
-{
-  "status": "healthy",
-  "version": "2.0.0",
-  "services": {
-    "deepgram": true,
-    "propresenter": false,
-    "parser": true
-  }
-}
-```
+État vérifié le 28 juillet 2026 :
 
-### Test 2: Parser un texte
-```bash
-curl -X POST http://localhost:8000/api/v1/references/parse \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Lisons Jean chapitre 3 verset 16"}'
-```
+- backend : 179 tests réussis, 4 ignorés ;
+- frontend : 4 tests réussis ;
+- Rust : 1 test réussi ;
+- audits npm et Python : aucune vulnérabilité connue ;
+- corpus textuel : 30 cas sur 30, aucun faux positif, p95 à 18,32 ms.
 
-### Test 3: Voir l'historique
-```bash
-curl http://localhost:8000/api/v1/history/verses
-```
+Ce benchmark textuel protège contre les régressions de détection. Il ne remplace
+pas un corpus audio multi-églises, qui reste le prochain investissement
+prioritaire.
 
-### Test 4: Voir les statistiques
-```bash
-curl http://localhost:8000/api/v1/statistics
-```
+## Documents liés
 
----
-
-## 🔧 Configuration ProPresenter
-
-1. **Ouvrir ProPresenter**
-2. **Aller dans Preferences > Network**
-3. **Activer "Control Server"**
-4. **Noter le port** (par défaut: 12345)
-5. **Mettre à jour `.env`:**
-   ```bash
-   PROPRESENTER_PORT=12345
-   ```
-
----
-
-## 🎨 Interface Utilisateur
-
-### Onglet "En Direct"
-- Bouton Démarrer/Arrêter
-- Statut de l'écoute
-- Statut ProPresenter
-- Transcription en temps réel
-- Envoi manuel de référence
-- Dernières détections
-
-### Onglet "Historique"
-- Liste complète des versets
-- Filtres (session, date)
-- Validation manuelle
-- Stats rapides
-
-### Onglet "Statistiques"
-- Total versets
-- Références uniques
-- Sessions
-- Top livres
-- Top versets
-- Graphique d'activité
-
----
-
-## 📊 Base de Données
-
-### Tables créées automatiquement:
-
-**detected_verses:**
-- id, reference, book, chapter, verse_start, verse_end
-- text, version, session_id
-- detected_at, sent_to_propresenter, validated_manually
-- context_text
-
-**sessions:**
-- id, name, started_at, ended_at
-- verse_count, duration_minutes, notes
-
-**statistics:**
-- Agrégats quotidiens pour performance
-
----
-
-## 🚀 Prochaines Améliorations Possibles
-
-1. **Audio Capture** (à ajouter dans LiveDetection.jsx)
-   ```javascript
-   // Utiliser Web Audio API
-   const audioContext = new AudioContext()
-   const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-   ```
-
-2. **Tauri Desktop** (emballage du frontend)
-   ```bash
-   npm install @tauri-apps/cli
-   npx tauri init
-   npx tauri dev
-   ```
-
-3. **WebSocket Audio Streaming**
-   - Encoder audio en PCM 16-bit
-   - Envoyer chunks de 4096 samples
-   - Gérer la reconnexion auto
-
-4. **Notifications**
-   - Sonore lors de détection
-   - Push notifications
-   - Notifications système
-
----
-
-## 🐛 Troubleshooting
-
-### Backend ne démarre pas
-```bash
-# Vérifier Python
-python3 --version  # Doit être >= 3.10
-
-# Vérifier les dépendances
-pip install -r requirements.txt --upgrade
-```
-
-### Frontend ne démarre pas
-```bash
-# Vérifier Node.js
-node --version  # Doit être >= 18
-
-# Nettoyer et réinstaller
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### Deepgram ne fonctionne pas
-- Vérifier la clé API dans `.env`
-- Tester sur https://console.deepgram.com
-- Vérifier la connexion internet
-
-### ProPresenter non détecté
-- Vérifier que ProPresenter est ouvert
-- Vérifier le port dans Preferences > Network
-- Tester avec `telnet 127.0.0.1 12345`
-
----
-
-## 📞 Support
-
-Pour toute question ou problème:
-1. Vérifier les logs du backend
-2. Consulter la console navigateur (F12)
-3. Vérifier la configuration `.env`
-
----
-
-## 🎉 Résumé
-
-**VersePro v2 est maintenant:**
-- ✅ **10x plus rapide** (Deepgram vs Whisper)
-- ✅ **Plus fiable** (API TCP/IP vs simulation clavier)
-- ✅ **Plus intelligent** (Parser avec validation)
-- ✅ **Plus complet** (Historique + Stats)
-- ✅ **Plus beau** (Interface React moderne)
-
-**Latence totale:** < 1.5 secondes (vs 6-14s avant)
-
-Bonne utilisation ! 🚀
+- [`README.md`](README.md) : démarrage technique et contrats principaux ;
+- [`EXPLICATION_ARCHITECTURE.md`](EXPLICATION_ARCHITECTURE.md) : architecture et garanties ;
+- [`IMPLEMENTATION.md`](IMPLEMENTATION.md) : carte du code et invariants ;
+- [`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md) : propositions priorisées.
