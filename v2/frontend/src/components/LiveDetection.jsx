@@ -728,7 +728,12 @@ export default function LiveDetection({ setActiveTab }) {
                 {onAirDisplay?.at ? new Date(onAirDisplay.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
               </span>
             </div>
-            <div className="live-onair-ref font-bold text-lg">{onAirDisplay?.reference || '—'}</div>
+            {/* La clé change avec la référence : l'élément se remonte et rejoue
+                l'animation d'arrivée. L'œil voit que quelque chose vient de
+                prendre l'antenne, sans avoir à relire le texte. */}
+            <div key={onAirDisplay?.reference || 'vide'} className="live-onair-ref font-bold text-lg">
+              {onAirDisplay?.reference || '—'}
+            </div>
             <p
               className="live-onair-text"
               tabIndex={0}
