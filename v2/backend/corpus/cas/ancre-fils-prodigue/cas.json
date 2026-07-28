@@ -1,0 +1,9 @@
+{
+  "text": "le père le vit de loin, fut ému de compassion, courut se jeter à son cou et l'embrassa",
+  "expected": "Luc 15:20",
+  "ancre": "Luc 15",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "allusion au passage que le prédicateur venait d'ouvrir"
+  }
+}

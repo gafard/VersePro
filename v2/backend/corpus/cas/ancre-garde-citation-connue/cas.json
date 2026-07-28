@@ -1,0 +1,9 @@
+{
+  "text": "car Dieu a tant aimé le monde qu'il a donné son Fils unique",
+  "expected": "Jean 3:16",
+  "ancre": "Psaumes 23",
+  "kind": "garde",
+  "conditions": {
+    "trait": "un chapitre est ouvert, mais le prédicateur cite AILLEURS"
+  }
+}

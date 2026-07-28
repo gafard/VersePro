@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import main as runtime
 from app.core.config import settings
 from app.services.semantic_search import LocalSemanticService
+from app.services.verse_graph import VerseGraphService
 from app.services.verse_parser import VerseParserService
 
 RACINE_CORPUS = Path(__file__).resolve().parents[1] / "corpus"
@@ -141,13 +142,16 @@ async def _canonique(parser: VerseParserService, reference: Optional[str]):
             parsed.get("verse_start"), parsed.get("verse_end"))
 
 
-async def rejouer(cas: List[Dict[str, Any]], avec_audio: bool = True) -> Dict[str, Any]:
+async def rejouer(cas: List[Dict[str, Any]], avec_audio: bool = True,
+                  avec_graphe: bool = True) -> Dict[str, Any]:
     parser = VerseParserService()
     semantique = LocalSemanticService(parser.bible_loader)
     semantique.initialize(allow_download=False)
+    graphe = VerseGraphService(semantique)
 
     runtime.verse_parser = parser
     runtime.semantic_service = semantique
+    runtime.verse_graph = graphe if avec_graphe else None
     runtime.ai_service = IANeutralisee()
     settings.AI_AGENT_ENABLED = False
 
@@ -168,6 +172,17 @@ async def rejouer(cas: List[Dict[str, Any]], avec_audio: bool = True) -> Dict[st
             ignores += 1
             continue
 
+        # Un cas peut déclarer le passage que le prédicateur venait d'ouvrir
+        # (« ancre »: « Exode 17 »). Il est rejoué comme le direct le ferait :
+        # on fait passer la référence par l'étage explicite, et c'est SON
+        # résultat qui pose l'ancre — jamais une valeur écrite à la main.
+        graphe.oublier()
+        if item.get("ancre"):
+            amorce = await parser.parse(f"{item['ancre']} verset 1", skip_text_search=True)
+            if not graphe.ancrer(amorce):
+                print(f"  ⚠️  ancre « {item['ancre']} » non reconnue ({item.get('id')})",
+                      file=sys.stderr)
+
         attendu = await _canonique(parser, item.get("expected"))
         depart = time.perf_counter()
         resultat = await runtime.run_detection_cascade(texte, final_state=True)
@@ -184,6 +199,8 @@ async def rejouer(cas: List[Dict[str, Any]], avec_audio: bool = True) -> Dict[st
             "texte": texte[:200],
             "attendu": item.get("expected"),
             "predit": predit_brut,
+            "etage": (resultat or {}).get("detection_method"),
+            "ancre": item.get("ancre"),
             "ok": predit == attendu,
             "latence_ms": round(latence, 2),
         })
@@ -288,6 +305,8 @@ def main() -> int:
     analyseur.add_argument("--sortie", type=Path, help="où écrire le rapport JSON")
     analyseur.add_argument("--sans-audio", action="store_true",
                            help="ignorer l'audio et ne rejouer que le texte (rapide)")
+    analyseur.add_argument("--sans-graphe", action="store_true",
+                           help="désactiver VerseGraph, pour mesurer son apport réel")
     analyseur.add_argument("--comparer", nargs=2, type=Path, metavar=("AVANT", "APRÈS"))
     analyseur.add_argument("--capturer", metavar="TEXTE")
     analyseur.add_argument("--attendu", metavar="RÉFÉRENCE")
@@ -329,7 +348,7 @@ def main() -> int:
         analyseur.error("aucun cas : précisez --corpus ou --cas")
 
     print(f"Replay Lab — {len(cas)} cas")
-    rapport = asyncio.run(rejouer(cas, avec_audio=not args.sans_audio))
+    rapport = asyncio.run(rejouer(cas, avec_audio=not args.sans_audio, avec_graphe=not args.sans_graphe))
     _resume(rapport)
     if args.sortie:
         args.sortie.write_text(json.dumps(rapport, ensure_ascii=False, indent=2), encoding="utf-8")

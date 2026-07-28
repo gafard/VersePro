@@ -1,0 +1,9 @@
+{
+  "text": "mon frère Jean va nous conduire dans la prière",
+  "expected": null,
+  "ancre": "Jean 11",
+  "kind": "negatif",
+  "conditions": {
+    "trait": "phrase de culte ordinaire, chapitre ouvert : ne doit RIEN proposer"
+  }
+}

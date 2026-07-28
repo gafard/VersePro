@@ -1,0 +1,8 @@
+{
+  "text": "il a crié d'une voix forte devant le tombeau, et le mort est sorti",
+  "expected": "Jn 11:43",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "récit évoqué sans citation ni référence"
+  }
+}

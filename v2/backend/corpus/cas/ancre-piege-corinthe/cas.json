@@ -1,0 +1,9 @@
+{
+  "text": "nos frères de Corinthe nous ont envoyé un message cette semaine",
+  "expected": null,
+  "ancre": "1 Corinthiens 13",
+  "kind": "negatif",
+  "conditions": {
+    "trait": "phrase de culte ordinaire, chapitre ouvert : ne doit RIEN proposer"
+  }
+}

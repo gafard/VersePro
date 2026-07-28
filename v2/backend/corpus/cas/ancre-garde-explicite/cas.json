@@ -1,0 +1,9 @@
+{
+  "text": "ouvrons maintenant Romains chapitre huit verset vingt-huit",
+  "expected": "Romains 8:28",
+  "ancre": "Jean 11",
+  "kind": "garde",
+  "conditions": {
+    "trait": "un chapitre est ouvert, mais le prédicateur cite AILLEURS"
+  }
+}

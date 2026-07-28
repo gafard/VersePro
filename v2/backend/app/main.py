@@ -51,6 +51,7 @@ from .services.vosk_service import VoskService
 from .services.whisper_service import WhisperService
 from .services.ai_service import AIService
 from .services.semantic_search import LocalSemanticService
+from .services.verse_graph import VerseGraphService
 from .services.detection_fusion import fuse as fuse_detection, strip_attribution, recent_window
 from .services.reading_tracker import ReadingTracker
 from .services.secret_store import secret_store
@@ -68,6 +69,7 @@ vosk_service: VoskService | None = None
 whisper_service: WhisperService | None = None
 ai_service: AIService | None = None
 semantic_service: LocalSemanticService | None = None
+verse_graph: VerseGraphService | None = None
 current_session_id: int | None = None
 osc_service: Any = None
 
@@ -164,7 +166,7 @@ async def broadcast_projection(text: str, reference: str, background: str | None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, whisper_service, ai_service, semantic_service, current_session_id, osc_service
+    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, whisper_service, ai_service, semantic_service, verse_graph, current_session_id, osc_service
     
     # Startup
     logger.info("🚀 Démarrage de VersePro v2...")
@@ -228,6 +230,7 @@ async def lifespan(app: FastAPI):
     whisper_service = WhisperService()
     ai_service = AIService()
     semantic_service = LocalSemanticService(verse_parser.bible_loader)
+    verse_graph = VerseGraphService(semantic_service)
     
     # Ne télécharge rien au démarrage. Un modèle Vosk déjà présent est seulement
     # chargé en arrière-plan; les installations restent des actions explicites.
@@ -2057,6 +2060,26 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
     if semantic_service and not semantic_service.initialized and not semantic_service.indexing:
         await asyncio.to_thread(semantic_service.initialize, False)
 
+    # ── B'. VERSEGRAPH : allusion dans le passage déjà ouvert ────────────────
+    #    Passe AVANT la fusion globale, et le choix est délibéré : l'ancre
+    #    vient d'une citation explicite confirmée — un fait — là où la fusion
+    #    globale cherche parmi 31 102 versets sans contexte. Mesuré sur « il a
+    #    crié d'une voix forte devant le tombeau » : la fusion globale propose
+    #    Apocalypse 10:3, l'ancre donne Jean 11:43.
+    #    Deux verrous stricts (score ET écart) l'empêchent de parler pour ne
+    #    rien dire ; s'il se tait, la fusion reprend normalement la main.
+    #    L'ancre est posée par l'appelant, jamais ici : cette fonction reste
+    #    sans effet de bord, ce qui permet au rejeu de la piloter cas par cas.
+    #    On lui passe le texte BRUT, pas `query` : l'index a été encodé depuis
+    #    du texte naturel (apostrophes comprises), et `normalize_spoken`, utile
+    #    au chemin lexical, éloigne la requête de cette distribution. Mesuré
+    #    sur les cas ancrés du corpus : 6 détections sur 6 en brut, 4 sur 6 en
+    #    normalisé, à précision identique.
+    if verse_graph:
+        ancre = verse_graph.resoudre(recent)
+        if ancre:
+            return ancre
+
     async def _decide(window: str) -> dict | None:
         """Récupération + fusion sur UNE fenêtre."""
         async def _lexical():
@@ -2573,6 +2596,12 @@ async def websocket_audio(websocket: WebSocket):
                 direct_allowed = is_direct_projection_allowed(ref)
                 ref["requires_review"] = not direct_allowed
                 ref["projection_policy"] = "autopilot_direct" if direct_allowed else "manual_review"
+                # Une citation explicite ouvre un passage : VerseGraph pourra
+                # y rattacher les allusions des minutes suivantes. C'est ici
+                # que l'ancre se pose — la cascade, elle, reste sans effet de
+                # bord pour que le rejeu puisse la jouer cas par cas.
+                if verse_graph:
+                    verse_graph.ancrer(ref)
 
             direct_allowed = is_direct_projection_allowed(ref)
             ref["auto_projected"] = bool(

@@ -1,0 +1,9 @@
+{
+  "text": "il me fait reposer dans de verts pâturages et me mène le long des eaux tranquilles",
+  "expected": "Psaumes 23:2",
+  "ancre": "Psaumes 23",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "allusion au passage que le prédicateur venait d'ouvrir"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "text": "reprenons tous ensemble le cantique numéro cent vingt-huit",
+  "expected": null,
+  "ancre": "Daniel 3",
+  "kind": "negatif",
+  "conditions": {
+    "trait": "phrase de culte ordinaire, chapitre ouvert : ne doit RIEN proposer"
+  }
+}

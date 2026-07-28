@@ -1,0 +1,9 @@
+{
+  "text": "je remercie l'équipe de sonorisation pour son travail de ce matin",
+  "expected": null,
+  "ancre": "Psaumes 23",
+  "kind": "negatif",
+  "conditions": {
+    "trait": "phrase de culte ordinaire, chapitre ouvert : ne doit RIEN proposer"
+  }
+}

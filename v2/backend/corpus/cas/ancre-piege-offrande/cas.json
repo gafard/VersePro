@@ -1,0 +1,9 @@
+{
+  "text": "nous allons prendre quelques minutes pour l'offrande",
+  "expected": null,
+  "ancre": "Exode 17",
+  "kind": "negatif",
+  "conditions": {
+    "trait": "phrase de culte ordinaire, chapitre ouvert : ne doit RIEN proposer"
+  }
+}

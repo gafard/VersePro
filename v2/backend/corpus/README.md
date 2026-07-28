@@ -64,7 +64,15 @@ corpus/
 - `expected` — la référence qui **devait** être détectée. `null` est une valeur
   légitime et précieuse : elle décrit un passage où VersePro ne doit **rien**
   projeter (mention d'un prénom biblique, expression courante, chiffre isolé).
-- `kind` — `explicite`, `paraphrase`, `allusion`, `negatif`, `incident`.
+- `kind` — `explicite`, `paraphrase`, `allusion`, `negatif`, `garde`, `incident`.
+- `ancre` — facultatif : le passage que le prédicateur venait d'ouvrir
+  (« Exode 17 »). Le rejeu le fait passer par l'étage explicite avant de
+  jouer le cas, exactement comme le direct. C'est ce qui permet de mesurer
+  VerseGraph. Trois usages, et il faut les trois pour que la mesure soit
+  honnête : une allusion au passage ouvert (doit être trouvée), une phrase
+  de culte ordinaire pendant que le passage est ouvert (ne doit **rien**
+  proposer), et une citation d'un **autre** livre (l'ancre ne doit pas la
+  masquer — c'est le `kind: garde`).
 - `conditions` — champs libres, mais restez cohérent d'un cas à l'autre : ce
   sont eux qui permettront de dire « on échoue surtout en réverbération forte »
   plutôt que « on échoue parfois ».

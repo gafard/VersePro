@@ -1,0 +1,8 @@
+{
+  "text": "il s'est avancé vers eux en marchant sur la mer, à la quatrième veille de la nuit",
+  "expected": "Mt 14:25",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "récit évoqué sans citation ni référence"
+  }
+}

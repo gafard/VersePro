@@ -1,0 +1,9 @@
+{
+  "text": "il a crié d'une voix forte devant le tombeau, et le mort est sorti",
+  "expected": "Jean 11:43",
+  "ancre": "Jean 11",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "allusion au passage que le prédicateur venait d'ouvrir"
+  }
+}

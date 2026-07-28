@@ -1,0 +1,9 @@
+{
+  "text": "l'amour est patient, il est plein de bonté, il n'est point envieux",
+  "expected": "1 Corinthiens 13:4",
+  "ancre": "1 Corinthiens 13",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "allusion au passage que le prédicateur venait d'ouvrir"
+  }
+}

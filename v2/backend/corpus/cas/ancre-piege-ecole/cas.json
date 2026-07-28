@@ -1,0 +1,9 @@
+{
+  "text": "que les enfants rejoignent la salle du fond pour l'école du dimanche",
+  "expected": null,
+  "ancre": "Luc 15",
+  "kind": "negatif",
+  "conditions": {
+    "trait": "phrase de culte ordinaire, chapitre ouvert : ne doit RIEN proposer"
+  }
+}

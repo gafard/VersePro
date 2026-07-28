@@ -1,0 +1,8 @@
+{
+  "text": "ils sont sortis de la fournaise sans que leurs cheveux soient brûlés",
+  "expected": "Dn 3:27",
+  "kind": "allusion",
+  "conditions": {
+    "trait": "récit évoqué sans citation ni référence"
+  }
+}
