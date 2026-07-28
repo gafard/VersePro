@@ -111,6 +111,24 @@ body {
   background: var(--vp-bg-raised);
   border: 1px solid var(--vp-border);
   border-radius: var(--vp-radius-lg);
+  box-shadow: var(--elev-1);
+}
+
+/* ── Plans de la régie ─────────────────────────────────────────────────────
+   Les trois colonnes existaient déjà — console audio, file, sortie — mais
+   toutes posées au même niveau : l'œil ne savait pas où était le travail et où
+   étaient les instruments. On les échelonne.
+
+   Les flancs sont des instruments : légèrement en retrait, ils encadrent.
+   Le centre est la surface de travail : porté d'un cran, c'est là que
+   l'opérateur regarde et décide. Aucun filtre, juste des ombres statiques. */
+.live-col-left > .vp-panel,
+.live-col-right > .vp-panel {
+  background: var(--surface-1, var(--vp-bg-raised));
+  box-shadow: var(--elev-1);
+}
+.live-col-center > .vp-panel {
+  box-shadow: var(--elev-3);
 }
 
 .vp-label {
@@ -826,16 +844,21 @@ body {
   border-radius: var(--vp-radius);
   padding: 16px 20px;
   cursor: pointer;
-  transition: border-color 100ms ease-out, background 100ms ease-out, opacity 100ms ease-out, transform 80ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-shadow: var(--elev-1);
+  transition: border-color 100ms ease-out, background 100ms ease-out, opacity 100ms ease-out,
+              box-shadow var(--dur-short) var(--ease-out),
+              transform 80ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
   animation: vp-slide-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.live-card:hover { background: var(--vp-bg-hover); }
-.live-card:active { transform: scale(0.99); }
+/* La carte se soulève sous le curseur : la cible devient tangible, et l'œil
+   sait laquelle des cartes il s'apprête à valider. */
+.live-card:hover { background: var(--vp-bg-hover); box-shadow: var(--elev-2); }
+.live-card:active { transform: scale(0.99); box-shadow: var(--elev-1); }
 .live-card.is-ai { border-color: var(--vp-border-strong); }
 .live-card.is-keyboard-active {
   border-color: var(--vp-accent);
   background: var(--vp-bg-hover);
-  box-shadow: 0 0 0 1px var(--border-focus);
+  box-shadow: var(--elev-2), 0 0 0 1px var(--border-focus);
 }
 .live-card.is-projected {
   border-color: var(--success);
@@ -1266,7 +1289,7 @@ body {
   background: var(--vp-bg-raised);
   border: 1px solid var(--vp-border-strong);
   border-radius: 16px;
-  box-shadow: 0 24px 80px var(--color-shadow);
+  box-shadow: var(--elev-4);
   max-width: 560px;
   width: 100%;
   max-height: 90vh;
@@ -1400,6 +1423,8 @@ body {
   border-radius: var(--vp-radius-lg);
   padding: 20px 22px;
   display: block;
+  /* Cran 1 : la carte repose sur la page sans prétendre flotter. */
+  box-shadow: var(--elev-1);
 }
 .settings-card.is-primary {
   background: linear-gradient(180deg, var(--color-paper-emit), transparent 72%), var(--vp-bg-raised);
@@ -1950,7 +1975,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1px solid var(--color-rule-2);
   border-radius: var(--radius-modal);
   background: linear-gradient(180deg, var(--color-paper-emit), transparent 48%), var(--color-paper-2);
-  box-shadow: 0 24px 80px var(--color-shadow);
+  box-shadow: var(--elev-4);
   padding: var(--space-sm);
 }
 .lp-console-top {
@@ -2868,7 +2893,7 @@ select:focus-visible,
   backdrop-filter: blur(14px) saturate(1.2);
   border: 1px solid var(--color-rule-2);
   border-radius: var(--radius-modal);
-  box-shadow: 0 30px 90px var(--color-shadow), 0 0 0 1px color-mix(in oklch, var(--color-accent) 8%, transparent);
+  box-shadow: var(--elev-4), 0 0 0 1px color-mix(in oklch, var(--color-accent) 8%, transparent);
   display: flex; flex-direction: column;
   max-height: 92vh; overflow-y: auto;
   opacity: 0; transform: translateY(16px) scale(0.99);
