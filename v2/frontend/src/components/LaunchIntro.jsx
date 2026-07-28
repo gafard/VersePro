@@ -4,15 +4,15 @@ import { BACKEND_BASE, isTauri } from '../env.js'
 const VIDEO_SRC = '/media/versepro-launch.mp4'
 const POSTER_SRC = '/media/versepro-launch-poster.jpg'
 const STILL_SRC = '/media/versepro-launch-still.jpg'
-const EXIT_DURATION_MS = 420
-const SAFETY_TIMEOUT_MS = 7200
-const BACKEND_TIMEOUT_MS = 25000
+const EXIT_DURATION_MS = 300
+const SAFETY_TIMEOUT_MS = 5000
+const BACKEND_TIMEOUT_MS = 3500
 
 export default function LaunchIntro({ onDone }) {
   const videoRef = useRef(null)
   const finishingRef = useRef(false)
   const [leaving, setLeaving] = useState(false)
-  const [canSkip, setCanSkip] = useState(false)
+  const [canSkip, setCanSkip] = useState(true)
   const [reducedMotion] = useState(() => (
     typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -48,9 +48,9 @@ export default function LaunchIntro({ onDone }) {
           return
         }
       } catch {
-        // Le backend empaqueté charge encore ses modèles locaux.
+        // Le backend empaqueté charge en arrière-plan
       }
-      if (active) retryTimer = window.setTimeout(probeBackend, 400)
+      if (active) retryTimer = window.setTimeout(probeBackend, 350)
     }
 
     probeBackend()
@@ -66,14 +66,25 @@ export default function LaunchIntro({ onDone }) {
   }, [])
 
   useEffect(() => {
-    if (mediaComplete && backendReady) finish()
+    if (mediaComplete && backendReady) {
+      finish()
+      return
+    }
+    if (mediaComplete) {
+      const graceTimer = window.setTimeout(finish, 1200)
+      return () => window.clearTimeout(graceTimer)
+    }
   }, [backendReady, finish, mediaComplete])
 
   useEffect(() => {
-    const skipTimer = window.setTimeout(() => setCanSkip(true), 900)
-    const safetyTimer = window.setTimeout(completeMedia, reducedMotion ? 700 : SAFETY_TIMEOUT_MS)
+    const skipTimer = window.setTimeout(() => setCanSkip(true), 400)
+    const safetyTimer = window.setTimeout(() => {
+      completeMedia()
+      finish()
+    }, reducedMotion ? 500 : SAFETY_TIMEOUT_MS)
+
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') completeMedia()
+      if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') finish()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
@@ -81,21 +92,21 @@ export default function LaunchIntro({ onDone }) {
       window.clearTimeout(safetyTimer)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [completeMedia, reducedMotion])
+  }, [completeMedia, finish, reducedMotion])
 
   useEffect(() => {
     if (reducedMotion || !videoRef.current) return
     const video = videoRef.current
-    // Le son fait partie de l'ouverture dans l'application de bureau. Dans un
-    // navigateur, l'autoplay sonore est bloqué : on part muet. Et si la lecture
-    // sonore est refusée malgré tout, le filet ci-dessous rejoue en muet.
     video.muted = !isTauri
     const playback = video.play()
     playback?.catch(() => {
       video.muted = true
-      video.play().catch(completeMedia)
+      video.play().catch(() => {
+        completeMedia()
+        finish()
+      })
     })
-  }, [completeMedia, reducedMotion])
+  }, [completeMedia, finish, reducedMotion])
 
   return (
     <div
@@ -103,6 +114,7 @@ export default function LaunchIntro({ onDone }) {
       role="dialog"
       aria-modal="true"
       aria-label="Ouverture de VersePro"
+      onClick={finish}
     >
       <div className="launch-intro-media" aria-hidden="true">
         {showStill ? (
@@ -116,20 +128,25 @@ export default function LaunchIntro({ onDone }) {
             muted={!isTauri}
             playsInline
             preload="auto"
-            onEnded={() => setMediaComplete(true)}
-            onError={completeMedia}
+            onEnded={() => {
+              setMediaComplete(true)
+              finish()
+            }}
+            onError={() => {
+              completeMedia()
+              finish()
+            }}
           />
         )}
       </div>
 
-      {mediaComplete && !backendReady && (
-        <span className="launch-intro-status">initialisation du moteur…</span>
-      )}
-
       <button
         type="button"
-        className={`launch-intro-skip ${canSkip && !mediaComplete ? 'is-visible' : ''}`}
-        onClick={completeMedia}
+        className={`launch-intro-skip ${canSkip ? 'is-visible' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          finish()
+        }}
         aria-label="Passer l’animation d’ouverture"
       >
         passer
