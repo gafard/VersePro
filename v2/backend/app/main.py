@@ -52,6 +52,7 @@ from .services.whisper_service import WhisperService
 from .services.ai_service import AIService
 from .services.semantic_search import LocalSemanticService
 from .services.verse_graph import VerseGraphService
+from .services.transcription_health import SanteTranscription
 from .services.detection_fusion import fuse as fuse_detection, strip_attribution, recent_window
 from .services.reading_tracker import ReadingTracker
 from .services.secret_store import secret_store
@@ -70,6 +71,7 @@ whisper_service: WhisperService | None = None
 ai_service: AIService | None = None
 semantic_service: LocalSemanticService | None = None
 verse_graph: VerseGraphService | None = None
+sante_transcription: SanteTranscription = SanteTranscription()
 current_session_id: int | None = None
 osc_service: Any = None
 
@@ -2047,6 +2049,24 @@ async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict |
     if not final_state or not settings.LOCAL_SEMANTIC_ENABLED:
         return None
 
+    # ── Santé de la transcription : au-delà d'ici, tout est DEVINÉ ───────────
+    #    L'étage A ne devine pas — il lit une référence énoncée, vérifiable
+    #    mot pour mot. Il passe donc toujours, même dans un vacarme. Ce qui
+    #    suit propose des versets que personne n'a nommés : ça n'a de sens que
+    #    si l'on a correctement entendu.
+    #
+    #    Deux conditions, mesurées sur de vrais enregistrements :
+    #    — ce segment-ci doit porter assez de mots (« j'avais de l'eau », 4
+    #      mots, suffisait à faire sortir Ézéchiel 47:4) ;
+    #    — la transcription récente ne doit pas être hachée. Dans une église
+    #      charismatique — musique pendant la prédication, parler en langues —
+    #      Vosk tombe à 4 mots par segment contre 35 sur du son propre, et la
+    #      recherche sémantique se met à trouver des versets dans du charabia.
+    if not sante_transcription.segment_exploitable(recent):
+        return None
+    if not sante_transcription.est_fiable():
+        return None
+
     # ── B. Fusion : nettoyage vocal + retrait de l'encadrement d'attribution
     #    (« Paul dit », « David a écrit »…) qui dilue l'embedding du verset cité.
     cleaned = verse_parser.normalize_spoken(recent)
@@ -2229,6 +2249,10 @@ async def websocket_audio(websocket: WebSocket):
     if not deepgram_service or not verse_parser or not vosk_service:
         await websocket.close(code=1011, reason="Services non initialisés")
         return
+
+    # Le micro s'ouvre : ce qu'on avait entendu au culte précédent — ou avant
+    # une coupure — ne dit plus rien de la salle actuelle.
+    sante_transcription.reinitialiser()
 
     send_lock = asyncio.Lock()
 
@@ -2772,7 +2796,24 @@ async def websocket_audio(websocket: WebSocket):
                         }), "reading-progress")
                 elif is_final:
                     last_partial_words = []
-                
+
+                if is_final:
+                    # Chaque transcription finale EST un segment : sa longueur
+                    # nourrit la mesure de santé. On note ici, et pas dans la
+                    # cascade, pour que celle-ci reste sans effet de bord et
+                    # que le rejeu puisse la piloter cas par cas.
+                    etait_fiable = sante_transcription.est_fiable()
+                    sante_transcription.noter(transcript)
+                    # On ne prévient qu'aux BASCULES. Un bandeau qui se répète
+                    # à chaque phrase devient un bruit de plus ; ce qui compte,
+                    # c'est le moment où le logiciel change de comportement.
+                    if sante_transcription.est_fiable() != etait_fiable:
+                        with suppress(Exception):
+                            await send_json({
+                                "type": "transcription_health",
+                                **sante_transcription.etat(),
+                            })
+
                 # Le texte complet à analyser
                 current_analysis_text = (buffer_text + " " + transcript).strip()
 

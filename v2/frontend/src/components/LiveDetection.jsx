@@ -56,6 +56,7 @@ export default function LiveDetection({ setActiveTab }) {
   const {
     isListening,
     currentTranscript,
+    santeTranscription,
     detectedReferences,
     propresenterConnected,
     sendReference, sendAudio,
@@ -851,6 +852,16 @@ export default function LiveDetection({ setActiveTab }) {
           {/* Section Journal de transcription */}
           <section className="vp-panel live-transcript-panel">
             <span className="vp-label px-3 pt-2">Transcript Direct</span>
+
+            {/* Son difficile : le logiciel se dégrade au lieu de deviner. Sans
+                ce bandeau, l'opérateur voit VersePro devenir muet et le croit
+                en panne — alors qu'il fait exactement ce qu'il doit. */}
+            {santeTranscription && !santeTranscription.fiable && (
+              <div className="live-health-notice" role="status">
+                <span className="live-health-dot" aria-hidden="true" />
+                <span>{santeTranscription.message}</span>
+              </div>
+            )}
             
             <div className="live-transcript-scroll" id="live-transcript-scroll">
               {currentTranscript ? (

@@ -78,6 +78,9 @@ export const useStore = create((set, get) => ({
   currentTranscript: '',
   detectedReferences: [],
   asrMode: 'deepgram',
+  // Santé de la transcription. `fiable: true` par défaut : tant qu'on n'a
+  // rien entendu, il n'y a aucune raison d'alerter.
+  santeTranscription: { fiable: true, motsMoyens: 0, message: '' },
   selectedEngine: 'auto',
   aiActive: false, // Disponibilité de l'Agent IA sémantique
   
@@ -543,7 +546,22 @@ export const useStore = create((set, get) => ({
       if (data.type === 'status_update') {
         set({ asrMode: data.mode })
       }
-      
+
+      // Santé de la transcription : le backend ne signale que les BASCULES.
+      // Quand le son se dégrade — musique de fond, voix couverte — les
+      // propositions sémantiques sont suspendues et les citations annoncées
+      // continuent de passer. Sans ce message, l'opérateur voit un logiciel
+      // devenu muet et le croit en panne.
+      if (data.type === 'transcription_health') {
+        set({
+          santeTranscription: {
+            fiable: data.fiable,
+            motsMoyens: data.mots_moyens,
+            message: data.message,
+          },
+        })
+      }
+
       if (data.type === 'transcript') {
         // Concatène le buffer validé et le fragment en cours d'écoute pour un affichage dynamique et continu
         const buffer = data.buffer || ''

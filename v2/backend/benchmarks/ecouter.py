@@ -41,6 +41,7 @@ from app import main as runtime
 from app.core.config import settings
 from app.services.semantic_search import LocalSemanticService
 from app.services.verse_graph import VerseGraphService
+from app.services.transcription_health import SanteTranscription
 from app.services.verse_parser import VerseParserService
 
 # Vosk veut du mono 16 bits ; 16 kHz est la fréquence des modèles français.
@@ -90,10 +91,16 @@ def transcrire_par_segments(wav: Path) -> List[Dict[str, Any]]:
             if not texte:
                 return
             mots = donnees.get("result") or []
+            confs = [float(m.get("conf", 0.0)) for m in mots]
             segments.append({
                 "texte": texte,
                 "debut": float(mots[0]["start"]) if mots else None,
                 "fin": float(mots[-1]["end"]) if mots else None,
+                # Ce que Vosk pense de lui-même : on le garde pour pouvoir
+                # mesurer si sa propre incertitude prédit nos faux positifs.
+                "conf_moy": round(sum(confs) / len(confs), 3) if confs else None,
+                "conf_min": round(min(confs), 3) if confs else None,
+                "mots": len(mots),
             })
 
         while True:
@@ -115,6 +122,8 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
     runtime.semantic_service = semantique
     runtime.verse_graph = graphe
     settings.AI_AGENT_ENABLED = False  # on mesure la chaîne LOCALE
+    sante = SanteTranscription()
+    runtime.sante_transcription = sante
 
     with tempfile.TemporaryDirectory() as temporaire:
         wav = Path(garder_wav) if garder_wav else Path(temporaire) / "audio.wav"
@@ -129,6 +138,10 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
 
     detections: List[Dict[str, Any]] = []
     for segment in segments:
+        # Comme le direct : chaque segment nourrit la mesure de santé AVANT
+        # d'être analysé, jamais après — sinon on jugerait la phrase courante
+        # sur une statistique qui l'inclut déjà.
+        sante.noter(segment["texte"])
         resultat = await runtime.run_detection_cascade(segment["texte"], final_state=True)
         if not resultat:
             continue
@@ -142,6 +155,8 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
             "reference": resultat.get("reference"),
             "etage": resultat.get("detection_method"),
             "confiance": round(float(resultat.get("confidence") or 0), 3),
+            "conf_asr": segment.get("conf_moy"),
+            "mots": segment.get("mots"),
             "extrait": segment["texte"][:120],
         })
 
@@ -150,6 +165,7 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
         "duree_s": round(duree, 1),
         "segments": len(segments),
         "detections": detections,
+        "sante": sante.etat(),
         "transcription": " ".join(s["texte"] for s in segments),
     }
 
