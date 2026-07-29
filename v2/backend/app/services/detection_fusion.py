@@ -132,12 +132,29 @@ def content_stems(text: str) -> set:
     return out
 
 
+# En dessous de ce nombre de radicaux prononcés, un taux de couverture ne
+# prouve rien. Une prédication réelle de 2 h 14 l'a montré : « est-ce que tu
+# as fait quelque chose à quelqu'un ici » se réduit à DEUX radicaux —
+# « chose » et « quelq » — tous deux présents dans Philémon 1:18. Le
+# recouvrement valait donc 1,00, et comme la confiance fusionnée prend le
+# maximum des trois signaux, la proposition sortait à 1,00 : la note la plus
+# haute du système, sur la locution la plus banale du français.
+#
+# Sur 31 102 versets, deux radicaux génériques se retrouvent quelque part avec
+# une quasi-certitude. Ce n'est pas une confirmation, c'est une coïncidence.
+RADICAUX_MIN_QUASI_CITATION = 4
+
+
 def lexical_overlap(spoken: str, verse_text: str) -> float:
     """Part des mots de contenu PRONONCÉS que l'on retrouve dans le verset.
 
     Orienté « la parole confirme-t-elle ce verset ? » : coverage des radicaux
     prononcés présents dans le verset. Robuste aux versets longs (on ne divise
-    pas par la longueur du verset)."""
+    pas par la longueur du verset).
+
+    Le rapport reste brut : c'est aux règles de déclenchement de tenir compte
+    du nombre de radicaux, car un même taux ne vaut pas la même chose selon
+    qu'il porte sur deux mots ou sur huit."""
     sw = content_stems(spoken)
     if not sw:
         return 0.0
@@ -255,7 +272,22 @@ def fuse(
     # 4. Quasi-citation repérée au lexical : forte couverture des mots prononcés
     #    (near-verbatim). Le récupérateur lexical seul suffit alors — même si le
     #    sémantique s'est égaré et si le score flou est modeste.
-    elif best["in_lex"] and best["overlap"] >= 0.55:
+    #
+    #    Cette règle AFFIRME une citation quasi littérale ; elle exige donc
+    #    d'avoir assez de mots pour le dire. Une prédication réelle de 2 h 14
+    #    l'a montré : « est-ce que tu as fait quelque chose à quelqu'un ici »
+    #    ne laisse que deux radicaux — « chose » et « quelq » — tous deux
+    #    présents dans Philémon 1:18. Recouvrement 1,00, confiance 1,00, sur
+    #    la locution la plus banale du français. Sur 31 102 versets, deux
+    #    radicaux génériques se retrouvent quelque part à coup sûr : ce n'est
+    #    pas une citation, c'est une coïncidence.
+    #
+    #    Les autres règles ne sont pas touchées : elles s'appuient sur l'accord
+    #    des deux récupérateurs ou sur un score sémantique fort, qui gardent
+    #    leur sens sur un énoncé court (« Pierre a marché sur l'eau », un seul
+    #    radical utile, reste détecté par la règle 3).
+    elif (best["in_lex"] and best["overlap"] >= 0.55
+          and len(content_stems(spoken)) >= RADICAUX_MIN_QUASI_CITATION):
         surfaced, reason = True, "quasi-citation lexicale"
     # 5. Flou lexical fort confirmé par le recouvrement minimal.
     elif best["in_lex"] and best["lex_score"] >= 0.8 and best["overlap"] >= overlap_min:
@@ -266,7 +298,16 @@ def fuse(
 
     result = dict(best["cand"])
     # Confiance fusionnée lisible (0..1) : plancher au score sémantique, bonus d'accord.
-    confidence = max(best["sem_score"], best["lex_score"], best["overlap"])
+    #
+    # Le recouvrement ne compte que s'il porte sur assez de mots. Sinon
+    # « Pierre a marché sur l'eau vers Jésus » — un seul radical utile, les
+    # autres mots étant écartés comme trop répandus — sortait à 1,00, la note
+    # maximale du système. La détection était juste, la note ne l'était pas :
+    # l'opérateur lit ce chiffre pour décider s'il projette sans relire.
+    signaux = [best["sem_score"], best["lex_score"]]
+    if len(content_stems(spoken)) >= RADICAUX_MIN_QUASI_CITATION:
+        signaux.append(best["overlap"])
+    confidence = max(signaux)
     if best["agreement"]:
         confidence = min(0.99, confidence + 0.08)
     result["confidence"] = round(confidence, 4)
