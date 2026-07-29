@@ -63,6 +63,24 @@ ANCRE_DUREE_S = 600.0
 ANCRE_SCORE_MIN = 0.81
 ANCRE_ECART_MIN = 0.012
 
+# Troisième verrou, et c'est une vraie prédication qui l'a imposé.
+#
+# Les deux premiers suffisent contre des phrases courtes et banales — « nous
+# allons prendre l'offrande ». Ils ne suffisent pas contre de la prédication
+# réelle : de longues phrases riches en contenu trouvent TOUJOURS un verset
+# acceptable dans un chapitre de vingt versets. Sur un enseignement de 28
+# minutes, 8 propositions ancrées sur 11 étaient fausses — « j'ai un corps
+# physique, vous pouvez sentir votre corps » renvoyait à 1 Samuel 16:7.
+#
+# Le RETARD mesure ce que l'ancre coûte : de combien le meilleur verset du
+# chapitre est-il battu par le meilleur verset de toute la Bible ? Si l'écart
+# est grand, la phrase ne parle pas de ce chapitre — l'ancre y choisit
+# seulement le moins mauvais d'un sous-ensemble arbitraire.
+#
+# Mesuré : allusions justes 0,000 à 0,013 ; propositions fausses 0,026 à
+# 0,060 ; pièges du corpus 0,021 à 0,078.
+ANCRE_RETARD_MAX = 0.020
+
 # En dessous, la phrase est trop courte pour porter une allusion : « il est
 # fidèle » ne désigne aucun verset en particulier, même chapitre ouvert.
 ANCRE_MOTS_MIN = 5
@@ -176,7 +194,13 @@ class VerseGraphService:
 
         try:
             vecteur = self.semantic._encode([texte], kind="query")[0]
-            scores = self.semantic.matrix[lignes] @ vecteur
+            # Le produit sur TOUTE la matrice, pas seulement le chapitre : il
+            # donne le point de comparaison du troisième verrou pour environ
+            # 1 ms sur 31 000 versets. Sans lui, on ne peut pas distinguer
+            # « cette phrase parle du chapitre ouvert » de « ce chapitre
+            # contient le moins mauvais verset faute de mieux ».
+            tous = self.semantic.matrix @ vecteur
+            scores = tous[lignes]
         except Exception as exc:  # pragma: no cover - dépend de l'encodeur
             logger.debug("VerseGraph : encodage impossible (%s)", exc)
             return None
@@ -184,7 +208,10 @@ class VerseGraphService:
         ordre = np.argsort(scores)[::-1]
         meilleur = float(scores[ordre[0]])
         ecart = meilleur - float(scores[ordre[1]])
-        if meilleur < ANCRE_SCORE_MIN or ecart < ANCRE_ECART_MIN:
+        retard = float(tous.max()) - meilleur
+        if (meilleur < ANCRE_SCORE_MIN
+                or ecart < ANCRE_ECART_MIN
+                or retard > ANCRE_RETARD_MAX):
             return None
 
         entree = self.semantic.entries[lignes[int(ordre[0])]]
@@ -200,6 +227,7 @@ class VerseGraphService:
             "verse_graph": {
                 "ancre": self._ancre_libelle,
                 "ecart": round(ecart, 4),
+                "retard": round(retard, 4),
                 "depuis_s": round(time.monotonic() - self._ancre_pose_a, 1),
                 # De quoi expliquer la proposition à l'opérateur : « dans
                 # Exode 17, ouvert il y a 4 min ».

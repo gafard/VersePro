@@ -107,6 +107,62 @@ def test_verse_graph_rejette_bruit_et_ecart_faible():
     assert res is None
 
 
+class MockAilleurs:
+    """Le chapitre ancré a un verset correct — mais un AUTRE fait bien mieux.
+
+    C'est la situation que la prédication réelle produit sans arrêt : une
+    phrase riche en contenu trouve toujours un verset acceptable dans un
+    chapitre de vingt versets, alors qu'elle ne parle pas de ce chapitre.
+    """
+
+    def __init__(self):
+        import numpy as np
+        self.initialized = True
+        self.entries = [
+            {"reference": "1 Samuel 16:7", "book_abbr": "1S", "chapter": 16,
+             "verse_start": 7, "text": "L'Éternel ne considère pas ce que l'homme considère"},
+            {"reference": "1 Samuel 16:16", "book_abbr": "1S", "chapter": 16,
+             "verse_start": 16, "text": "qu'il joue de sa main"},
+            {"reference": "1 Corinthiens 6:19", "book_abbr": "1Co", "chapter": 6,
+             "verse_start": 19, "text": "votre corps est le temple du Saint-Esprit"},
+        ]
+        self.matrix = np.eye(len(self.entries), dtype=np.float32)
+
+    def _encode(self, texts, kind="query"):
+        import numpy as np
+        # « j'ai un corps physique » : 1 Samuel 16 passerait les deux premiers
+        # verrous (0,82 et un écart de 0,03), mais 1 Corinthiens 6 est loin
+        # devant — le retard vaut 0,05.
+        return np.array([[0.82, 0.79, 0.87]], dtype=np.float32)
+
+
+def test_verse_graph_se_tait_si_un_autre_chapitre_fait_mieux():
+    """Le troisième verrou : l'ancre ne doit pas ramasser les restes.
+
+    Sans lui, une prédication de 28 minutes produisait 8 propositions fausses
+    sur 11 — « j'ai un corps physique, vous pouvez sentir votre corps »
+    renvoyait à 1 Samuel 16:7 parce que le chapitre était ouvert.
+    """
+    sem = MockAilleurs()
+    vg = VerseGraphService(sem)
+    vg.ancrer({"detection_method": "explicit", "book_abbr": "1S", "chapter": 16,
+               "reference": "1 Samuel 16:1"})
+
+    # Score 0,82 ≥ 0,81 et écart 0,03 ≥ 0,012 : les deux premiers verrous
+    # laisseraient passer. Seul le retard (0,05 > 0,020) arrête la proposition.
+    assert vg.resoudre("j'ai un corps physique vous pouvez sentir votre corps") is None
+
+
+def test_verse_graph_expose_le_retard_dans_sa_justification():
+    """L'opérateur doit pouvoir voir pourquoi une proposition lui est faite."""
+    vg = VerseGraphService(MockSemantic())
+    vg.ancrer({"detection_method": "explicit", "book_abbr": "Jn", "chapter": 11,
+               "reference": "Jean 11:1"})
+    res = vg.resoudre("il a crié d'une voix forte devant le tombeau")
+    assert res is not None
+    assert res["verse_graph"]["retard"] <= 0.020
+
+
 def test_verse_graph_expiration_ancre():
     sem = MockSemantic()
     vg = VerseGraphService(sem, duree_s=0.1) # Expiration rapide 100ms
