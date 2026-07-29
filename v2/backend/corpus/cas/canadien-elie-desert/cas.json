@@ -1,0 +1,11 @@
+{
+  "text": "eternel prends mon âme car je ne suis pas meilleur que mes pères",
+  "expected": "1 Rois 19:4",
+  "kind": "allusion",
+  "conditions": {
+    "accent": "canadien",
+    "source": "prédication publique en ligne",
+    "transcription": "Vosk large, telle quelle",
+    "note": "citation quasi littérale, accent québécois"
+  }
+}

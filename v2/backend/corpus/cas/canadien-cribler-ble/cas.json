@@ -1,0 +1,11 @@
+{
+  "text": "simon voici satin a demandé à vous avoir pour vous cribler comme le blé",
+  "expected": "Luc 22:31",
+  "kind": "allusion",
+  "conditions": {
+    "accent": "canadien",
+    "source": "prédication publique en ligne",
+    "transcription": "Vosk large, telle quelle",
+    "note": "citation quasi littérale, accent québécois"
+  }
+}

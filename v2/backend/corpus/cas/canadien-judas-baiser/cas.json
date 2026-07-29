@@ -1,0 +1,11 @@
+{
+  "text": "judas l'a livré par un baiser",
+  "expected": "Luc 22:48",
+  "kind": "paraphrase",
+  "conditions": {
+    "accent": "canadien",
+    "source": "prédication publique en ligne",
+    "transcription": "Vosk large, telle quelle",
+    "note": "paraphrase courte, accent québécois"
+  }
+}

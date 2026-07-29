@@ -1,0 +1,11 @@
+{
+  "text": "qu'il y ait donc en vous cette pensée qui a été aussi dans le christ jésus ayant en vous cette pensée est la version kin",
+  "expected": "Philippiens 2:5",
+  "kind": "allusion",
+  "conditions": {
+    "accent": "canadien",
+    "source": "prédication publique en ligne",
+    "transcription": "Vosk large, telle quelle",
+    "note": "ÉCHEC OBSERVÉ : la cascade propose Philippiens 3:15 — bon livre, mauvais chapitre"
+  }
+}
