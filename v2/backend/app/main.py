@@ -46,6 +46,7 @@ from .core.config import settings, RESOURCE_DIR
 from .core.security import http_request_allowed, websocket_allowed
 from .services.deepgram_service import DeepgramService
 from .services.verse_parser import VerseParserService, version_label
+from .services.reference_engine import BibleReferenceEngine
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
 from .services.whisper_service import WhisperService
@@ -71,6 +72,7 @@ whisper_service: WhisperService | None = None
 ai_service: AIService | None = None
 semantic_service: LocalSemanticService | None = None
 verse_graph: VerseGraphService | None = None
+reference_engine: BibleReferenceEngine | None = None
 sante_transcription: SanteTranscription = SanteTranscription()
 current_session_id: int | None = None
 osc_service: Any = None
@@ -233,6 +235,17 @@ async def lifespan(app: FastAPI):
     ai_service = AIService()
     semantic_service = LocalSemanticService(verse_parser.bible_loader)
     verse_graph = VerseGraphService(semantic_service)
+    
+    # Instanciation du moteur de référence
+    reference_engine = BibleReferenceEngine(
+        verse_parser=verse_parser,
+        semantic_service=semantic_service,
+        verse_graph=verse_graph,
+        ai_service=ai_service,
+        settings=settings,
+        db_service=db_service,
+        sante_transcription=sante_transcription
+    )
     
     # Ne télécharge rien au démarrage. Un modèle Vosk déjà présent est seulement
     # chargé en arrière-plan; les installations restent des actions explicites.
@@ -1981,258 +1994,6 @@ async def select_bible_version(data: dict):
     return {"status": "success", "active": version}
 
 
-# Mots-indices de l'Écriture. L'arbitrage IA de dernier recours (étage C) ne se
-# déclenche qu'en leur présence en mode strict : inutile de solliciter le modèle
-# sur « le café est prêt après le culte ».
-BIBLE_KEYWORDS = {
-    "dieu", "seigneur", "jésus", "jesus", "christ", "esprit", "bible", "écriture",
-    "ecriture", "verset", "parole", "évangile", "evangile", "psaume", "apôtre",
-    "apotre", "prophète", "prophete", "épître", "epitre", "royaume", "salut",
-    "grâce", "grace", "péché", "peche", "foi", "prière", "priere", "alliance",
-    "testament", "saint", "messie", "croix", "résurrection", "resurrection",
-    "disciple", "éternel", "eternel", "amen", "béni", "beni", "sauveur",
-}
-
-# Une seule requête d'arbitrage IA en vol pour tout le processus. Une annulation
-# libère automatiquement le verrou, contrairement à un simple drapeau global.
-_ai_last_resort_lock = asyncio.Lock()
-
-# Frontières de clause : le prédicateur enchâsse souvent l'allusion dans du
-# commentaire (« y a Philippe qui va s'asseoir avec lui… POURQUOI est-ce si
-# important ? PARCE QUE tout n'est pas évident… »).
-_CLAUSE_SPLIT = re.compile(
-    r"[.!?;:,]|\bparce que\b|\bpourquoi\b|\bmais\b|\bdonc\b|\balors\b|\bensuite\b|\bet puis\b",
-    re.IGNORECASE,
-)
-
-
-def _retrieval_windows(text: str) -> list[str]:
-    """Fenêtre(s) de récupération.
-
-    Le découpage en clauses a été ESSAYÉ puis retiré : mesuré sur le corpus de
-    référence, il faisait passer le rappel des paraphrases de 12/12 à 11/12 (une
-    fenêtre voisine remportait un quasi ex æquo — Ésaïe 40:29 volait Philippiens
-    4:13) sans rattraper le cas qui l'avait motivé (l'allusion narrative
-    « Philippe va s'asseoir avec lui »). Les allusions à un RÉCIT ne se résolvent
-    pas par appariement de texte : c'est le rôle de l'arbitrage IA (étage C).
-    On garde donc une fenêtre unique, la plus récente.
-    """
-    return [" ".join(text.split()[-settings.HYBRID_WINDOW_WORDS:])]
-
-
-async def run_detection_cascade(analysis_text: str, final_state: bool) -> dict | None:
-    """Cascade de détection PARTAGÉE par le direct et le mode répétition.
-
-    A. CITATION EXPLICITE (regex) — instantané (< 1 ms), précision quasi
-       parfaite. Renvoyée telle quelle (seul étage autorisé à projeter direct).
-    B. FUSION HYBRIDE des paraphrases (fin d'énoncé seulement) — deux
-       récupérateurs indépendants en parallèle (lexical/flou + sémantique e5),
-       agrégés par RRF, filtrés par accord + recouvrement lexical. Ne remonte
-       que des versets réels du corpus.
-
-    Renvoie la référence détectée (dict) ou None. AUCUN effet de bord.
-    """
-    if not verse_parser:
-        return None
-
-    # Fenêtre RÉCENTE partagée (dernière phrase) : on ne détecte que sur l'énoncé
-    # courant. Sinon une citation explicite (« Jean 3:16 ») reste dans le buffer
-    # de 40 mots et masque toute paraphrase pendant ~20 s ; et un verset précédent
-    # masque le verset courant. La fenêtre fait suivre le prédicateur en temps réel.
-    recent = recent_window(analysis_text, settings.HYBRID_WINDOW_WORDS)
-
-    # ── A. Citation explicite sur la fenêtre récente ──
-    reference = await verse_parser.parse(recent, skip_text_search=True)
-    if reference:
-        return reference
-
-    if not final_state or not settings.LOCAL_SEMANTIC_ENABLED:
-        return None
-
-    # ── Santé de la transcription : au-delà d'ici, tout est DEVINÉ ───────────
-    #    L'étage A ne devine pas — il lit une référence énoncée, vérifiable
-    #    mot pour mot. Il passe donc toujours, même dans un vacarme. Ce qui
-    #    suit propose des versets que personne n'a nommés : ça n'a de sens que
-    #    si l'on a correctement entendu.
-    #
-    #    Deux conditions, mesurées sur de vrais enregistrements :
-    #    — ce segment-ci doit porter assez de mots (« j'avais de l'eau », 4
-    #      mots, suffisait à faire sortir Ézéchiel 47:4) ;
-    #    — la transcription récente ne doit pas être hachée. Dans une église
-    #      charismatique — musique pendant la prédication, parler en langues —
-    #      Vosk tombe à 4 mots par segment contre 35 sur du son propre, et la
-    #      recherche sémantique se met à trouver des versets dans du charabia.
-    if not sante_transcription.segment_exploitable(recent):
-        return None
-    if not sante_transcription.est_fiable():
-        return None
-
-    # ── B. Fusion : nettoyage vocal + retrait de l'encadrement d'attribution
-    #    (« Paul dit », « David a écrit »…) qui dilue l'embedding du verset cité.
-    cleaned = verse_parser.normalize_spoken(recent)
-    # On détecte sur le texte DÉ-ENCADRÉ. S'il reste trop court (attribution
-    # partielle en cours d'énoncé), on attend la suite plutôt que de retomber sur
-    # le texte encadré — sinon le nom réintroduit attire un mauvais verset.
-    query = strip_attribution(cleaned)
-    if len(query.split()) < 4:
-        return None
-
-    if semantic_service and not semantic_service.initialized and not semantic_service.indexing:
-        await asyncio.to_thread(semantic_service.initialize, False)
-
-    # ── B'. VERSEGRAPH : allusion dans le passage déjà ouvert ────────────────
-    #    Passe AVANT la fusion globale, et le choix est délibéré : l'ancre
-    #    vient d'une citation explicite confirmée — un fait — là où la fusion
-    #    globale cherche parmi 31 102 versets sans contexte. Mesuré sur « il a
-    #    crié d'une voix forte devant le tombeau » : la fusion globale propose
-    #    Apocalypse 10:3, l'ancre donne Jean 11:43.
-    #    Deux verrous stricts (score ET écart) l'empêchent de parler pour ne
-    #    rien dire ; s'il se tait, la fusion reprend normalement la main.
-    #    L'ancre est posée par l'appelant, jamais ici : cette fonction reste
-    #    sans effet de bord, ce qui permet au rejeu de la piloter cas par cas.
-    #    On lui passe le texte BRUT, pas `query` : l'index a été encodé depuis
-    #    du texte naturel (apostrophes comprises), et `normalize_spoken`, utile
-    #    au chemin lexical, éloigne la requête de cette distribution. Mesuré
-    #    sur les cas ancrés du corpus : 6 détections sur 6 en brut, 4 sur 6 en
-    #    normalisé, à précision identique.
-    if verse_graph:
-        ancre = verse_graph.resoudre(recent)
-        if ancre:
-            return ancre
-
-    async def _decide(window: str) -> dict | None:
-        """Récupération + fusion sur UNE fenêtre."""
-        async def _lexical():
-            return await asyncio.to_thread(
-                verse_parser.bible_loader.search_candidates, window, settings.HYBRID_TOP_K
-            )
-
-        async def _semantic():
-            if not (semantic_service and semantic_service.initialized):
-                return []
-            return await asyncio.to_thread(
-                semantic_service.search, window, settings.HYBRID_TOP_K, 0.0
-            )
-
-        lexical, semantic = await asyncio.gather(_lexical(), _semantic())
-
-        # Enrichit les candidats sémantiques de leurs traductions : le recouvrement
-        # lexical peut alors confirmer une paraphrase de n'importe quelle version.
-        for cand in semantic:
-            if "translations" not in cand and cand.get("verse_start") is not None:
-                cand["translations"] = verse_parser.bible_loader.translations_for(
-                    cand["book_abbr"], cand["chapter"], cand["verse_start"]
-                )
-
-        return fuse_detection(
-            lexical, semantic, window,
-            semantic_threshold=(semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD),
-            semantic_margin=(semantic_service.active_margin if semantic_service else settings.LOCAL_SEMANTIC_MARGIN),
-            overlap_min=settings.HYBRID_OVERLAP_MIN,
-            top_n=settings.HYBRID_TOP_K,
-        )
-
-    # Plusieurs découpes en parallèle : la meilleure décision l'emporte.
-    windows = _retrieval_windows(query)
-    found = [d for d in await asyncio.gather(*[_decide(w) for w in windows]) if d]
-    if found:
-        # Accord entre récupérateurs d'abord, puis recouvrement, puis confiance.
-        found.sort(
-            key=lambda d: (
-                bool((d.get("fusion") or {}).get("agreement")),
-                float((d.get("fusion") or {}).get("overlap") or 0),
-                float(d.get("confidence") or 0),
-            ),
-            reverse=True,
-        )
-        return found[0]
-
-    # ── C. DERNIER RECOURS : arbitrage IA (Ollama local ou cloud) ────────────
-    #    Ne se déclenche QUE si toute la chaîne locale est muette : le cas normal
-    #    ne paie donc AUCUNE latence. Trois garde-fous : un indice biblique doit
-    #    être présent (mode strict), une seule requête en vol à la fois, et la
-    #    réponse est REVALIDÉE contre la Bible chargée — l'IA ne peut pas inventer
-    #    un verset. Le résultat part toujours en validation manuelle.
-    if not (ai_service and ai_service.enabled and settings.AI_AGENT_ENABLED):
-        return None
-    if _ai_last_resort_lock.locked():
-        return None
-    if settings.AI_FILTERING_MODE == "strict" and not any(k in query.lower() for k in BIBLE_KEYWORDS):
-        return None
-
-    async with _ai_last_resort_lock:
-        try:
-            # Vivier ancré : l'IA choisit parmi des versets RÉELS du corpus.
-            shortlist = await asyncio.to_thread(
-                verse_parser.bible_loader.search_candidates, query, 3
-            )
-            if semantic_service and semantic_service.initialized:
-                shortlist += await asyncio.to_thread(semantic_service.search, query, 3, 0.0)
-            if not shortlist:
-                return None
-            res = await ai_service.detect_bible_reference(query, candidates=shortlist)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.debug(f"Arbitrage IA de dernier recours indisponible : {exc}")
-            return None
-
-    if not res or not res.get("reference"):
-        return None
-
-    # Défense en profondeur : même un fournisseur mal configuré ou un faux
-    # service de test ne peut sortir de la liste locale transmise au modèle.
-    selected = next(
-        (
-            candidate for candidate in shortlist
-            if AIService._normalize_reference(candidate.get("reference", ""))
-            == AIService._normalize_reference(res.get("reference", ""))
-        ),
-        None,
-    )
-    if not selected:
-        logger.info("Suggestion IA écartée : référence absente de la liste fermée")
-        return None
-    if not res.get("candidate_validated"):
-        raw_confidence = max(0.0, min(100.0, float(res.get("confidence") or 0)))
-        try:
-            raw_score = selected.get("score")
-            if raw_score is None:
-                raw_score = selected.get("semantic_score")
-            if raw_score is None:
-                raw_score = selected.get("confidence")
-            score = max(0.0, min(1.0, float(raw_score)))
-            candidate_confidence = 70.0 + (score * 30.0)
-        except (TypeError, ValueError):
-            score = None
-            candidate_confidence = 85.0
-        res = {
-            **res,
-            "reference": selected["reference"],
-            "raw_model_confidence": raw_confidence,
-            "confidence": min(raw_confidence, candidate_confidence),
-            "candidate_score": score,
-            "candidate_validated": True,
-        }
-    confidence = float(res.get("confidence") or 0)
-    if confidence < settings.AI_CONFIDENCE_THRESHOLD:
-        logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {settings.AI_CONFIDENCE_THRESHOLD} %)")
-        return None
-
-    grounded = await verse_parser.parse(res["reference"], skip_text_search=True)
-    if not grounded or not grounded.get("text"):
-        logger.info(f"🛡️ Suggestion IA écartée (référence introuvable dans la Bible) : {res['reference']!r}")
-        return None
-
-    grounded["confidence"] = confidence / 100.0
-    grounded["detection_method"] = "ai_semantic"
-    grounded["requires_review"] = True
-    grounded["candidate_validated"] = True
-    grounded["candidate_score"] = res.get("candidate_score")
-    grounded["raw_model_confidence"] = res.get("raw_model_confidence")
-    logger.info(f"🤖 Dernier recours IA → {grounded['reference']} ({confidence:.0f} %)")
-    return grounded
-
 
 # WebSocket principal de réception audio avec Fallback Vosk local
 @app.websocket("/ws/audio")
@@ -2722,10 +2483,24 @@ async def websocket_audio(websocket: WebSocket):
             generation: int,
         ) -> None:
             try:
-                decision = await run_detection_cascade(analysis_text, final_state)
-                if not decision or not is_current(generation):
+                result = await reference_engine.process(
+                    analysis_text, final_state, generation, session_id=current_session_id
+                )
+                if not result or not is_current(generation):
                     return
+                
+                if result["type"] == "incremental_reference":
+                    await send_json({
+                        "type": "incremental_reference",
+                        "book": result["payload"].get("book"),
+                        "chapter": result["payload"].get("chapter"),
+                    })
+                    return
+
+                decision = result["payload"]
                 method = decision.get("detection_method")
+                source = decision.get("source", "local")
+
                 if method in ("explicit", "chapter_candidate"):
                     await process_detected_reference(decision, analysis_text, generation)
                 elif method == "ai_semantic":

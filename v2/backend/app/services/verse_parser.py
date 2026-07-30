@@ -615,6 +615,7 @@ class VerseParserService:
         self.book_abbreviations = self._load_abbreviations()
         self.chapter_counts = self._load_chapter_counts()
         self.patterns = self._compile_patterns()
+        self.inc_patterns = self._compile_inc_patterns()
         
         # Tableaux de correspondance insensibles aux accents
         self.clean_book_names = {strip_accents(k): v for k, v in self.book_names.items()}
@@ -767,6 +768,20 @@ class VerseParserService:
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:versets?|v\.?)\s*(\d+)(?:\s*(?:[-–àa])\s*(\d+))?\b', re.IGNORECASE),
         ]
         return patterns
+
+    def _compile_inc_patterns(self) -> List[re.Pattern]:
+        """Compile les regex pour la détection incrémentale (Livre seul, Livre + Chapitre)"""
+        # On regroupe les noms de livres triés par longueur décroissante
+        books = sorted(STANDARD_BOOK_MAP.keys(), key=len, reverse=True)
+        books_pattern = "|".join(re.escape(b) for b in books)
+
+        return [
+            # 0. Livre + Chapitre ("dans jean 3" ou "jean chapitre 3")
+            re.compile(rf'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)?\s*(\d+)\b', re.IGNORECASE),
+            
+            # 1. Livre seul ("dans jean", "lisons jean")
+            re.compile(rf'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\b', re.IGNORECASE)
+        ]
 
     # Index du motif « livre verset N » réservé aux livres à chapitre unique.
     SINGLE_CHAPTER_PATTERN_INDEX = 5
@@ -1034,6 +1049,67 @@ class VerseParserService:
         if text_search_res:
             logger.info(f"📖 Référence détectée par texte du verset: {text_search_res['reference']}")
             return text_search_res
+
+        return None
+
+    def parse_incremental(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Analyse une transcription partielle pour détecter progressivement
+        le livre, ou le livre + chapitre, avant que le verset complet ne soit prononcé.
+        """
+        if not text:
+            return None
+
+        cleaned_text = self._convert_spoken_numbers(self._clean_homophones(text))
+        clean_text_regex = cleaned_text.lower().strip().replace(",", " ")
+
+        # On teste d'abord Livre + Chapitre, puis Livre seul
+        
+        # Livre + Chapitre
+        for match in self.inc_patterns[0].finditer(clean_text_regex):
+            raw_book = match.group(1).strip()
+            chapter_str = match.group(2).strip()
+            
+            # Reprise de la logique de nettoyage de _extract_reference
+            book_name = raw_book.lower()
+            book_name = re.sub(r'\s+', ' ', book_name)
+            book_name = re.sub(
+                r'^(?:livre de|livre des|evangile selon|evangile de|epitre de|epitre aux|epitre de paul aux|epitre de paul de)\s+',
+                '',
+                book_name
+            )
+            
+            book_abbr = self._normalize_book(book_name)
+            if book_abbr and chapter_str.isdigit():
+                return {
+                    "book": raw_book,
+                    "book_abbr": book_abbr,
+                    "chapter": int(chapter_str),
+                    "verse": None,
+                }
+        
+        # Livre seul (on veut le plus récent dans la phrase, d'où finditer et on prend le dernier)
+        matches = list(self.inc_patterns[1].finditer(clean_text_regex))
+        for match in reversed(matches):
+            raw_book = match.group(1).strip()
+            
+            # Nettoyage
+            book_name = raw_book.lower()
+            book_name = re.sub(r'\s+', ' ', book_name)
+            book_name = re.sub(
+                r'^(?:livre de|livre des|evangile selon|evangile de|epitre de|epitre aux|epitre de paul aux|epitre de paul de)\s+',
+                '',
+                book_name
+            )
+            
+            book_abbr = self._normalize_book(book_name)
+            if book_abbr:
+                return {
+                    "book": raw_book,
+                    "book_abbr": book_abbr,
+                    "chapter": None,
+                    "verse": None,
+                }
 
         return None
 

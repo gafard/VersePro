@@ -76,6 +76,7 @@ export const useStore = create((set, get) => ({
   micPermissionState: 'unknown',
   micError: null,
   currentTranscript: '',
+  incrementalReference: null,
   detectedReferences: [],
   asrMode: 'deepgram',
   // Santé de la transcription. `fiable: true` par défaut : tant qu'on n'a
@@ -581,7 +582,12 @@ export const useStore = create((set, get) => ({
         set({ currentTranslation: data.text })
       }
       
+      if (data.type === 'incremental_reference') {
+        set({ incrementalReference: data.payload })
+      }
+      
       if (data.type === 'reference_detected') {
+        set({ incrementalReference: null })
         get().addDetectedReference(data.reference)
         // Ajoute automatiquement à la file de projection (avec statut pending ou projected)
         get().addToProjectionQueue(data.reference)
