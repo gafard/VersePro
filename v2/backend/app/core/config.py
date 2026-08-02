@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # Audio
     AUDIO_SAMPLE_RATE: int = 16000
     AUDIO_CHUNK_SIZE: int = 4096
-    ASR_DEFAULT_ENGINE: str = "auto"  # auto, deepgram, whisper, vosk, local_auto
+    ASR_DEFAULT_ENGINE: str = "auto"  # auto, deepgram, nemotron, vosk, local_auto
     WHISPER_MODEL: str = "auto"  # auto choisit tiny/base/small selon la machine
     WHISPER_COMPUTE_TYPE: str = "int8"
     WHISPER_CHUNK_SECONDS: float = 2.4
@@ -161,6 +161,7 @@ class Settings(BaseSettings):
 
     # OSC
     OSC_ENABLED: bool = False
+    OSC_HOST: str = "127.0.0.1"
     OSC_PORT: int = 8000
     
     @property

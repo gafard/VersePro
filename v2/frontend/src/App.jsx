@@ -221,8 +221,8 @@ function App() {
               <span className={`vp-chip ${serverStatus.tone}`}>
                 <span className="dot" />{serverStatus.label}
               </span>
-              <span className={`vp-chip ${['vosk', 'whisper'].includes(asrMode) ? 'is-warn' : 'is-accent'}`}>
-                <span className="dot" />{asrMode === 'vosk' ? 'Vosk sélectionné' : asrMode === 'whisper' ? 'Whisper sélectionné' : 'Deepgram sélectionné'}
+              <span className={`vp-chip ${['vosk', 'nemotron'].includes(asrMode) ? 'is-warn' : 'is-accent'}`}>
+                <span className="dot" />{asrMode === 'vosk' ? 'Vosk sélectionné' : asrMode === 'nemotron' ? 'Nemotron sélectionné' : 'Deepgram sélectionné'}
               </span>
               <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
                 <span className="dot" />IA {aiActive ? 'prête' : 'off'}

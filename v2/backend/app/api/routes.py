@@ -165,13 +165,13 @@ async def preflight_check(probe_cloud: bool = False):
         semantic_service,
         verse_parser,
         vosk_service,
-        whisper_service,
+        nemotron_service,
     )
     from ..services.secret_store import secret_store
 
     disk = shutil.disk_usage(DATA_DIR)
     local_asr = bool(
-        (whisper_service and whisper_service.ready)
+        (nemotron_service and nemotron_service.is_ready)
         or (vosk_service and vosk_service.initialized)
     )
     cloud_configured = bool(settings.DEEPGRAM_API_KEY)
@@ -435,10 +435,16 @@ async def rehearse(request: RehearseRequest):
     (fenêtres glissantes de mots, comme en direct) SANS rien projeter.
     Permet de valider la reconnaissance avant le culte.
     """
-    from ..main import verse_parser, run_detection_cascade
+    # La cascade vit désormais dans BibleReferenceEngine : on passe par le
+    # moteur pour rejouer EXACTEMENT ce que fait le direct, VerseGraph et
+    # mesure de santé compris. Un rejeu qui court-circuiterait le moteur ne
+    # vaudrait rien comme répétition.
+    from ..main import verse_parser, reference_engine
 
     if not verse_parser:
         raise HTTPException(status_code=503, detail="Parser non disponible")
+    if not reference_engine:
+        raise HTTPException(status_code=503, detail="Moteur de détection non disponible")
 
     words = request.transcript.split()
     detections = []
@@ -448,7 +454,7 @@ async def rehearse(request: RehearseRequest):
     # paraphrases), fenêtre par fenêtre. Chaque fin de fenêtre est un « final ».
     for end in range(6, len(words) + 1, 3):
         window = " ".join(words[max(0, end - 40):end])
-        ref = await run_detection_cascade(window, final_state=True)
+        ref = await reference_engine.detecter_sans_effet(window, final_state=True)
         if ref and ref["reference"] not in seen:
             seen.add(ref["reference"])
             detections.append({
@@ -515,6 +521,36 @@ async def get_vosk_status():
         "model_type": vosk_service.model_type,
         "last_error": getattr(vosk_service, "last_error", "")
     }
+
+
+@router.get("/nemotron/status")
+async def get_nemotron_status():
+    """Récupère le statut du modèle Nemotron 3.5-ASR local"""
+    from ..main import nemotron_service
+    if not nemotron_service:
+        return {"installed": False, "downloading": False, "model_name": "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"}
+
+    installed = nemotron_service.is_ready
+    return {
+        "installed": installed,
+        "ready": installed,
+        "downloading": getattr(nemotron_service, "downloading", False) and not installed,
+        "download_progress": 1.0 if installed else getattr(nemotron_service, "download_progress", 0.0),
+        "last_error": getattr(nemotron_service, "last_error", ""),
+        "model_name": "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
+        "model_size_mb": 716
+    }
+
+
+@router.post("/nemotron/download")
+async def download_nemotron_model():
+    """Démarre le téléchargement explicite du modèle Nemotron 3.5 ASR GGUF (716 Mo)."""
+    from ..main import nemotron_service
+    if not nemotron_service:
+        raise HTTPException(status_code=503, detail="Service Nemotron indisponible")
+
+    await asyncio.to_thread(nemotron_service.prepare, True)
+    return {"status": "started", "message": "Téléchargement du modèle Nemotron 3.5-ASR démarré en arrière-plan"}
 
 
 @router.get("/overlay/status")
@@ -664,7 +700,7 @@ async def download_vosk_model():
 @router.get("/asr/status")
 async def get_asr_status():
     """Capacites locales et recommandation adaptee a la machine."""
-    from ..main import vosk_service, whisper_service
+    from ..main import vosk_service, nemotron_service
     from ..core.config import settings
 
     return {
@@ -673,32 +709,26 @@ async def get_asr_status():
             "available": bool(vosk_service and vosk_service.initialized),
             "model": getattr(vosk_service, "model_name", ""),
         },
-        "whisper": whisper_service.status() if whisper_service else {"installed": False, "ready": False},
+        "nemotron": nemotron_service.status() if nemotron_service else {"installed": False, "ready": False},
     }
 
 
 @router.post("/asr/prepare")
 async def prepare_local_asr(request: PrepareModelRequest):
-    """Prépare explicitement Whisper; aucun gros modèle n'est téléchargé au démarrage."""
-    from ..main import whisper_service
-    from ..core.config import settings
-    if not whisper_service:
-        raise HTTPException(status_code=503, detail="Service Whisper indisponible")
-    if request.model and request.model not in {"auto", "tiny", "base", "small", "medium", "turbo"}:
-        raise HTTPException(status_code=400, detail="Modèle Whisper invalide")
-    if request.model and not whisper_service.ready:
-        settings.WHISPER_MODEL = request.model
-        whisper_service.model_name = whisper_service.select_model(request.model)
-    if whisper_service.ready:
-        return {"status": "ready", **whisper_service.status()}
-    if not whisper_service.initializing:
+    """Prépare explicitement le moteur local; rien n'est téléchargé au démarrage."""
+    from ..main import nemotron_service
+    if not nemotron_service:
+        raise HTTPException(status_code=503, detail="Service ASR local indisponible")
+    if nemotron_service.is_ready:
+        return {"status": "ready", **nemotron_service.status()}
+    if not nemotron_service.downloading:
         import threading
         threading.Thread(
-            target=whisper_service.initialize,
+            target=nemotron_service.prepare,
             kwargs={"allow_download": True},
             daemon=True,
         ).start()
-    return {"status": "preparing", **whisper_service.status()}
+    return {"status": "preparing", **nemotron_service.status()}
 
 
 @router.get("/semantic/status")
@@ -737,7 +767,7 @@ async def semantic_search(request: SemanticSearchRequest):
 async def get_settings():
     """Récupère la configuration"""
     from ..core.config import settings
-    from ..main import ai_service, output_manager, semantic_service, whisper_service
+    from ..main import ai_service, output_manager, semantic_service, nemotron_service
     from ..services.secret_store import secret_store
     from ..services import overlay_store
 
@@ -777,7 +807,7 @@ async def get_settings():
         "voice_gate_enabled": settings.VOICE_GATE_ENABLED,
         "voice_gate_available": _vad_available(),
         "asr_default_engine": settings.ASR_DEFAULT_ENGINE,
-        "whisper_status": whisper_service.status() if whisper_service else {},
+        "nemotron_status": nemotron_service.status() if nemotron_service else {},
         "local_semantic_enabled": settings.LOCAL_SEMANTIC_ENABLED,
         "local_semantic_threshold": semantic_service.active_threshold if semantic_service else settings.LOCAL_SEMANTIC_THRESHOLD,
         "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
@@ -932,7 +962,7 @@ async def update_settings(settings_update: SettingsUpdate):
 
     if update.get("asr_default_engine"):
         engine = str(update["asr_default_engine"])
-        if engine not in {"auto", "deepgram", "whisper", "vosk", "local_auto"}:
+        if engine not in {"auto", "deepgram", "nemotron", "vosk", "local_auto"}:
             raise HTTPException(status_code=400, detail="Moteur ASR invalide")
         settings.ASR_DEFAULT_ENGINE = engine
         await db.set_setting("asr_default_engine", engine)

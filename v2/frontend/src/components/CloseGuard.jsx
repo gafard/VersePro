@@ -40,24 +40,28 @@ export default function CloseGuard() {
   }
 
   return (
-    <div className="vp-modal-backdrop" role="presentation">
-      <div className="vp-modal close-guard" role="alertdialog" aria-modal="true"
-           aria-labelledby="close-guard-titre">
-        <div className="settings-card-head">
-          <div>
-            <span>Direct en cours</span>
-            <h2 id="close-guard-titre">Fermer VersePro maintenant ?</h2>
-          </div>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px] z-modal flex items-center justify-center p-4 animate-fade" role="presentation">
+      <div className="w-full max-w-[480px] bg-surface-raised border border-border-strong rounded-modal p-6 shadow-elev-4 space-y-4 animate-scale-up" role="alertdialog" aria-modal="true" aria-labelledby="close-guard-titre">
+        <div>
+          <span className="text-[11px] uppercase tracking-wider font-mono font-semibold text-status-warn">Direct en cours</span>
+          <h2 id="close-guard-titre" className="text-lg font-bold text-text-primary mt-0.5">Fermer VersePro maintenant ?</h2>
         </div>
-        <p>
+        <p className="text-sm text-text-secondary leading-relaxed">
           Le micro est ouvert et la régie est en service. Fermer l'application
           coupe la projection : l'écran de l'assemblée deviendra noir.
         </p>
-        <div className="flex gap-2 justify-end">
-          <button className="vp-btn vp-btn--primary" autoFocus onClick={() => setDemandee(false)}>
+        <div className="flex gap-2.5 justify-end pt-2">
+          <button
+            className="px-4 py-2 text-sm font-medium rounded-input bg-accent text-accent-ink font-semibold hover:bg-accent-hover transition-colors shadow-elev-1"
+            autoFocus
+            onClick={() => setDemandee(false)}
+          >
             Rester en direct
           </button>
-          <button className="vp-btn vp-btn--danger" onClick={quitter}>
+          <button
+            className="px-4 py-2 text-sm font-medium rounded-input bg-status-danger/15 text-status-danger border border-status-danger/40 hover:bg-status-danger/25 transition-colors"
+            onClick={quitter}
+          >
             Fermer quand même
           </button>
         </div>

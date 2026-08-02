@@ -22,7 +22,7 @@ const QUICK_REFS = [
 const ASR_LABELS = {
   deepgram: 'Deepgram cloud',
   vosk: 'Vosk local',
-  whisper: 'Whisper local'
+  nemotron: 'Nemotron local'
 }
 
 /** Décale le numéro de verset d'une référence "Livre C:V" (navigation de lecture) */
@@ -89,6 +89,67 @@ export default function LiveDetection({ setActiveTab }) {
   })
   const lastAdvancedRef = useRef(null)
   const advanceTimerRef = useRef(null)
+
+  const { activeBible, undoLastProjection } = useStore()
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [comparePreviews, setComparePreviews] = useState(null)
+
+  // Raccourci global Cmd+Z / Ctrl+Z (Annulation immédiate de projection / version)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        // Empêche le comportement d'annulation natif du champ texte si on n'est pas dans un input
+        if (!['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+          e.preventDefault()
+          undoLastProjection()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [undoLastProjection])
+
+  // Détection vocale ASR non-automatique des demandes de version
+  const voiceSuggestedVersion = useMemo(() => {
+    if (!currentTranscript) return null
+    const lower = currentTranscript.toLowerCase()
+    let detected = null
+    if (lower.includes('semeur') || lower.includes('bible du semeur')) detected = 'SEM'
+    else if (lower.includes('tob') || lower.includes('œcuménique')) detected = 'TOB'
+    else if (lower.includes('king james') || lower.includes('kjf')) detected = 'KJF'
+    else if (lower.includes('français courant') || lower.includes('bfc')) detected = 'FC'
+    else if (lower.includes('nouvelle bible segond') || lower.includes('nbs')) detected = 'NBS'
+    else if (lower.includes('louis segond') || lower.includes('segond 1910')) detected = 'LSG'
+
+    const currentOnAirVersion = onAir?.version || activeBible || 'LSG'
+    if (detected === currentOnAirVersion) return null // No-Op si déjà actif !
+    return detected
+  }, [currentTranscript, onAir, activeBible])
+
+  const handleSwitchVersion = async (targetVersion) => {
+    if (!onAirDisplay?.reference) return
+    const currentOnAirVersion = onAirDisplay?.version || activeBible || 'LSG'
+    if (targetVersion === currentOnAirVersion) return // Smart No-Op !
+
+    await sendReference(onAirDisplay.reference, targetVersion)
+  }
+
+  const toggleCompareMode = async (ref) => {
+    if (compareOpen) {
+      setCompareOpen(false)
+      return
+    }
+    setCompareOpen(true)
+    try {
+      const resp = await fetch(`${BACKEND_BASE}/api/v1/bible/search?q=${encodeURIComponent(ref)}&limit=1`)
+      const data = await resp.json()
+      if (data?.results?.[0]?.translations) {
+        setComparePreviews(data.results[0].translations)
+      }
+    } catch {
+      setComparePreviews(null)
+    }
+  }
 
   const manualInputRef = useRef(null)
 
@@ -807,9 +868,54 @@ export default function LiveDetection({ setActiveTab }) {
             {/* La clé change avec la référence : l'élément se remonte et rejoue
                 l'animation d'arrivée. L'œil voit que quelque chose vient de
                 prendre l'antenne, sans avoir à relire le texte. */}
-            <div key={onAirDisplay?.reference || 'vide'} className="live-onair-ref font-bold text-lg">
-              {onAirDisplay?.reference || '—'}
+            <div key={onAirDisplay?.reference || 'vide'} className="flex items-center justify-between">
+              <div className="live-onair-ref font-bold text-lg">
+                {onAirDisplay?.reference || '—'}
+              </div>
+              <span className="text-xs font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold">
+                {onAirDisplay?.version || activeBible || 'LSG'}
+              </span>
             </div>
+
+            {/* BARRE DE PILLS DE VERSIONS DANS LE HEADER (Accès 1-Clic) */}
+            {onAirDisplay?.reference && (
+              <div className="flex items-center gap-1 overflow-x-auto py-1.5 my-1 border-y border-white/5">
+                {['LSG', 'NBS', 'SEM', 'TOB', 'FC', 'KJF'].map((ver) => {
+                  const currentVer = onAirDisplay?.version || activeBible || 'LSG'
+                  const isActive = currentVer === ver
+                  return (
+                    <button
+                      key={ver}
+                      onClick={() => handleSwitchVersion(ver)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium transition-all ${
+                        isActive
+                          ? 'bg-sky-500 text-white font-bold shadow-sm'
+                          : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
+                      }`}
+                      title={`Basculer vers ${BIBLE_NAMES[ver] || ver}`}
+                    >
+                      {ver} {isActive ? '★' : ''}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* SUGGESTION VOCALE ASR (NON-AUTOMATIQUE) */}
+            {voiceSuggestedVersion && onAirDisplay?.reference && (
+              <div className="flex items-center justify-between p-2 my-2 bg-sky-500/10 border border-sky-500/30 rounded-xl text-xs animate-in fade-in">
+                <span className="text-sky-300 font-medium flex items-center gap-1.5">
+                  🎙️ Le pasteur a demandé : <strong className="text-white">{BIBLE_NAMES[voiceSuggestedVersion]} ({voiceSuggestedVersion})</strong>
+                </span>
+                <button
+                  onClick={() => handleSwitchVersion(voiceSuggestedVersion)}
+                  className="px-2.5 py-1 rounded bg-sky-500 text-slate-950 font-bold text-[11px] hover:bg-sky-400 transition-all"
+                >
+                  Appliquer [ ESPACE ]
+                </button>
+              </div>
+            )}
+
             <p
               className="live-onair-text"
               tabIndex={0}
@@ -824,6 +930,41 @@ export default function LiveDetection({ setActiveTab }) {
               </div>
             )}
             
+            {/* BOUTON COMPARER LES VERSIONS (APERÇU MULTI-VERSION) */}
+            {onAirDisplay?.reference && (
+              <div className="mb-2">
+                <button
+                  onClick={() => toggleCompareMode(onAirDisplay.reference)}
+                  className="w-full py-1 px-2.5 rounded-lg bg-slate-800/60 border border-white/5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-between"
+                >
+                  <span>Comparer les versions</span>
+                  <span className="text-[10px] font-mono opacity-70">{compareOpen ? '▲ Masquer' : '▼ Aperçu'}</span>
+                </button>
+
+                {compareOpen && comparePreviews && (
+                  <div className="mt-2 space-y-1.5 p-2 rounded-xl bg-slate-950/80 border border-white/10 max-h-48 overflow-y-auto">
+                    {Object.entries(comparePreviews).map(([ver, text]) => (
+                      <div
+                        key={ver}
+                        onClick={() => handleSwitchVersion(ver)}
+                        className={`p-2 rounded-lg text-xs cursor-pointer border transition-all ${
+                          (onAirDisplay?.version || activeBible) === ver
+                            ? 'bg-sky-500/10 border-sky-500/40 text-sky-200'
+                            : 'bg-slate-900/60 border-white/5 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-mono font-bold text-[10px] text-sky-400 mb-0.5">
+                          <span>{ver} — {BIBLE_NAMES[ver] || ver}</span>
+                          {(onAirDisplay?.version || activeBible) === ver && <span>★ À l'antenne</span>}
+                        </div>
+                        <p className="line-clamp-2 text-[11px] leading-relaxed text-slate-300">{text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="live-onair-controls grid grid-cols-2 gap-2">
               <button className="vp-btn vp-btn--sm py-1" onClick={() => handleShiftVerse(-1)} disabled={!canShift}>
                 ← Préc.

@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import main as runtime
 from app.core.config import settings
 from app.services.semantic_search import LocalSemanticService
+from app.services.reference_engine import BibleReferenceEngine
 from app.services.verse_graph import VerseGraphService
 from app.services.transcription_health import SanteTranscription
 from app.services.verse_parser import VerseParserService
@@ -118,12 +119,16 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
     semantique = LocalSemanticService(parser.bible_loader)
     semantique.initialize(allow_download=False)
     graphe = VerseGraphService(semantique)
-    runtime.verse_parser = parser
-    runtime.semantic_service = semantique
-    runtime.verse_graph = graphe
+    moteur = BibleReferenceEngine(
+        verse_parser=parser,
+        semantic_service=semantique,
+        verse_graph=graphe,
+        ai_service=None,
+        settings=settings,
+    )
     settings.AI_AGENT_ENABLED = False  # on mesure la chaîne LOCALE
     sante = SanteTranscription()
-    runtime.sante_transcription = sante
+    moteur.sante_transcription = sante
 
     with tempfile.TemporaryDirectory() as temporaire:
         wav = Path(garder_wav) if garder_wav else Path(temporaire) / "audio.wav"
@@ -142,7 +147,7 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
         # d'être analysé, jamais après — sinon on jugerait la phrase courante
         # sur une statistique qui l'inclut déjà.
         sante.noter(segment["texte"])
-        resultat = await runtime.run_detection_cascade(segment["texte"], final_state=True)
+        resultat = await moteur.detecter_sans_effet(segment["texte"], final_state=True)
         if not resultat:
             continue
         # L'ancre se pose comme dans le direct : une citation énoncée ouvre un

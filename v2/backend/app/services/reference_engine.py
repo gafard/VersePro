@@ -7,6 +7,7 @@ import time
 import asyncio
 from typing import Optional, Dict, Any
 from loguru import logger
+from app.services.ai_service import AIService
 from app.services.detection_fusion import fuse as fuse_detection, strip_attribution
 
 BIBLE_KEYWORDS = {
@@ -149,13 +150,14 @@ class BibleReferenceEngine:
         if not res or not res.get("reference"):
             return None
 
-        # Validation stricte du résultat
+        # Validation stricte du résultat. La normalisation est une fonction de
+        # chaîne, pas une capacité du fournisseur : la prendre sur `type(...)`
+        # du service injecté obligeait TOUTE implémentation d'IA à exposer une
+        # méthode privée, et cassait dès qu'on branchait un autre fournisseur.
+        normaliser = AIService._normalize_reference
+        attendu = normaliser(res.get("reference", ""))
         selected = next(
-            (
-                candidate for candidate in shortlist
-                if type(self.ai_service)._normalize_reference(candidate.get("reference", ""))
-                == type(self.ai_service)._normalize_reference(res.get("reference", ""))
-            ),
+            (c for c in shortlist if normaliser(c.get("reference", "")) == attendu),
             None,
         )
         if not selected:
@@ -212,6 +214,16 @@ class BibleReferenceEngine:
             and ref.get("verse_start") is not None
             and not ref.get("requires_review")
         )
+
+    async def detecter_sans_effet(self, analysis_text: str, final_state: bool = True) -> Optional[Dict[str, Any]]:
+        """La cascade seule, sans toucher à l'état du direct.
+
+        `process()` mémorise la dernière référence pour ne pas la reproposer
+        pendant 8 secondes. Le mode répétition doit rejouer la MÊME cascade
+        sans polluer cette mémoire, sinon une répétition juste avant le culte
+        rendrait le moteur muet sur les premiers versets réellement cités.
+        """
+        return await self._run_detection_cascade(analysis_text, final_state)
 
     async def process(self, analysis_text: str, is_final: bool, generation: int, source_asr: str = "vosk", session_id: str = "local") -> Optional[Dict[str, Any]]:
         # 1. Parsing incrémental rapide (si partiel)

@@ -74,7 +74,7 @@ export default function Settings() {
     semanticStatus,
     fetchIntelligenceStatus,
     prepareSemanticIndex,
-    prepareWhisper,
+    prepareLocalAsr,
     connected,
     connectionStatus,
     audioDevices,
@@ -293,9 +293,9 @@ export default function Settings() {
   const prepareLocalEngine = async (kind) => {
     setPreparingLocal(kind)
     try {
-      if (kind === 'whisper') {
-        await prepareWhisper('auto')
-        addToast({ message: 'Préparation de Whisper lancée', kind: 'success' })
+      if (kind === 'nemotron') {
+        await prepareLocalAsr()
+        addToast({ message: 'Téléchargement du moteur local lancé (716 Mo)', kind: 'success' })
       } else {
         await prepareSemanticIndex()
         addToast({ message: 'Indexation sémantique lancée', kind: 'success' })
@@ -399,63 +399,63 @@ export default function Settings() {
               <h2>Transcription et recherche hors ligne</h2>
             </div>
             <span className={`vp-chip ${semanticStatus?.installed ? 'is-accent' : ''}`}>
-              {semanticStatus?.installed && asrStatus?.whisper?.ready
+              {semanticStatus?.installed && asrStatus?.nemotron?.ready
                 ? 'Prêt'
                 : semanticStatus?.installed
                   ? 'Recherche prête'
-                  : asrStatus?.whisper?.ready
+                  : asrStatus?.nemotron?.ready
                     ? 'Voix prête'
                     : 'À préparer'}
             </span>
           </div>
           <p>
             Le mode automatique privilégie Deepgram quand Internet est disponible,
-            puis bascule sur Vosk local si la connexion tombe. Whisper, plus lent
-            au réel, reste un second choix explicite.
+            puis bascule sur un moteur local si la connexion tombe. Nemotron est
+            le moteur local recommandé ; Vosk reste le secours, plus léger.
           </p>
           <div className="settings-form-grid">
             <label>
               <small>Moteur par défaut</small>
               <select value={form.asr_default_engine} onChange={(e) => updateField('asr_default_engine', e.target.value)}>
-                <option value="auto">Auto (Deepgram puis local)</option>
-                <option value="deepgram">Deepgram cloud</option>
-                <option value="local_auto">Local auto (Vosk puis Whisper)</option>
-                <option value="vosk">Vosk local (recommandé)</option>
-                <option value="whisper">Whisper local (plus lent)</option>
+                <option value="auto">Auto (Deepgram Cloud puis Nemotron local)</option>
+                <option value="deepgram">Deepgram Cloud (Rapide &lt; 0.5 s)</option>
+                <option value="nemotron">Nemotron 3.5-ASR 0.6B (Recommandé Local, 716 Mo)</option>
+                <option value="vosk">Vosk local (Secours)</option>
               </select>
             </label>
           </div>
           <div className="settings-divider">
             <div className="settings-card-head">
               <div>
-                <small>Whisper local adaptatif</small>
+                <small>Nemotron 3.5-ASR local</small>
                 <p>
-                  {asrStatus?.whisper?.ready
-                    ? `Prêt · modèle ${asrStatus.whisper.model}`
-                    : asrStatus?.whisper?.preparing
-                      ? 'Téléchargement ou chargement en cours'
-                      : `Non préparé · modèle conseillé ${asrStatus?.whisper?.model || 'auto'}`}
+                  {asrStatus?.nemotron?.ready
+                    ? 'Prêt · décodage en flux, hors ligne'
+                    : asrStatus?.nemotron?.downloading
+                      ? `Téléchargement en cours · ${Math.round((asrStatus.nemotron.download_progress || 0) * 100)} %`
+                      : `Non préparé · ${asrStatus?.nemotron?.model_size_mb || 716} Mo à télécharger`}
                 </p>
               </div>
-              <span className={`vp-chip ${asrStatus?.whisper?.ready ? 'is-ok' : ''}`}>
-                {asrStatus?.whisper?.ready ? 'Prêt' : 'Optionnel'}
+              <span className={`vp-chip ${asrStatus?.nemotron?.ready ? 'is-ok' : ''}`}>
+                {asrStatus?.nemotron?.ready ? 'Prêt' : 'Optionnel'}
               </span>
             </div>
-            {asrStatus?.whisper?.last_error && !asrStatus?.whisper?.ready && (
+            {asrStatus?.nemotron?.last_error && !asrStatus?.nemotron?.ready && (
               <span className="settings-error-note" role="alert">
-                Échec : {asrStatus.whisper.last_error}
+                Échec : {asrStatus.nemotron.last_error}
               </span>
             )}
             <button
               type="button"
               className="vp-btn vp-btn--sm"
-              onClick={() => prepareLocalEngine('whisper')}
-              disabled={preparingLocal === 'whisper' || asrStatus?.whisper?.preparing}
+              onClick={() => prepareLocalEngine('nemotron')}
+              disabled={preparingLocal === 'nemotron' || asrStatus?.nemotron?.downloading}
             >
-              {asrStatus?.whisper?.ready ? 'Whisper prêt' : 'Préparer Whisper'}
+              {asrStatus?.nemotron?.ready ? 'Moteur local prêt' : 'Préparer le moteur local'}
             </button>
             <span className="settings-muted-note">
-              Plus robuste que Vosk sur les accents et le multilingue, avec une latence par fenêtre d'environ 2,4 secondes sur CPU.
+              Décodage en flux, sans Internet. Plus précis que Vosk sur les accents,
+              pour 716 Mo téléchargés une seule fois.
             </span>
           </div>
           <div className="settings-divider">

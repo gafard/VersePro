@@ -811,20 +811,58 @@ export const useStore = create((set, get) => ({
     }
   },
   
-  sendReference: async (reference) => {
+  undoHistory: [],
+
+  undoLastProjection: async () => {
+    const history = get().undoHistory
+    if (history.length === 0) {
+      get().addToast({ message: 'Rien à annuler', kind: 'info' })
+      return false
+    }
+
+    const previousState = history[history.length - 1]
+    const nextHistory = history.slice(0, -1)
+    set({ undoHistory: nextHistory })
+
+    if (!previousState || !previousState.reference) {
+      await get().clearProjectionScreen()
+      get().addToast({ message: 'Annulé (⌘Z) : Écran effacé', kind: 'success' })
+      return true
+    }
+
+    const sent = await get().sendReference(previousState.reference, previousState.version, true)
+    if (sent) {
+      get().addToast({ message: `Annulé (⌘Z) : Retour à ${previousState.reference} (${previousState.version || 'LSG'})`, kind: 'success' })
+    }
+    return sent
+  },
+
+  sendReference: async (reference, version = null, isUndo = false) => {
     try {
+      const activeVersion = version || get().activeBible || 'LSG'
+      const payloadRef = version ? `${reference}:${version}` : reference
+
+      // Sauvegarde dans l'historique d'annulation avant modification
+      const currentOnAir = get().onAir
+      if (!isUndo && currentOnAir) {
+        set((state) => ({
+          undoHistory: [...state.undoHistory.slice(-19), { ...currentOnAir, version: state.activeBible }]
+        }))
+      }
+
       const response = await fetch(`${BACKEND_BASE}/api/v1/references/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference })
+        body: JSON.stringify({ reference: payloadRef })
       })
       const data = await response.json().catch(() => ({}))
       if (response.ok && data?.success) {
         set({
-          onAir: { reference: data.reference, text: data.text || '', at: new Date().toISOString() },
+          onAir: { reference: data.reference, text: data.text || '', at: new Date().toISOString(), version: activeVersion },
+          activeBible: activeVersion,
           propresenterConnected: Boolean(data.propresenter_sent)
         })
-        get().addToast({ message: `Projeté : ${data.reference}`, kind: 'success' })
+        get().addToast({ message: `Projeté : ${data.reference} (${activeVersion})`, kind: 'success' })
       } else {
         get().addToast({ message: data?.detail || `Échec de projection : ${reference}`, kind: 'error' })
       }
@@ -982,11 +1020,13 @@ export const useStore = create((set, get) => ({
     return data
   },
 
-  prepareWhisper: async (model = 'auto') => {
+  // Prépare le moteur ASR local (Nemotron). Le backend ne prend plus de
+  // nom de modèle : il n'y en a qu'un, et c'est lui qui décide où le poser.
+  prepareLocalAsr: async () => {
     const response = await fetch(`${BACKEND_BASE}/api/v1/asr/prepare`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model })
+      body: JSON.stringify({})
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data?.detail || `Erreur serveur ${response.status}`)

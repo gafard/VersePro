@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import main as runtime
 from app.core.config import settings
 from app.services.semantic_search import LocalSemanticService
+from app.services.reference_engine import BibleReferenceEngine
 from app.services.verse_graph import VerseGraphService
 from app.services.verse_parser import VerseParserService
 
@@ -149,10 +150,16 @@ async def rejouer(cas: List[Dict[str, Any]], avec_audio: bool = True,
     semantique.initialize(allow_download=False)
     graphe = VerseGraphService(semantique)
 
-    runtime.verse_parser = parser
-    runtime.semantic_service = semantique
-    runtime.verse_graph = graphe if avec_graphe else None
-    runtime.ai_service = IANeutralisee()
+    # La cascade vit dans BibleReferenceEngine depuis le découplage ASR. On
+    # instancie le moteur ICI plutôt que de câbler des globales sur `main` :
+    # la mesure montre alors exactement quels services y entrent.
+    moteur = BibleReferenceEngine(
+        verse_parser=parser,
+        semantic_service=semantique,
+        verse_graph=graphe if avec_graphe else None,
+        ai_service=IANeutralisee(),
+        settings=settings,
+    )
     settings.AI_AGENT_ENABLED = False
 
     lignes: List[Dict[str, Any]] = []
@@ -185,7 +192,7 @@ async def rejouer(cas: List[Dict[str, Any]], avec_audio: bool = True,
 
         attendu = await _canonique(parser, item.get("expected"))
         depart = time.perf_counter()
-        resultat = await runtime.run_detection_cascade(texte, final_state=True)
+        resultat = await moteur.detecter_sans_effet(texte, final_state=True)
         latence = (time.perf_counter() - depart) * 1000
         latences.append(latence)
 

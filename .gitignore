@@ -96,3 +96,20 @@ v2/frontend/src-tauri/gen/
 # attendue — sont partagés. Voir v2/backend/corpus/README.md.
 v2/backend/corpus/cas/**/audio.wav
 v2/backend/corpus/**/*.wav
+
+# Modèles ASR locaux (Nemotron, sherpa…) — 2,7 Go de binaires téléchargés à la
+# demande par le logiciel. Ils ne doivent JAMAIS entrer dans le dépôt : GitHub
+# refuse au-delà de 100 Mo, et un blob poussé une fois reste dans l'historique.
+v2/backend/data/models/
+*.gguf
+
+# Binaires natifs compilés localement (parakeet.cpp) : ils dépendent de la
+# machine qui les a produits.
+v2/backend/bin/
+
+# Sorties de travail : transcriptions, extraits audio, rapports d'écoute.
+# Elles contiennent de la parole d'assemblée — voir corpus/README.md.
+v2/backend/tmp/
+
+# Essais jetables laissés à la racine du backend pendant l'exploration.
+v2/backend/scratch_test*.py

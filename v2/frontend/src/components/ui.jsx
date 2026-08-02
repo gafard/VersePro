@@ -35,12 +35,18 @@ export function Icon({ name, size = 15, className, style }) {
 
 /* ── Squelette de chargement ── */
 export function Skeleton({ width = '100%', height = 14, style, className = '' }) {
-  return <div className={`vp-skeleton ${className}`} style={{ width, height, ...style }} aria-hidden="true" />
+  return (
+    <div
+      className={`bg-surface-elevated border border-border/30 rounded animate-pulse ${className}`}
+      style={{ width, height, ...style }}
+      aria-hidden="true"
+    />
+  )
 }
 
 export function SkeletonRows({ rows = 4, height = 56, gap = 10 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap }} role="status" aria-label="Chargement…">
+    <div className="flex flex-col" style={{ gap }} role="status" aria-label="Chargement…">
       {Array.from({ length: rows }, (_, i) => <Skeleton key={i} height={height} />)}
     </div>
   )
@@ -49,11 +55,11 @@ export function SkeletonRows({ rows = 4, height = 56, gap = 10 }) {
 /* ── État vide ── */
 export function EmptyState({ icon = 'inbox', title, children, action }) {
   return (
-    <div className="live-empty" role="status">
-      <span style={{ color: 'var(--vp-text-faint)', marginBottom: 4 }}><Icon name={icon} size={22} /></span>
-      <strong>{title}</strong>
-      {children && <p>{children}</p>}
-      {action}
+    <div className="flex flex-col items-center justify-center p-8 text-center rounded-card border border-dashed border-border-strong bg-surface-base/40 my-3" role="status">
+      <span className="text-text-faint mb-1.5"><Icon name={icon} size={22} /></span>
+      <strong className="text-sm font-semibold text-text-primary">{title}</strong>
+      {children && <p className="text-xs text-text-muted mt-1 max-w-md leading-relaxed">{children}</p>}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   )
 }
@@ -63,20 +69,35 @@ export function ToastHost() {
   const { toasts, dismissToast } = useStore()
   if (!toasts.length) return null
   return (
-    <div className="vp-toast-host" role="status" aria-live="polite">
-      {toasts.map((toast) => (
-        <div key={toast.id} className={`vp-toast is-${toast.kind}`}>
-          <span className="vp-toast-icon">
-            <Icon name={toast.kind === 'error' ? 'alert' : 'check'} size={15} />
-          </span>
-          <span>{toast.message}</span>
-          {toast.action && (
-            <button onClick={() => { toast.action.onClick(); dismissToast(toast.id) }}>
-              {toast.action.label}
-            </button>
-          )}
-        </div>
-      ))}
+    <div className="fixed bottom-6 right-6 z-toast flex flex-col gap-2.5 max-w-sm pointer-events-none" role="status" aria-live="polite">
+      {toasts.map((toast) => {
+        const isError = toast.kind === 'error'
+        return (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-card bg-surface-raised border shadow-elev-3 text-sm animate-slide-in ${
+              isError
+                ? 'border-status-danger/40 text-status-danger bg-status-danger/10'
+                : 'border-border-strong text-text-primary'
+            }`}
+          >
+            <span className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-full ${
+              isError ? 'bg-status-danger/20 text-status-danger' : 'bg-status-ok/20 text-status-ok'
+            }`}>
+              <Icon name={isError ? 'alert' : 'check'} size={14} />
+            </span>
+            <span className="flex-1 font-medium">{toast.message}</span>
+            {toast.action && (
+              <button
+                className="px-2.5 py-1 text-xs font-semibold rounded bg-accent text-accent-ink hover:bg-accent-hover transition-colors ml-2"
+                onClick={() => { toast.action.onClick(); dismissToast(toast.id) }}
+              >
+                {toast.action.label}
+              </button>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

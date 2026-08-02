@@ -7,7 +7,7 @@ de PyInstaller ne suit pas seule :
   - onnxruntime  (encodeur e5 : .dylib + capi)
   - tokenizers   (extension Rust)
   - vosk         (libvosk + bindings)
-  - faster-whisper / ctranslate2 (moteur local natif)
+  - huggingface_hub (téléchargement du modèle Nemotron)
   - keyring      (trousseau macOS / Windows)
   - uvicorn      (workers/protocols chargés dynamiquement)
 On NE bundle PAS les modèles : ils sont préparés explicitement dans le dossier
@@ -27,6 +27,19 @@ for src, dst in (
 ):
     if os.path.exists(src):
         datas.append((src, dst))
+
+# Binaire C++ natif d'accélération ASR (transcribe-cli / Metal GPU)
+_cli_bin = os.path.join(SPECPATH, "bin", "transcribe-cli")
+if os.path.exists(_cli_bin):
+    binaries.append((_cli_bin, "bin"))
+
+# Bibliothèque partagée de parakeet.cpp (moteur Nemotron). Elle n'existe que si
+# parakeet.cpp a été compilé avec BUILD_SHARED_LIBS=ON ; la compilation par
+# défaut ne produit qu'un .a statique, inutilisable par ctypes.
+for _lib in ("libparakeet.dylib", "libparakeet.so", "parakeet.dll"):
+    _p = os.path.join(SPECPATH, "bin", _lib)
+    if os.path.exists(_p):
+        binaries.append((_p, "bin"))
 
 # Index sémantique PRÉ-CALCULÉ (e5-base, float16, ~49 Mo npz+json) : identique
 # pour tous les postes (même Bible, même modèle), il est livré avec l'app et
@@ -57,7 +70,7 @@ if os.path.isdir(_fonts):
             datas.append((os.path.join(_fonts, _f), os.path.join("data", "fonts")))
 
 for pkg in (
-    "onnxruntime", "tokenizers", "vosk", "faster_whisper", "ctranslate2",
+    "onnxruntime", "tokenizers", "vosk",
     "huggingface_hub", "keyring",
     # certifi : sans son cacert.pem embarqué, l'application figée n'a AUCUNE
     # autorité de certification et tout téléchargement de modèle meurt en

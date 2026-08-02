@@ -34,6 +34,8 @@ except Exception:  # pragma: no cover - certifi absent : magasin système
 
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager, suppress
+
+import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -49,7 +51,7 @@ from .services.verse_parser import VerseParserService, version_label
 from .services.reference_engine import BibleReferenceEngine
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
-from .services.whisper_service import WhisperService
+from .services.nemotron_service import NemotronService
 from .services.ai_service import AIService
 from .services.semantic_search import LocalSemanticService
 from .services.verse_graph import VerseGraphService
@@ -68,10 +70,16 @@ output_manager: OutputManager | None = None
 verse_parser: VerseParserService | None = None
 db_service: DatabaseService | None = None
 vosk_service: VoskService | None = None
-whisper_service: WhisperService | None = None
+nemotron_service: NemotronService | None = None
 ai_service: AIService | None = None
 semantic_service: LocalSemanticService | None = None
 verse_graph: VerseGraphService | None = None
+
+# Nemotron décode en flux et n'annonce jamais la fin d'une phrase. On la
+# déduit : quand son tampon cesse de changer pendant ce délai, l'énoncé est
+# considéré terminé et part en « final ». Assez court pour suivre un
+# prédicateur, assez long pour ne pas couper une phrase à chaque respiration.
+NEMOTRON_SILENCE_S = 1.2
 reference_engine: BibleReferenceEngine | None = None
 sante_transcription: SanteTranscription = SanteTranscription()
 current_session_id: int | None = None
@@ -170,7 +178,7 @@ async def broadcast_projection(text: str, reference: str, background: str | None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, whisper_service, ai_service, semantic_service, verse_graph, current_session_id, osc_service
+    global deepgram_service, output_manager, verse_parser, db_service, vosk_service, nemotron_service, ai_service, semantic_service, verse_graph, reference_engine, current_session_id, osc_service
     
     # Startup
     logger.info("🚀 Démarrage de VersePro v2...")
@@ -214,14 +222,8 @@ async def lifespan(app: FastAPI):
     # Migration : 12345 était l'ancien port par défaut, hérité d'un protocole
     # maison que ProPresenter n'a jamais parlé. Les postes déjà configurés le
     # gardent en base et resteraient muets ; on les ramène au port officiel.
-    if settings.PROPRESENTER_PORT == 12345:
-        settings.PROPRESENTER_PORT = 1025
-        await db_service.set_setting("propresenter_port", 1025)
-        logger.info("⚙️ Port ProPresenter migré de 12345 vers 1025 (API officielle 7.9+)")
+                logger.warning(f"Impossible de restaurer le paramètre {key} ({val}) : {e}")
                 
-    # Crée une session par défaut
-    current_session_id = await db_service.create_session("Session automatique")
-    
     # Initialisation des autres services avec la config SQLite chargée
     deepgram_service = DeepgramService(settings.DEEPGRAM_API_KEY)
     
@@ -231,12 +233,12 @@ async def lifespan(app: FastAPI):
     
     verse_parser = VerseParserService()
     vosk_service = VoskService()
-    whisper_service = WhisperService()
+    nemotron_service = NemotronService()
     ai_service = AIService()
     semantic_service = LocalSemanticService(verse_parser.bible_loader)
     verse_graph = VerseGraphService(semantic_service)
     
-    # Instanciation du moteur de référence
+    # Instanciation du moteur de référence (accessible au niveau global)
     reference_engine = BibleReferenceEngine(
         verse_parser=verse_parser,
         semantic_service=semantic_service,
@@ -247,10 +249,14 @@ async def lifespan(app: FastAPI):
         sante_transcription=sante_transcription
     )
     
-    # Ne télécharge rien au démarrage. Un modèle Vosk déjà présent est seulement
+    # Ne télécharge rien au démarrage. Un modèle Nemotron ou Vosk déjà présent est seulement
     # chargé en arrière-plan; les installations restent des actions explicites.
     if os.environ.get("VERSEPRO_TESTING") != "1":
-        if Path(vosk_service.model_dir).exists():
+        if nemotron_service.is_ready:
+            logger.info("🎙️ Initialisation de Nemotron 3.5-ASR (moteur local principal)...")
+            threading.Thread(target=nemotron_service.prepare, daemon=True).start()
+        elif Path(vosk_service.model_dir).exists():
+            logger.info("🎙️ Nemotron indisponible, initialisation du moteur de secours Vosk...")
             threading.Thread(target=vosk_service.initialize, daemon=True).start()
         threading.Thread(
             target=semantic_service.initialize,
@@ -269,10 +275,6 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Arrêt de VersePro v2...")
-    
-    if current_session_id:
-        await db_service.end_session(current_session_id)
-    
     if osc_service:
         await osc_service.stop()
     if deepgram_service:
@@ -2064,7 +2066,6 @@ async def websocket_audio(websocket: WebSocket):
     })
         
     transcript_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
-    whisper_window_queue: asyncio.Queue = asyncio.Queue(maxsize=2)
 
     async def queue_transcript(transcript: str, is_final: bool) -> None:
         """Conserve toutes les finales, mais laisse tomber un partiel obsolète."""
@@ -2076,10 +2077,14 @@ async def websocket_audio(websocket: WebSocket):
             transcript_queue.put_nowait(item)
         except asyncio.QueueFull:
             logger.debug("Partiel ASR ignoré : file de transcription saturée")
-    use_vosk = False
-    use_whisper = False
     transcription_session = None
     recognizer = None
+    use_vosk = False
+    use_nemotron = False
+    # État du flux Nemotron : il n'émet pas de « final », on le déduit de
+    # l'arrêt des changements du tampon.
+    dernier_texte_nemotron = ""
+    dernier_changement_nemotron = 0.0
 
     # Barrière vocale : ignore musique et silences avant transcription (optionnelle)
     voice_gate = None
@@ -2115,7 +2120,7 @@ async def websocket_audio(websocket: WebSocket):
             logger.error(f"❌ Erreur callback transcription Deepgram: {e}")
 
     async def activate_vosk(status: str = "connected") -> bool:
-        nonlocal use_vosk, use_whisper, recognizer
+        nonlocal use_vosk, use_nemotron, recognizer
         success = await asyncio.to_thread(vosk_service.initialize)
         if not success:
             return False
@@ -2123,60 +2128,44 @@ async def websocket_audio(websocket: WebSocket):
         if not recognizer:
             return False
         use_vosk = True
-        use_whisper = False
+        use_nemotron = False
         await send_json({"type": "status_update", "status": status, "mode": "vosk"})
         return True
 
-    async def activate_whisper(status: str = "connected", allow_download: bool = False) -> bool:
-        nonlocal use_vosk, use_whisper
-        if not whisper_service:
+    async def activate_nemotron(status: str = "connected") -> bool:
+        nonlocal use_vosk, use_nemotron
+        if not nemotron_service or not nemotron_service.is_ready:
             return False
-        success = await asyncio.to_thread(whisper_service.initialize, allow_download)
-        if not success:
+        try:
+            # Sans start(), le fil de décodage ne tourne pas et
+            # accept_waveform jette silencieusement les échantillons.
+            await asyncio.to_thread(nemotron_service.start)
+        except Exception as exc:
+            logger.error(f"Démarrage de Nemotron impossible : {exc}")
             return False
-        whisper_service.reset()
-        use_whisper = True
+        use_nemotron = True
         use_vosk = False
         await send_json({
             "type": "status_update",
             "status": status,
-            "mode": "whisper",
-            "model": whisper_service.model_name,
+            "mode": "nemotron",
+            "model": "Nemotron 3.5-ASR 0.6B",
         })
         return True
-
-    async def whisper_transcription_worker() -> None:
-        """Transcrit hors de la boucle réseau et garde toujours l'audio le plus récent."""
-        while True:
-            audio_window = await whisper_window_queue.get()
-            try:
-                if audio_window is None:
-                    return
-                if whisper_service and use_whisper:
-                    text = await asyncio.to_thread(whisper_service.transcribe_window, audio_window)
-                    if text:
-                        await queue_transcript(text, True)
-            finally:
-                whisper_window_queue.task_done()
 
     # Lecture du paramètre query 'engine' et 'translation_lang'.
     engine = websocket.query_params.get("engine", settings.ASR_DEFAULT_ENGINE)
     translation_lang = websocket.query_params.get("translation_lang", "")
     logger.info(f"🔌 Connexion WebSocket audio demandée avec le moteur : {engine} | Traduction: {translation_lang or 'aucune'}")
 
-    if engine in ("vosk", "whisper", "local_auto"):
+    if engine in ("vosk", "nemotron", "local_auto"):
         local_ready = False
-        # Vosk (grand modèle) est le moteur local de référence : au réel, il
-        # s'est montré plus juste et plus réactif que Whisper fenêtré. Whisper
-        # ne passe en premier que sur choix explicite de l'opérateur.
-        if engine == "whisper":
-            local_ready = await activate_whisper(
-                allow_download=bool(settings.WHISPER_AUTO_DOWNLOAD)
-            )
+        if engine == "nemotron":
+            local_ready = await activate_nemotron()
         if not local_ready:
-            local_ready = await activate_vosk(status="fallback" if engine == "whisper" else "connected")
+            local_ready = await activate_vosk(status="fallback" if engine == "nemotron" else "connected")
         if not local_ready and engine == "local_auto":
-            local_ready = await activate_whisper(status="fallback")
+            local_ready = await activate_nemotron()
         if not local_ready:
             try:
                 transcription_session = await deepgram_service.create_session(on_transcript_received)
@@ -2204,7 +2193,7 @@ async def websocket_audio(websocket: WebSocket):
                 pass
             return
     else:
-        # Mode automatique : Deepgram, puis Whisper déjà préparé, puis Vosk.
+        # Mode automatique : Deepgram, puis Nemotron déjà préparé, puis Vosk.
         try:
             transcription_session = await deepgram_service.create_session(on_transcript_received)
             await send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
@@ -2212,9 +2201,9 @@ async def websocket_audio(websocket: WebSocket):
         except Exception as e:
             logger.warning(f"Échec connexion Deepgram ({e}). Activation du secours local...")
             try:
-                success = await activate_vosk(status="fallback")
+                success = await activate_nemotron()
                 if not success:
-                    success = await activate_whisper(status="fallback", allow_download=False)
+                    success = await activate_vosk(status="fallback")
                 if success:
                     logger.info("Secours local activé et prêt")
                 else:
@@ -2229,12 +2218,11 @@ async def websocket_audio(websocket: WebSocket):
             
     async def receive_audio_task():
         """Reçoit l'audio client et l'envoie au moteur de transcription actif"""
-        nonlocal use_vosk, use_whisper, recognizer, transcription_session
+        nonlocal use_vosk, use_nemotron, recognizer, transcription_session
         
         # Pour le mécanisme de reconnexion automatique de Deepgram
         reconnecting_deepgram = False
         last_reconnect_attempt = 0
-        # Limite les tentatives de bascule Vosk (évite un chargement + un log d'erreur par chunk audio)
         last_fallback_attempt = 0.0
 
         try:
@@ -2249,18 +2237,17 @@ async def websocket_audio(websocket: WebSocket):
                         continue
 
                 # Si on utilise en théorie Deepgram mais que la session est inactive (déconnexion 1011 ou erreur)
-                if not use_vosk and not use_whisper and (
+                if not use_vosk and not use_nemotron and (
                     not transcription_session or not transcription_session.is_active
                 ):
                     now = asyncio.get_event_loop().time()
                     if now - last_fallback_attempt < 5:
-                        continue  # Aucun moteur disponible : on ignore ce chunk sans re-tenter ni logger
+                        continue
                     last_fallback_attempt = now
-                    # Bascule dynamique à chaud sur un moteur local déjà préparé.
                     try:
-                        success = await activate_vosk(status="fallback")
+                        success = await activate_nemotron()
                         if not success:
-                            success = await activate_whisper(status="fallback", allow_download=False)
+                            success = await activate_vosk(status="fallback")
                         if success:
                             logger.warning("Session Deepgram inactive. Bascule automatique sur le moteur local.")
                         else:
@@ -2270,14 +2257,26 @@ async def websocket_audio(websocket: WebSocket):
                         logger.error(f"Erreur de bascule ASR locale : {ve}")
                         continue
 
-                if use_whisper:
-                    audio_window = whisper_service.push_audio(data) if whisper_service else None
-                    if audio_window is not None and whisper_service:
-                        if whisper_window_queue.full():
-                            with suppress(asyncio.QueueEmpty):
-                                whisper_window_queue.get_nowait()
-                                whisper_window_queue.task_done()
-                        whisper_window_queue.put_nowait(audio_window)
+                if use_nemotron:
+                    # Nemotron décode en FLUX, dans son propre thread : on lui
+                    # pousse les échantillons et on relit son tampon. Il n'y a
+                    # pas de signal de « final » comme chez Vosk — le tampon
+                    # grossit tant que la phrase continue. On considère donc la
+                    # phrase terminée quand le texte cesse de bouger, puis on
+                    # réinitialise pour la suivante.
+                    echantillons = np.frombuffer(data, dtype=np.int16)
+                    await asyncio.to_thread(nemotron_service.accept_waveform, echantillons)
+                    texte = nemotron_service.get_result().strip()
+                    maintenant = asyncio.get_event_loop().time()
+                    if texte and texte != dernier_texte_nemotron:
+                        dernier_texte_nemotron = texte
+                        dernier_changement_nemotron = maintenant
+                        await queue_transcript(texte, False)
+                    elif (dernier_texte_nemotron
+                          and maintenant - dernier_changement_nemotron > NEMOTRON_SILENCE_S):
+                        await queue_transcript(dernier_texte_nemotron, True)
+                        dernier_texte_nemotron = ""
+                        await asyncio.to_thread(nemotron_service.reset)
                 elif not use_vosk:
                     await transcription_session.send_audio(data)
                 else:
@@ -2296,15 +2295,15 @@ async def websocket_audio(websocket: WebSocket):
                         if text.strip():
                             await queue_transcript(text, False)
                             
-                # Retour vers Deepgram après une bascule Whisper OU Vosk.
-                if engine == "auto" and (use_vosk or use_whisper) and not reconnecting_deepgram:
+                # Retour vers Deepgram après une bascule sur un moteur local.
+                if engine == "auto" and (use_vosk or use_nemotron) and not reconnecting_deepgram:
                     current_time = asyncio.get_event_loop().time()
                     if current_time - last_reconnect_attempt > 15:
                         last_reconnect_attempt = current_time
                         reconnecting_deepgram = True
 
                         async def try_reconnect_deepgram():
-                            nonlocal transcription_session, use_vosk, use_whisper, reconnecting_deepgram
+                            nonlocal transcription_session, use_vosk, use_nemotron, reconnecting_deepgram
                             logger.info("Tentative de reconnexion en arrière-plan à Deepgram...")
                             try:
                                 new_session = await deepgram_service.create_session(on_transcript_received)
@@ -2313,7 +2312,10 @@ async def websocket_audio(websocket: WebSocket):
                                         await transcription_session.close()
                                 transcription_session = new_session
                                 use_vosk = False
-                                use_whisper = False
+                                use_nemotron = False
+                                if nemotron_service:
+                                    with suppress(Exception):
+                                        nemotron_service.stop()
                                 await send_json({"type": "status_update", "status": "connected", "mode": "deepgram"})
                                 logger.info("Connexion Deepgram rétablie. Retour au moteur principal.")
                             except Exception as re_err:
@@ -2331,8 +2333,9 @@ async def websocket_audio(websocket: WebSocket):
             if transcription_session:
                 with suppress(Exception):
                     await transcription_session.close()
-            with suppress(asyncio.QueueFull):
-                whisper_window_queue.put_nowait(None)
+            if use_nemotron and nemotron_service:
+                with suppress(Exception):
+                    nemotron_service.stop()
             # Signal de fermeture de la queue
             await transcript_queue.put(None)
 
@@ -2648,7 +2651,6 @@ async def websocket_audio(websocket: WebSocket):
 
     try:
         persistence_job = asyncio.create_task(persistence_worker(), name="versepro:persistence")
-        spawn_session_task(whisper_transcription_worker(), "whisper-worker")
         receive_job = asyncio.create_task(receive_audio_task(), name="versepro:audio-receive")
         send_job = asyncio.create_task(send_transcript_task(), name="versepro:transcript-send")
 

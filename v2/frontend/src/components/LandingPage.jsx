@@ -170,7 +170,7 @@ export default function LandingPage({ setActiveTab }) {
           <article className="lp-card">
             <span className="lp-flow-index">01</span>
             <h3>le micro entre, le texte sort.</h3>
-            <p>le flux audio est transcrit en direct — avec deepgram, whisper ou vosk. le prétraitement reste désactivable pour préserver une sortie console propre.</p>
+            <p>le flux audio est transcrit en direct — avec deepgram, nemotron ou vosk. le prétraitement reste désactivable pour préserver une sortie console propre.</p>
           </article>
           <article className="lp-card">
             <span className="lp-flow-index">02</span>
@@ -209,7 +209,7 @@ export default function LandingPage({ setActiveTab }) {
           <span>VERSEPRO · V2</span>
           <span>{connected ? 'SERVEUR · PRÊT' : 'SERVEUR · HORS LIGNE'}</span>
           <span>{propresenterConnected ? 'PROPRESENTER · ACTIF' : 'PROPRESENTER · MANUEL'}</span>
-          <span>{asrStatus?.whisper?.ready || asrStatus?.vosk?.available ? 'MOTEUR LOCAL · PRÊT' : 'MODE LOCAL · À PRÉPARER'}</span>
+          <span>{asrStatus?.nemotron?.ready || asrStatus?.vosk?.available ? 'MOTEUR LOCAL · PRÊT' : 'MODE LOCAL · À PRÉPARER'}</span>
         </div>
       </footer>
     </div>

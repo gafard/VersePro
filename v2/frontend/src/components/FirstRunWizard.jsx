@@ -1,153 +1,93 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store.js'
 import { Icon } from './ui.jsx'
-import { BACKEND_BASE } from '../env.js'
+import { BACKEND_BASE, openExternal } from '../env.js'
 
 /*
- * Premier lancement — séquence cinématique « préparation de la régie ».
- * Trois temps : PRÉPARATION (scan sonar du poste + installation des composants
- * IA avec anneaux de progression), MICRO (visualiseur d'onde live), PRÊT
- * (révélation finale + clé cloud). Toute la logique fonctionnelle (statuts,
- * téléchargements, test micro) est conservée ; c'est l'enveloppe qui devient
- * vivante. Design : palette Lumen Night Foundry, display Space Grotesk.
+ * FirstRunWizard - Séquence d'Onboarding Cinématique WOOW
+ * Inspirée d'Originkit, Reactbits et CanvasUI.
+ *
+ * Étape 1 : CHOIX DU MODE (Radio cards 3D : Hybrid, Offline, Cloud)
+ * Étape 2 : INSTALLATION & TÉLÉCHARGEMENT NEMOTRON (Barre de progression live 716 Mo)
+ * Étape 3 : TEST MICRO (Égaliseur audio HD réactif)
+ * Étape 4 : CLÉ CLOUD DEEPGRAM (Bouton d'aide + lien direct console.deepgram.com)
  */
 
-const STEPS = ['preparation', 'micro', 'pret']
-
-// ── Anneau de progression circulaire (SVG) ──
-function Ring({ pct, size = 128, stroke = 6, state = 'idle', big }) {
-  const r = (size - stroke * 2) / 2
-  const c = 2 * Math.PI * r
-  const clamped = Math.max(0, Math.min(100, pct || 0))
-  const off = c * (1 - clamped / 100)
-  return (
-    <div className={`fw-ring fw-ring--${state}`} style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle className="fw-ring-track" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" />
-        <circle
-          className="fw-ring-fill" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none"
-          strokeLinecap="round" strokeDasharray={c} strokeDashoffset={state === 'done' ? 0 : off}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-      </svg>
-      <div className="fw-ring-core">
-        {state === 'done'
-          ? <Icon name="check" size={big ? 30 : 22} />
-          : <span className="fw-ring-pct">{Math.round(clamped)}<i>%</i></span>}
-      </div>
-    </div>
-  )
-}
+const STEPS = ['mode', 'installation', 'micro', 'pret']
 
 export default function FirstRunWizard({ onDone }) {
   const { updateSettings } = useStore()
   const [step, setStep] = useState(0)
   const [entered, setEntered] = useState(false)
-  useEffect(() => { const t = setTimeout(() => setEntered(true), 40); return () => clearTimeout(t) }, [])
 
-  // ── Statuts Vosk + sémantique (scan continu) ──
-  // ── Ouverture cinématique ──
-  // La séquence se joue TOUJOURS, même quand les moteurs sont déjà installés.
-  // Sans cela un poste déjà équipé ouvrait l'assistant sur son image finale :
-  // anneau coché, trois lignes vertes, plus rien en mouvement. L'opérateur ne
-  // voyait pas ce qui avait été vérifié — il voyait un écran mort.
-  const REVEAL_AT_MS = [1450, 1720, 1990]
-  const SETTLE_AT_MS = 2320
-  const [revealed, setRevealed] = useState(0)
-  const [settled, setSettled] = useState(false)
-  const reducedMotion = useRef(
-    typeof window !== 'undefined'
-    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  ).current
+  // Mode choisi par l'utilisateur : 'hybrid' (recommandé), 'offline', 'cloud'
+  const [usageMode, setUsageMode] = useState('hybrid')
+
   useEffect(() => {
-    if (reducedMotion) { setRevealed(3); setSettled(true); return }
-    const timers = REVEAL_AT_MS.map((ms, i) => setTimeout(() => setRevealed(i + 1), ms))
-    timers.push(setTimeout(() => setSettled(true), SETTLE_AT_MS))
-    return () => timers.forEach(clearTimeout)
+    const t = setTimeout(() => setEntered(true), 40)
+    return () => clearTimeout(t)
   }, [])
 
-  const [vosk, setVosk] = useState(null)
+  // ── Statuts Moteurs (Nemotron + Sémantique) ──
+  const [nemo, setNemo] = useState(null)
   const [sem, setSem] = useState(null)
   const [scanned, setScanned] = useState(false)
   const [backendDown, setBackendDown] = useState(false)
-  const downSinceRef = useRef(null)
-  const [launched, setLaunched] = useState(false)
-  const autoAdvanced = useRef(false)
+  const [downloadStarted, setDownloadStarted] = useState(false)
 
   const pollStatuses = async () => {
-    // Sans délai, une requête émise pendant que le moteur charge ses index peut
-    // rester suspendue et figer le sondage. On abandonne au bout de 8 s : la
-    // tentative suivante (toutes les 1,5 s) reprendra la main.
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
+    const timeout = setTimeout(() => controller.abort(), 6000)
     try {
-      const [vr, sr] = await Promise.all([
-        fetch(`${BACKEND_BASE}/api/v1/vosk/status`, { signal: controller.signal }),
+      const [nr, sr] = await Promise.all([
+        fetch(`${BACKEND_BASE}/api/v1/nemotron/status`, { signal: controller.signal }),
         fetch(`${BACKEND_BASE}/api/v1/semantic/status`, { signal: controller.signal })
       ])
-      setVosk(await vr.json()); setSem(await sr.json())
-      setBackendDown(false); downSinceRef.current = null
+      setNemo(await nr.json())
+      setSem(await sr.json())
+      setBackendDown(false)
     } catch {
       setBackendDown(true)
-      if (downSinceRef.current === null) downSinceRef.current = Date.now()
-    } finally { clearTimeout(timeout); setScanned(true) }
-  }
-  useEffect(() => { pollStatuses(); const id = setInterval(pollStatuses, 1500); return () => clearInterval(id) }, [])
-
-  // Passé un délai généreux, « patientez » devient un mensonge : un moteur qui
-  // n'a pas répondu en 45 s ne charge plus ses index, il ne démarre pas. Un
-  // poste d'église a connu ce cas — installation faite par-dessus une version
-  // en cours d'exécution, bibliothèque sautée, moteur incapable de vivre.
-  const [tropLong, setTropLong] = useState(false)
-  useEffect(() => {
-    if (!backendDown) { setTropLong(false); return }
-    const id = setInterval(() => {
-      const depuis = downSinceRef.current
-      if (depuis && Date.now() - depuis > 45000) setTropLong(true)
-    }, 2000)
-    return () => clearInterval(id)
-  }, [backendDown])
-
-  const voskReady = Boolean(vosk?.installed)
-  const semReady = Boolean(sem?.installed)
-  const voskBusy = Boolean(vosk?.downloading)
-  const semBusy = Boolean(sem && (sem.downloading || sem.indexing))
-  const allReady = voskReady && semReady
-  const anyBusy = voskBusy || semBusy
-  const missing = [!voskReady && 'vosk', !semReady && 'sem'].filter(Boolean)
-  // Le grand modèle FR est le choix assumé : au réel, il bat Whisper en
-  // justesse comme en réactivité. Son poids n'est payé qu'une seule fois.
-  const voskSize = (vosk?.model_name || '').includes('small') ? 45 : 1400
-  const fmtSize = (mo) => (mo >= 1000 ? `~${(mo / 1000).toFixed(1).replace('.', ',')} Go` : `~${mo} Mo`)
-
-  const installVosk = async () => {
-    try {
-      await fetch(`${BACKEND_BASE}/api/v1/vosk/download`, { method: 'POST' })
-    } catch { setBackendDown(true) }
-  }
-  const installSem = async () => { try { await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' }) } catch { setBackendDown(true) } }
-  const installMissing = async () => {
-    setLaunched(true)
-    await Promise.all([!voskReady && installVosk(), !semReady && installSem()].filter(Boolean))
-    pollStatuses()
-  }
-  useEffect(() => {
-    if (launched && allReady && !autoAdvanced.current && STEPS[step] === 'preparation') {
-      autoAdvanced.current = true
-      const t = setTimeout(() => go(1), 1600); return () => clearTimeout(t)
+    } finally {
+      clearTimeout(timeout)
+      setScanned(true)
     }
-  }, [launched, allReady, step])
+  }
 
-  // ── Progression fusionnée (pour l'anneau maître) ──
-  const voskPct = voskReady ? 100 : (vosk?.downloading ? (vosk?.download_progress || 0) : 0)
-  const semPct = semReady ? 100 : (sem?.downloading ? (sem?.download_progress || 0)
-    : (sem?.indexing && sem?.verses_total ? (sem.verses_indexed / sem.verses_total) * 100 : 0))
-  const totalPct = Math.round((voskPct + semPct + 100) / 3) // +100 = index lexical inclus
+  useEffect(() => {
+    pollStatuses()
+    const id = setInterval(pollStatuses, 500)
+    return () => clearInterval(id)
+  }, [])
 
-  // ── Micro : visualiseur live ──
+  const nemoReady = Boolean(nemo?.installed || nemo?.ready)
+  const semReady = Boolean(sem?.installed)
+  const nemoBusy = Boolean(nemo?.downloading)
+  const semBusy = Boolean(sem && (sem.downloading || sem.indexing))
+
+  const nemoPct = nemoReady ? 100 : (nemo?.download_progress ? Math.round(nemo.download_progress * 100) : 0)
+  const semPct = semReady ? 100 : (sem?.downloading ? Math.round((sem?.download_progress || 0) * 100)
+    : (sem?.indexing && sem?.verses_total ? Math.round((sem.verses_indexed / sem.verses_total) * 100) : 0))
+
+  // Lancement automatique du téléchargement de Nemotron dès le choix du mode
+  const triggerInstallation = async () => {
+    if (usageMode !== 'cloud' && !nemoReady && !downloadStarted) {
+      setDownloadStarted(true)
+      try {
+        await fetch(`${BACKEND_BASE}/api/v1/nemotron/download`, { method: 'POST' })
+        await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' })
+      } catch {
+        setBackendDown(true)
+      }
+    }
+    go(1)
+  }
+
+  // ── Micro : Visualiseur live HD ──
   const [micState, setMicState] = useState('idle')
-  const [bars, setBars] = useState(() => new Array(28).fill(6))
+  const [bars, setBars] = useState(() => new Array(36).fill(6))
   const micRefs = useRef({ stream: null, ctx: null, raf: null })
+
   const stopMicTest = () => {
     const { stream, ctx, raf } = micRefs.current
     if (raf) cancelAnimationFrame(raf)
@@ -155,41 +95,57 @@ export default function FirstRunWizard({ onDone }) {
     if (ctx) ctx.close().catch(() => {})
     micRefs.current = { stream: null, ctx: null, raf: null }
   }
+
   const startMicTest = async () => {
     setMicState('asking')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const analyser = ctx.createAnalyser(); analyser.fftSize = 64
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 128
       ctx.createMediaStreamSource(stream).connect(analyser)
       const data = new Uint8Array(analyser.frequencyBinCount)
       micRefs.current = { stream, ctx, raf: null }
+
       const tick = () => {
         analyser.getByteFrequencyData(data)
-        const next = new Array(28).fill(0).map((_, i) => {
-          const v = data[Math.floor(i / 28 * data.length)] || 0
-          return 6 + Math.round((v / 255) * 46)
+        const next = new Array(36).fill(0).map((_, i) => {
+          const v = data[Math.floor(i / 36 * data.length)] || 0
+          return 6 + Math.round((v / 255) * 60)
         })
         setBars(next)
         micRefs.current.raf = requestAnimationFrame(tick)
       }
-      tick(); setMicState('live')
-    } catch { setMicState('denied') }
+      tick()
+      setMicState('live')
+    } catch {
+      setMicState('denied')
+    }
   }
+
   useEffect(() => () => stopMicTest(), [])
   useEffect(() => { if (STEPS[step] !== 'micro') stopMicTest() }, [step])
-  const micActive = micState === 'live' && bars.some((b) => b > 14)
+  const micActive = micState === 'live' && bars.some((b) => b > 18)
 
-  // ── Clé cloud ──
+  // ── Clé Cloud ──
   const [cloudKey, setCloudKey] = useState('')
   const [cloudSaved, setCloudSaved] = useState(false)
+
   const saveCloudKey = async () => {
-    const key = cloudKey.trim(); if (!key) return
+    const key = cloudKey.trim()
+    if (!key) return
     const payload = key.startsWith('sk-or-') ? { openrouter_api_key: key } : { deepgram_api_key: key }
     if (await updateSettings(payload)) setCloudSaved(true)
   }
 
-  const go = (i) => { setEntered(false); setTimeout(() => { setStep(i); setEntered(true) }, 260) }
+  const go = (nextStep) => {
+    setEntered(false)
+    setTimeout(() => {
+      setStep(nextStep)
+      setEntered(true)
+    }, 200)
+  }
+
   const finish = () => {
     stopMicTest()
     try {
@@ -200,171 +156,395 @@ export default function FirstRunWizard({ onDone }) {
     onDone()
   }
 
-  const stepLabel = ['PRÉPARATION', 'MICRO', 'PRÊT'][step]
-
-  // L'étape 01 porte déjà son action dans le corps — préparation des moteurs,
-  // « réessayer », ou « continuer → ». Le bouton du pied ferait doublon, sauf
-  // pendant un téléchargement, où le corps n'affiche rien et où l'on doit
-  // pouvoir avancer quand même.
-  const ctaDansLeCorps = step === 0 && settled && scanned && !backendDown && !anyBusy
+  const stepLabel = ['UTILISATION', 'INSTALLATION', 'MICRO', 'PRÊT'][step]
 
   return (
-    <div className="fw-backdrop" role="dialog" aria-modal="true" aria-label="Premier lancement">
-      <div className={`fw-panel ${entered ? 'is-in' : ''}`}>
-        <header className="fw-head">
-          <span className="fw-brand flex items-center gap-2">
-            <img src="/icons/icon-192.png" alt="VersePro" className="w-5 h-5 rounded object-contain" />
-            <span>versepro</span>
-          </span>
-          <span className="fw-step-label">{`0${step + 1} · ${stepLabel}`}</span>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-3xl transition-opacity duration-300">
+      
+      {/* Rayons lumineux 3D d'ambiance (Originkit style) */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-48 -left-48 w-[500px] h-[500px] bg-sky-500/20 rounded-full blur-[140px] animate-pulse" style={{ animationDuration: '6s' }} />
+        <div className="absolute -bottom-48 -right-48 w-[500px] h-[500px] bg-indigo-500/20 rounded-full blur-[140px] animate-pulse" style={{ animationDuration: '8s' }} />
+      </div>
+
+      {/* Main 3D Card Panel (CanvasUI / Reactbits Glassmorphism) */}
+      <div className={`relative w-full max-w-2xl bg-slate-900/85 border border-white/15 shadow-[0_0_80px_rgba(0,0,0,0.9)] rounded-3xl overflow-hidden transition-all duration-300 ease-out transform ${
+        entered ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+      }`}>
+        
+        {/* Header */}
+        <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-900/60">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/20 border border-sky-500/30 flex items-center justify-center p-1.5 shadow-[0_0_15px_rgba(56,189,248,0.3)]">
+              <img src="/icons/icon-192.png" alt="VersePro" className="w-full h-full object-contain" />
+            </div>
+            <div>
+              <div className="font-bold text-white tracking-wide text-sm flex items-center gap-2">
+                VersePro <span className="text-[10px] font-mono uppercase bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-md border border-sky-500/30">V2.0</span>
+              </div>
+              <div className="text-[11px] text-slate-400">Assistant de Configuration de Régie</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono tracking-wider text-sky-300 uppercase bg-sky-950/80 px-3 py-1 rounded-full border border-sky-500/30 shadow-inner">
+              Étape 0{step + 1} · {stepLabel}
+            </span>
+          </div>
         </header>
-        <div className="fw-progress" aria-hidden="true">
-          {STEPS.map((s, i) => <span key={s} className={i <= step ? 'is-done' : ''} />)}
+
+        {/* Step Progress Bar */}
+        <div className="w-full bg-slate-950/60 h-1.5">
+          <div
+            className="h-full bg-gradient-to-r from-sky-500 via-indigo-400 to-emerald-400 transition-all duration-500 ease-out shadow-[0_0_15px_rgba(56,189,248,0.9)]"
+            style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
+          />
         </div>
 
-        <main className="fw-body">
-          {/* ───────── PRÉPARATION ───────── */}
-          {STEPS[step] === 'preparation' && (
-            <div className="fw-prep">
-              <div className="fw-prep-stage">
-                {!settled && (
-                  <div className="fw-sonar" aria-hidden="true">
-                    <span /><span /><span /><i><Icon name="mic" size={26} /></i>
+        {/* Card Body */}
+        <main className="p-8 min-h-[420px] flex flex-col justify-center">
+
+          {/* ───────── ÉTAPE 01 : CHOIX DU MODE D'UTILISATION ───────── */}
+          {STEPS[step] === 'mode' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="text-center space-y-2">
+                <h1 className="text-2xl font-bold tracking-tight text-white">Comment souhaitez-vous utiliser VersePro ?</h1>
+                <p className="text-sm text-slate-400">Sélectionnez le mode d'exploitation adapté à votre équipement d'église.</p>
+              </div>
+
+              {/* 3D Radio Cards Selection (Originkit style) */}
+              <div className="space-y-3 pt-2">
+
+                {/* Mode Hybride Recommandé */}
+                <div
+                  onClick={() => setUsageMode('hybrid')}
+                  className={`relative p-4 rounded-2xl border cursor-pointer transition-all duration-200 ${
+                    usageMode === 'hybrid'
+                      ? 'bg-gradient-to-r from-sky-950/60 to-slate-900 border-sky-500/60 shadow-[0_0_30px_rgba(56,189,248,0.25)] scale-[1.01]'
+                      : 'bg-slate-900/40 border-white/5 hover:border-white/20 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center ${
+                      usageMode === 'hybrid' ? 'border-sky-400 bg-sky-500/20 text-sky-400' : 'border-slate-600'
+                    }`}>
+                      {usageMode === 'hybrid' && <div className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]" />}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-white flex items-center gap-2">
+                          Mode Recommandé <span className="text-[10px] uppercase font-mono bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded border border-sky-500/30">Cloud + Hors-ligne</span>
+                        </span>
+                        <span className="text-xs font-semibold text-emerald-400">Option idéale</span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Reconnaissance vocale ultra-rapide Deepgram Cloud quand Internet est présent, avec secours automatique local **NVIDIA Nemotron 3.5-ASR (716 Mo)**.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mode Hors-ligne Uniquement */}
+                <div
+                  onClick={() => setUsageMode('offline')}
+                  className={`relative p-4 rounded-2xl border cursor-pointer transition-all duration-200 ${
+                    usageMode === 'offline'
+                      ? 'bg-gradient-to-r from-emerald-950/60 to-slate-900 border-emerald-500/60 shadow-[0_0_30px_rgba(52,211,153,0.25)] scale-[1.01]'
+                      : 'bg-slate-900/40 border-white/5 hover:border-white/20 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center ${
+                      usageMode === 'offline' ? 'border-emerald-400 bg-emerald-500/20 text-emerald-400' : 'border-slate-600'
+                    }`}>
+                      {usageMode === 'offline' && <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-white flex items-center gap-2">
+                          Hors-ligne uniquement
+                          <span className="text-[10px] uppercase font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">100% Autonome</span>
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Zéro dépendance Internet le dimanche. Exécute Nemotron 3.5-ASR 0.6B en local via l'accélération GPU Metal/CUDA (31x temps réel).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mode Cloud Uniquement */}
+                <div
+                  onClick={() => setUsageMode('cloud')}
+                  className={`relative p-4 rounded-2xl border cursor-pointer transition-all duration-200 ${
+                    usageMode === 'cloud'
+                      ? 'bg-gradient-to-r from-indigo-950/60 to-slate-900 border-indigo-500/60 shadow-[0_0_30px_rgba(129,140,248,0.25)] scale-[1.01]'
+                      : 'bg-slate-900/40 border-white/5 hover:border-white/20 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center ${
+                      usageMode === 'cloud' ? 'border-indigo-400 bg-indigo-500/20 text-indigo-400' : 'border-slate-600'
+                    }`}>
+                      {usageMode === 'cloud' && <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.9)]" />}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-white">Cloud uniquement</span>
+                        <span className="text-xs text-slate-500">Clé Deepgram requise</span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Utilise uniquement l'API Cloud Deepgram. Aucun modèle local téléchargé. Connexion Internet permanente obligatoire pendant le culte.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Action Button */}
+              <div className="text-center pt-2">
+                <button
+                  className="px-8 py-3 rounded-2xl bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 text-slate-950 font-bold text-sm shadow-[0_0_30px_rgba(56,189,248,0.4)] hover:shadow-[0_0_45px_rgba(56,189,248,0.7)] transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={triggerInstallation}
+                >
+                  Valider et Continuer →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ───────── ÉTAPE 02 : INSTALLATION & PRÉPARATION EN DIRECT ───────── */}
+          {STEPS[step] === 'installation' && (
+            <div className="space-y-6 animate-in fade-in duration-300 text-center">
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold tracking-tight text-white">Préparation de votre Régie</h1>
+                <p className="text-sm text-slate-400">
+                  {usageMode === 'cloud'
+                    ? 'Configuration des accès Cloud et des index de Bible.'
+                    : 'Téléchargement et préparation de l\'ASR local Nemotron 3.5-ASR (716 Mo).'}
+                </p>
+              </div>
+
+              {/* Installation Progress Card Géante */}
+              <div className="w-full max-w-lg mx-auto p-6 rounded-3xl bg-slate-950/90 border border-emerald-500/30 text-left space-y-5 shadow-[0_0_50px_rgba(16,185,129,0.15)] backdrop-blur-xl">
+                
+                {/* Header Carte */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <span className="text-xs uppercase tracking-wider font-mono text-emerald-400 font-bold flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    Moteur IA & Base de Données
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-400">VersePro v2.0</span>
+                </div>
+
+                {/* 1. Bibles */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-3 text-white">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/30">✓</div>
+                    <span className="font-medium">Bibles Intégrées (LSG 1910, KJF, Semeur, TOB)</span>
+                  </div>
+                  <span className="font-mono text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">Prêt</span>
+                </div>
+
+                {/* 2. Moteur NDI */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-3 text-white">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/30">✓</div>
+                    <span className="font-medium">Sorties Moteur NDI & ProPresenter API</span>
+                  </div>
+                  <span className="font-mono text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">Prêt</span>
+                </div>
+
+                {/* 3. Nemotron 3.5 ASR Download MASSIVE CARD */}
+                {usageMode !== 'cloud' && (
+                  <div className="space-y-3 pt-3 border-t border-white/10 bg-slate-900/60 p-4 rounded-2xl border border-sky-500/30">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-3 text-white font-bold">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ${
+                          nemoReady ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-sky-500/20 text-sky-400 border border-sky-500/40 animate-pulse'
+                        }`}>
+                          {nemoReady ? '✓' : '↓'}
+                        </div>
+                        <div className="flex flex-col">
+                          <span>NVIDIA Nemotron 3.5-ASR (0.6B)</span>
+                          <span className="text-[11px] font-normal text-slate-400">
+                            {nemoReady ? 'Modèle local prêt pour streaming GPU' : nemoBusy ? 'Téléchargement direct Hugging Face...' : 'Préparation du modèle local (716 Mo)...'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono text-base text-sky-400 font-black tracking-tight">{nemoReady ? '100%' : `${nemoPct}%`}</span>
+                        <div className="text-[10px] font-mono text-slate-400">{nemoReady ? '716 / 716 Mo' : `${Math.round((nemoPct / 100) * 716)} / 716 Mo`}</div>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar Géante */}
+                    <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden p-0.5 border border-sky-500/20 shadow-inner">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-indigo-400 to-emerald-400 transition-all duration-300 shadow-[0_0_15px_rgba(56,189,248,0.9)]"
+                        style={{ width: `${Math.max(4, nemoPct)}%` }}
+                      />
+                    </div>
                   </div>
                 )}
-                {settled && (anyBusy || launched || allReady) && (
-                  <Ring pct={totalPct} size={168} stroke={7} big state={allReady ? 'done' : 'busy'} />
-                )}
-                {settled && !allReady && !anyBusy && !launched && (
-                  <div className="fw-prep-count"><strong>{missing.length === 0 ? 3 : 3 - missing.length}</strong><span>/ 3 prêts</span></div>
-                )}
               </div>
 
-              <h1 className="fw-title">
-                {!settled ? 'analyse de votre poste…'
-                  : allReady ? 'votre régie est parée.'
-                  : anyBusy ? 'installation en cours…'
-                  : 'préparons votre régie.'}
-              </h1>
-              <p className="fw-lede">
-                {!settled ? 'versepro inventorie ce qui est déjà là et ce qu\'il reste à installer.'
-                  : allReady ? 'tous les moteurs sont là. on passe au micro.'
-                  : anyBusy ? 'vous pouvez continuer — le téléchargement se poursuit en arrière-plan.'
-                  : 'versepro analyse votre poste et télécharge ce qu\'il faut pour fonctionner sans internet le dimanche.'}
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Vous pouvez continuer la configuration — le téléchargement se poursuit de manière transparente en arrière-plan.
               </p>
 
-              {backendDown && !tropLong && (
-                // Dans l'application empaquetée le moteur démarre seul, mais il
-                // charge d'abord ses index (~10 s sur un PC modeste) : dire
-                // « lancez le backend » n'aidait personne, c'était impossible à faire.
-                <p className="fw-warn">le moteur démarre encore — il charge la Bible et ses index. patientez quelques secondes, puis{' '}
-                  <button className="vp-btn vp-btn--sm" onClick={pollStatuses}>réessayer</button></p>
-              )}
-              {backendDown && tropLong && (
-                <p className="fw-warn">le moteur ne démarre pas. l'installation est probablement incomplète —
-                  cela arrive quand VersePro tournait encore pendant sa propre mise à jour.
-                  <br />réinstallez après avoir fermé VersePro, puis supprimé le dossier
-                  {' '}<span className="mono">VersePro</span> dans <span className="mono">%LOCALAPPDATA%</span>.
-                  {' '}<button className="vp-btn vp-btn--sm" onClick={pollStatuses}>réessayer</button></p>
-              )}
-
-              {scanned && !backendDown && (
-                <ul className="fw-comps">
-                  {revealed > 0 && (
-                  <li className="fw-comp fw-comp--in is-ready">
-                    <Icon name="check" size={15} />
-                    <div><strong>index lexical des citations</strong><small>inclus · « jean 3 verset 16 » fonctionne déjà</small></div>
-                    <span className="fw-comp-size">0 Mo</span>
-                  </li>
-                  )}
-                  {revealed > 1 && (
-                  <li className={`fw-comp fw-comp--in ${voskReady ? 'is-ready' : voskBusy ? 'is-busy' : ''}`}>
-                    {voskReady ? <Icon name="check" size={15} /> : voskBusy ? <span className="fw-mini-pct">{Math.round(voskPct)}%</span> : <span className="fw-dot" />}
-                    <div><strong>reconnaissance vocale hors-ligne</strong>
-                      <small>{vosk?.last_error ? vosk.last_error : voskReady ? 'Vosk français grand modèle prêt' : voskBusy ? (vosk?.download_status === 'extraction' ? 'extraction du modèle…' : `téléchargement de Vosk… ${Math.round(voskPct)}%`) : 'Vosk français grand modèle — à télécharger'}</small></div>
-                    <span className="fw-comp-size">{fmtSize(voskSize)}</span>
-                  </li>
-                  )}
-                  {revealed > 2 && (
-                  <li className={`fw-comp fw-comp--in ${semReady ? 'is-ready' : semBusy ? 'is-busy' : ''}`}>
-                    {semReady ? <Icon name="check" size={15} /> : semBusy ? <span className="fw-mini-pct">{Math.round(semPct)}%</span> : <span className="fw-dot" />}
-                    <div><strong>intelligence sémantique (paraphrases)</strong>
-                      <small>{sem?.last_error ? sem.last_error : semReady ? 'prête' : sem?.downloading ? 'téléchargement…' : sem?.indexing ? `indexation ${sem?.verses_indexed || 0} versets…` : 'e5-base — à installer'}</small></div>
-                    <span className="fw-comp-size">265 Mo</span>
-                  </li>
-                  )}
-                </ul>
-              )}
-
-              {settled && scanned && !backendDown && (
-                allReady
-                  ? <button className="vp-btn vp-btn--primary fw-cta" onClick={() => go(1)}>continuer →</button>
-                  : anyBusy
-                    ? null
-                    : (vosk?.last_error || sem?.last_error)
-                      ? <button className="vp-btn vp-btn--primary fw-cta" onClick={installMissing}>réessayer l'installation</button>
-                      : <button className="vp-btn vp-btn--primary fw-cta" onClick={installMissing}>
-                          tout préparer ({missing.length === 2 ? fmtSize(voskSize + 265) : missing[0] === 'vosk' ? fmtSize(voskSize) : '~265 Mo'})
-                        </button>
-              )}
+              <div className="pt-2">
+                <button
+                  className="px-6 py-2.5 rounded-xl bg-sky-500 text-slate-950 font-bold text-sm hover:bg-sky-400 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={() => go(2)}
+                >
+                  Continuer vers le Micro →
+                </button>
+              </div>
             </div>
           )}
 
-          {/* ───────── MICRO ───────── */}
+          {/* ───────── ÉTAPE 03 : TEST MICRO ───────── */}
           {STEPS[step] === 'micro' && (
-            <div className="fw-mic">
-              <h1 className="fw-title">le micro, maintenant.</h1>
-              <p className="fw-lede">autorisez l'accès et parlez : l'onde doit danser.</p>
-              <div className={`fw-wave ${micState === 'live' ? 'is-live' : ''} ${micActive ? 'is-hot' : ''}`}>
-                {bars.map((h, i) => <span key={i} style={{ height: `${micState === 'live' ? h : 6}px` }} />)}
+            <div className="flex flex-col items-center text-center space-y-6 animate-in fade-in duration-300">
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold tracking-tight text-white">Test du Microphone de Régie</h1>
+                <p className="text-sm text-slate-400">Autorisez l'accès audio et parlez : l'égaliseur doit réagir en temps réel.</p>
               </div>
-              {micState !== 'live' ? (
-                <button className="vp-btn vp-btn--primary fw-cta" onClick={startMicTest} disabled={micState === 'asking'}>
-                  {micState === 'asking' ? 'demande en cours…' : 'tester le micro'}
-                </button>
+
+              {/* Equalizer Visualizer (Reactbits style) */}
+              <div className={`w-full max-w-md h-32 rounded-2xl bg-slate-950/90 border p-4 flex items-center justify-center gap-1.5 transition-all shadow-2xl ${
+                micActive
+                  ? 'border-emerald-500/60 shadow-[0_0_40px_rgba(52,211,153,0.25)]'
+                  : micState === 'live'
+                  ? 'border-sky-500/40'
+                  : 'border-white/10'
+              }`}>
+                {bars.map((h, i) => (
+                  <span
+                    key={i}
+                    className={`w-2.5 rounded-full transition-all duration-75 ${
+                      micActive
+                        ? 'bg-gradient-to-t from-emerald-500 via-sky-400 to-indigo-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]'
+                        : micState === 'live'
+                        ? 'bg-sky-500/40'
+                        : 'bg-slate-800'
+                    }`}
+                    style={{ height: `${micState === 'live' ? h : 8}px` }}
+                  />
+                ))}
+              </div>
+
+              {/* Status Indicator */}
+              {micState === 'live' ? (
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-medium ${
+                  micActive
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-slate-800 border-white/10 text-slate-400'
+                }`}>
+                  <Icon name="check" size={14} />
+                  {micActive ? 'Signal audio reçu — micro de régie opérationnel' : 'Parlez pour voir l\'égaliseur réagir'}
+                </div>
               ) : (
-                <p className={`fw-ok ${micActive ? 'is-hot' : ''}`}>
-                  <Icon name="check" size={14} /> {micActive ? 'signal reçu — micro opérationnel' : 'parlez pour voir l\'onde réagir'}
+                <button
+                  className="px-6 py-2.5 rounded-xl bg-sky-500 text-slate-950 font-bold text-sm hover:bg-sky-400 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={startMicTest}
+                  disabled={micState === 'asking'}
+                >
+                  {micState === 'asking' ? 'Autorisation en cours…' : 'Activer le Micro'}
+                </button>
+              )}
+
+              {micState === 'denied' && (
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 px-4 py-2 rounded-xl">
+                  Accès refusé — vous pourrez réautoriser le micro dans les Réglages Système à tout moment.
                 </p>
               )}
-              {micState === 'denied' && <p className="fw-warn">accès refusé — autorisez le micro dans les réglages système, ou continuez : vous pourrez le faire plus tard.</p>}
-              {anyBusy && <p className="fw-hint">préparation en arrière-plan : Vosk {voskReady ? 'prêt' : `${Math.round(voskPct)}%`} · intelligence {semReady ? 'prête' : `${Math.round(semPct)}%`}</p>}
             </div>
           )}
 
-          {/* ───────── PRÊT ───────── */}
+          {/* ───────── ÉTAPE 04 : PRÊT & CLÉ CLOUD ───────── */}
           {STEPS[step] === 'pret' && (
-            <div className="fw-done">
-              <div className="fw-done-seal"><Icon name="check" size={34} /></div>
-              <h1 className="fw-title">c'est prêt.</h1>
-              <ul className="fw-recap">
-                <li className={voskReady ? 'ok' : ''}><Icon name={voskReady ? 'check' : 'alert'} size={14} /> voix hors-ligne {voskReady ? 'Vosk grand modèle prêt' : voskBusy ? 'en téléchargement' : 'non préparée'}</li>
-                <li className={semReady ? 'ok' : ''}><Icon name={semReady ? 'check' : 'alert'} size={14} /> intelligence sémantique {semReady ? 'prête' : semBusy ? 'en préparation' : 'non installée'}</li>
-                <li className={micState === 'live' ? 'ok' : ''}><Icon name={micState === 'live' ? 'check' : 'alert'} size={14} /> micro {micState === 'live' ? 'testé' : 'à tester dans la régie'}</li>
-              </ul>
-              <div className="fw-keycard">
-                <span className="fw-choice-tag">OPTIONNEL · CLOUD</span>
-                <strong>clé deepgram — transcription cloud plus précise</strong>
-                <div className="fw-key-row">
-                  <input className="vp-input" type="password" placeholder="dg_… ou sk-or-…" value={cloudKey} onChange={(e) => setCloudKey(e.target.value)} />
-                  <button className="vp-btn vp-btn--sm" onClick={saveCloudKey} disabled={!cloudKey.trim()}>ok</button>
-                </div>
-                {cloudSaved && <span className="fw-ok"><Icon name="check" size={12} /> clé enregistrée</span>}
+            <div className="flex flex-col items-center text-center space-y-6 animate-in fade-in duration-300">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-[0_0_40px_rgba(52,211,153,0.3)]">
+                <Icon name="check" size={36} />
               </div>
-              <p className="fw-hint">tout se règle à nouveau dans <strong>paramètres</strong>, à tout moment.</p>
+
+              <div className="space-y-1">
+                <h1 className="text-2xl font-bold tracking-tight text-white">Votre Régie VersePro est Prête</h1>
+                <p className="text-sm text-slate-400">Tout est configuré pour vos projections et diffusions en direct.</p>
+              </div>
+
+              {/* Deepgram Key card with Help Link */}
+              <div className="w-full max-w-md p-5 rounded-2xl bg-slate-950/90 border border-white/10 text-left space-y-3 shadow-2xl">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-wider bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded border border-sky-500/30">Clé Cloud Optionnelle</span>
+                  <button
+                    onClick={() => openExternal('https://console.deepgram.com')}
+                    className="text-[11px] text-sky-400 hover:text-sky-300 underline font-medium"
+                  >
+                    Obtenir une clé gratuite ↗
+                  </button>
+                </div>
+                <div className="text-xs font-semibold text-white">Clé API Deepgram (Transcription Cloud &lt; 0.3s)</div>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder="dg_…"
+                    value={cloudKey}
+                    onChange={(e) => setCloudKey(e.target.value)}
+                    className="flex-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-white/10 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
+                  />
+                  <button
+                    onClick={saveCloudKey}
+                    disabled={!cloudKey.trim()}
+                    className="px-4 py-2 rounded-xl bg-sky-500 text-slate-950 font-bold text-xs disabled:opacity-50 hover:bg-sky-400 transition-all"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+                {cloudSaved && <span className="text-xs text-emerald-400 flex items-center gap-1"><Icon name="check" size={14} /> Clé enregistrée avec succès</span>}
+              </div>
             </div>
           )}
+
         </main>
 
-        <footer className="fw-foot">
-          <button className="vp-btn vp-btn--ghost" onClick={finish}>passer</button>
-          <div className="fw-foot-right">
-            {step > 0 && <button className="vp-btn" onClick={() => go(step - 1)}>retour</button>}
-            {step < STEPS.length - 1
-              ? (!ctaDansLeCorps && <button className="vp-btn vp-btn--primary" onClick={() => go(step + 1)}>continuer</button>)
-              : <button className="vp-btn vp-btn--primary" onClick={finish}>ouvrir la régie</button>}
+        {/* Footer Navigation */}
+        <footer className="flex items-center justify-between px-6 py-4 border-t border-white/10 bg-slate-900/60">
+          <button className="text-xs text-slate-400 hover:text-white transition-colors" onClick={finish}>
+            Passer
+          </button>
+
+          <div className="flex items-center gap-3">
+            {step > 0 && (
+              <button
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium border border-white/10 hover:bg-slate-700 transition-all"
+                onClick={() => go(step - 1)}
+              >
+                Retour
+              </button>
+            )}
+
+            {step < STEPS.length - 1 ? (
+              <button
+                className="px-5 py-2 rounded-xl bg-sky-500 text-slate-950 text-xs font-bold hover:bg-sky-400 shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+                onClick={() => (step === 0 ? triggerInstallation() : go(step + 1))}
+              >
+                Continuer →
+              </button>
+            ) : (
+              <button
+                className="px-6 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-sky-500 text-slate-950 text-xs font-bold hover:shadow-[0_0_30px_rgba(52,211,153,0.6)] transition-all hover:scale-[1.02] active:scale-[0.98]"
+                onClick={finish}
+              >
+                Ouvrir la Régie VersePro →
+              </button>
+            )}
           </div>
         </footer>
+
       </div>
     </div>
   )

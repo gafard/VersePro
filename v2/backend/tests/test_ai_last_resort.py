@@ -15,8 +15,8 @@ import asyncio
 
 import pytest
 
-from app import main as M
 from app.core.config import settings
+from app.services.reference_engine import BibleReferenceEngine
 from app.services.verse_parser import VerseParserService
 
 
@@ -36,13 +36,33 @@ class FakeAI:
         return {"reference": self.reference, "confidence": self.confidence}
 
 
+# La cascade a quitté main.py pour BibleReferenceEngine. Les six garanties
+# ci-dessous portent sur le COMPORTEMENT, pas sur l'endroit où il vit : on
+# construit donc un moteur avec des services factices, et on l'interroge par
+# `detecter_sans_effet` — la cascade pure, sans la mémoire de déduplication
+# que `process()` entretient pour le direct.
+class _Moteur:
+    """Petit conteneur : garde le moteur ET l'IA factice sous la main."""
+
+    def __init__(self, parser):
+        self.parser = parser
+        self.ai = None
+
+    def avec_ia(self, ai):
+        self.ai = ai
+        self.engine = BibleReferenceEngine(
+            verse_parser=self.parser,
+            semantic_service=None,   # local sémantique indisponible
+            verse_graph=None,
+            ai_service=ai,
+            settings=settings,
+        )
+        return self.engine
+
+
 @pytest.fixture
 def wired(monkeypatch):
-    parser = VerseParserService()
-    monkeypatch.setattr(M, "verse_parser", parser)
-    monkeypatch.setattr(M, "semantic_service", None)  # local sémantique indisponible
-    monkeypatch.setattr(M, "_ai_last_resort_lock", asyncio.Lock())
-    return parser
+    return _Moteur(VerseParserService())
 
 
 def _anchor_candidates(parser, monkeypatch):
@@ -61,15 +81,15 @@ def _anchor_candidates(parser, monkeypatch):
     )
 
 
-def _run(text):
-    return asyncio.run(M.run_detection_cascade(text, final_state=True))
+def _run(moteur, text):
+    return asyncio.run(moteur.detecter_sans_effet(text, final_state=True))
 
 
 def test_ai_not_called_when_local_finds(wired, monkeypatch):
     """Verset lu mot à mot : le local trouve → l'IA n'est pas sollicitée."""
     ai = FakeAI()
-    monkeypatch.setattr(M, "ai_service", ai)
-    out = _run("l'éternel est mon berger je ne manquerai de rien")
+    moteur = wired.avec_ia(ai)
+    out = _run(moteur, "l'éternel est mon berger je ne manquerai de rien")
     assert out and out["reference"] == "Psaumes 23:1"
     assert ai.calls == 0, "l'IA ne doit pas être appelée quand le local trouve"
 
@@ -78,17 +98,17 @@ def test_ai_not_called_on_everyday_speech(wired, monkeypatch):
     """Parole du quotidien sans indice biblique : l'IA reste muette (strict)."""
     monkeypatch.setattr(settings, "AI_FILTERING_MODE", "strict")
     ai = FakeAI()
-    monkeypatch.setattr(M, "ai_service", ai)
-    assert _run("on se retrouve tous après la réunion pour un café dans la salle") is None
+    moteur = wired.avec_ia(ai)
+    assert _run(moteur, "on se retrouve tous après la réunion pour un café dans la salle") is None
     assert ai.calls == 0
 
 
 def test_ai_called_as_last_resort_and_grounded(wired, monkeypatch):
     """Local muet + indice biblique → l'IA tranche, et sa réponse est ancrée."""
     ai = FakeAI(reference="Jean 3:16", confidence=97)
-    _anchor_candidates(wired, monkeypatch)
-    monkeypatch.setattr(M, "ai_service", ai)
-    out = _run("le seigneur a montré son amour d'une manière que nul ne pouvait imaginer ce jour-là")
+    _anchor_candidates(wired.parser, monkeypatch)
+    moteur = wired.avec_ia(ai)
+    out = _run(moteur, "le seigneur a montré son amour d'une manière que nul ne pouvait imaginer ce jour-là")
     assert ai.calls == 1
     assert out and out["reference"] == "Jean 3:16"
     assert out["detection_method"] == "ai_semantic"
@@ -99,9 +119,9 @@ def test_ai_called_as_last_resort_and_grounded(wired, monkeypatch):
 def test_ai_hallucination_is_rejected(wired, monkeypatch):
     """L'IA invente une référence inexistante → écartée."""
     ai = FakeAI(reference="Hezekiah 9:99", confidence=99)
-    _anchor_candidates(wired, monkeypatch)
-    monkeypatch.setattr(M, "ai_service", ai)
-    out = _run("le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer ce jour-là")
+    _anchor_candidates(wired.parser, monkeypatch)
+    moteur = wired.avec_ia(ai)
+    out = _run(moteur, "le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer ce jour-là")
     assert ai.calls == 1
     assert out is None, "une référence introuvable dans la Bible ne doit jamais remonter"
 
@@ -109,10 +129,10 @@ def test_ai_hallucination_is_rejected(wired, monkeypatch):
 def test_ai_low_confidence_is_rejected(wired, monkeypatch):
     """Sous le seuil de confiance, la suggestion est écartée."""
     monkeypatch.setattr(settings, "AI_CONFIDENCE_THRESHOLD", 95)
-    _anchor_candidates(wired, monkeypatch)
+    _anchor_candidates(wired.parser, monkeypatch)
     ai = FakeAI(reference="Jean 3:16", confidence=60)
-    monkeypatch.setattr(M, "ai_service", ai)
-    out = _run("le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer ce jour-là")
+    moteur = wired.avec_ia(ai)
+    out = _run(moteur, "le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer ce jour-là")
     assert ai.calls == 1
     assert out is None
 
@@ -121,6 +141,6 @@ def test_ai_disabled_is_silent(wired, monkeypatch):
     """IA désactivée : la cascade s'arrête proprement au local."""
     ai = FakeAI()
     ai.enabled = False
-    monkeypatch.setattr(M, "ai_service", ai)
-    assert _run("le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer") is None
+    moteur = wired.avec_ia(ai)
+    assert _run(moteur, "le seigneur a montré sa grâce d'une manière que nul ne pouvait imaginer") is None
     assert ai.calls == 0
