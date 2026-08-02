@@ -62,8 +62,10 @@ def _load_parakeet_library() -> Optional[ctypes.CDLL]:
     À noter, et c'est le point qui bloque aujourd'hui : la compilation locale
     produit `libparakeet.a`, une bibliothèque STATIQUE, que ctypes ne sait pas
     charger. Il faut un `.dylib` / `.so` / `.dll` — c'est-à-dire recompiler
-    parakeet.cpp avec BUILD_SHARED_LIBS=ON. Tant que ce fichier n'existe pas,
-    ce chargeur renvoie None et le moteur reste indisponible, proprement.
+    parakeet.cpp avec -DPARAKEET_SHARED=ON (le drapeau du CMakeLists du
+    projet, PAS BUILD_SHARED_LIBS), puis déposer la bibliothèque dans `bin/`.
+    Tant que ce fichier n'existe pas, ce chargeur renvoie None et le moteur
+    reste indisponible, proprement.
     """
     systeme = platform.system()
     noms = {
@@ -307,9 +309,10 @@ class NemotronService:
 
         if lib is None:
             self.last_error = (
-                "Bibliothèque parakeet.cpp partagée absente. La compilation locale "
-                "produit libparakeet.a (statique) ; ctypes exige un .dylib/.so — "
-                "recompiler avec BUILD_SHARED_LIBS=ON."
+                "Bibliothèque parakeet.cpp partagée absente. La compilation "
+                "locale produit libparakeet.a (statique) ; ctypes exige un "
+                ".dylib/.so — recompiler avec -DPARAKEET_SHARED=ON et déposer "
+                "la bibliothèque dans bin/."
             )
             raise RuntimeError(self.last_error)
 
