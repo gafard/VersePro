@@ -27,16 +27,28 @@ def reference_engine(parser_service):
     )
 
 @pytest.mark.anyio
-async def test_incremental_parser_book_only(reference_engine):
-    # Test just the book
-    text = "prenons dans le livre de jean"
-    result = await reference_engine.process(text, is_final=False, generation=1)
-    
-    assert result is not None
-    assert result["type"] == "incremental_reference"
-    assert result["payload"]["book_abbr"] == "Jn"
-    assert result["payload"]["chapter"] is None
-    assert result["payload"]["verse"] is None
+async def test_un_livre_seul_ne_declenche_rien(reference_engine):
+    """« le livre de Jean », sans chapitre, ne doit RIEN remonter.
+
+    Un étage « incrémental » annonçait ici le passage pressenti. Mesuré sur 30
+    minutes de prédication réelle : 1 683 déclenchements, un toutes les 1,1
+    seconde, parce que les articles français entrent dans les abréviations de
+    livres — « est » → Esther, « la » → Lamentations, « je » → Jérémie.
+    L'étage est retiré ; ce test garde la porte fermée.
+    """
+    result = await reference_engine.process(
+        "prenons dans le livre de jean", is_final=False, generation=1)
+    assert result is None
+
+
+def test_le_parseur_incremental_reste_disponible_mais_trop_large(parser_service):
+    """La capacité existe encore — et ce test dit pourquoi elle n'est pas branchée.
+
+    Si l'idée revient, il lui faudra une amorce et un filtre de longueur : sans
+    eux, un simple pronom désigne un livre de la Bible."""
+    assert parser_service.parse_incremental("prenons dans le livre de jean")["book_abbr"] == "Jn"
+    # La raison du retrait, figée noir sur blanc :
+    assert parser_service.parse_incremental("je vais au marché")["book_abbr"] == "Jér"
 
 @pytest.mark.anyio
 async def test_livre_et_chapitre_sont_une_VRAIE_detection(reference_engine):

@@ -315,6 +315,34 @@ async def send_reference(request: ReferenceRequest):
         "version": request.version,
     }
     projected_text = reference.get("text") or request.text or ""
+
+    # Version demandée explicitement — « le pasteur veut la Semeur ».
+    #
+    # `parse()` rend TOUJOURS le texte de la version active : sans ce bloc, le
+    # champ `version` était accepté puis ignoré. Le panneau de comparaison
+    # affichait bien la Semeur, l'opérateur cliquait, l'interface marquait
+    # « ★ À l'antenne » — et l'assemblée continuait de lire la Segond. Une
+    # fonction qui affirme le contraire de ce qu'elle fait est pire qu'absente.
+    demandee = (request.version or "").strip().upper()
+    if demandee and verse_parser and parsed:
+        loader = verse_parser.bible_loader
+        if demandee not in loader.versions:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Version biblique inconnue : {demandee}",
+            )
+        if demandee != loader.active_version:
+            texte_demande = loader.get_verse_text(
+                parsed.get("book_abbr"), parsed.get("chapter"),
+                parsed.get("verse_start"), parsed.get("verse_end"),
+                version_id=demandee,
+            )
+            # Un verset absent d'une traduction (numérotation différente) ne
+            # doit pas vider l'écran : on garde le texte déjà résolu.
+            if (texte_demande or "").strip():
+                projected_text = texte_demande
+                reference = {**reference, "text": texte_demande, "version": demandee}
+
     if not projected_text.strip():
         raise HTTPException(status_code=422, detail="Aucun texte à projeter")
 

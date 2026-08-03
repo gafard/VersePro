@@ -3281,30 +3281,7 @@ select:focus-visible,
   .live-health-dot { animation: none; }
 }
 
-/* Badge de détection incrémentale */
-.incremental-detection-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--vp-bg-raised);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--vp-radius);
-  padding: 8px 12px;
-  margin: 8px 16px 0 16px;
-  font-size: 13px;
-  color: var(--vp-text-dim);
-  box-shadow: var(--elev-1);
-  animation: slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
 
-.incremental-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--color-paper-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
 
 @keyframes slide-down {
   from { opacity: 0; transform: translateY(-4px); }

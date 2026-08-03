@@ -2473,13 +2473,6 @@ async def websocket_audio(websocket: WebSocket):
                 if not result or not is_current(generation):
                     return
                 
-                if result["type"] == "incremental_reference":
-                    await send_json({
-                        "type": "incremental_reference",
-                        "book": result["payload"].get("book"),
-                        "chapter": result["payload"].get("chapter"),
-                    })
-                    return
 
                 decision = result["payload"]
                 method = decision.get("detection_method")

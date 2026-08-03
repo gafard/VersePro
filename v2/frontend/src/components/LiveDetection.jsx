@@ -56,7 +56,6 @@ export default function LiveDetection({ setActiveTab }) {
   const {
     isListening,
     currentTranscript,
-    incrementalReference,
     santeTranscription,
     detectedReferences,
     propresenterConnected,
@@ -1002,17 +1001,6 @@ export default function LiveDetection({ setActiveTab }) {
               <div className="live-health-notice" role="status">
                 <span className="live-health-dot" aria-hidden="true" />
                 <span>{santeTranscription.message}</span>
-              </div>
-            )}
-            
-            {/* Badge de détection incrémentale (Feedback temps réel de l'Engine) */}
-            {incrementalReference && (
-              <div className="incremental-detection-badge">
-                <div className="incremental-spinner" aria-hidden="true" />
-                <span>
-                  Recherche en cours : <strong>{incrementalReference.book}</strong>
-                  {incrementalReference.chapter && ` ${incrementalReference.chapter}`}...
-                </span>
               </div>
             )}
             

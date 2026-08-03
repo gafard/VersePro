@@ -76,7 +76,6 @@ export const useStore = create((set, get) => ({
   micPermissionState: 'unknown',
   micError: null,
   currentTranscript: '',
-  incrementalReference: null,
   detectedReferences: [],
   asrMode: 'deepgram',
   // Santé de la transcription. `fiable: true` par défaut : tant qu'on n'a
@@ -582,12 +581,8 @@ export const useStore = create((set, get) => ({
         set({ currentTranslation: data.text })
       }
       
-      if (data.type === 'incremental_reference') {
-        set({ incrementalReference: data.payload })
-      }
       
       if (data.type === 'reference_detected') {
-        set({ incrementalReference: null })
         get().addDetectedReference(data.reference)
         // Ajoute automatiquement à la file de projection (avec statut pending ou projected)
         get().addToProjectionQueue(data.reference)
@@ -840,7 +835,10 @@ export const useStore = create((set, get) => ({
   sendReference: async (reference, version = null, isUndo = false) => {
     try {
       const activeVersion = version || get().activeBible || 'LSG'
-      const payloadRef = version ? `${reference}:${version}` : reference
+      // La version passe par SON champ, pas collée à la référence. L'ancien
+      // « Jean 3:16:SEM » était simplement analysé comme « Jean 3:16 » puis le
+      // suffixe jeté : le pasteur demandait la Semeur, l'assemblée lisait la
+      // Segond, et l'interface affichait « ★ À l'antenne » sur la Semeur.
 
       // Sauvegarde dans l'historique d'annulation avant modification
       const currentOnAir = get().onAir
@@ -853,7 +851,7 @@ export const useStore = create((set, get) => ({
       const response = await fetch(`${BACKEND_BASE}/api/v1/references/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference: payloadRef })
+        body: JSON.stringify(version ? { reference, version } : { reference })
       })
       const data = await response.json().catch(() => ({}))
       if (response.ok && data?.success) {

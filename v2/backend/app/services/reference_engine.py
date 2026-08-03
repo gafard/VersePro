@@ -233,16 +233,19 @@ class BibleReferenceEngine:
         #    et l'attendre ajouterait plusieurs secondes de retard à l'écran.
         decision = await self._run_detection_cascade(analysis_text, is_final)
 
-        # 2. Rien de complet, et l'énoncé continue : on peut au moins dire vers
-        #    quel passage on se dirige. Purement informatif, jamais projeté.
-        if not decision and not is_final:
-            incremental = self.verse_parser.parse_incremental(self._recent_window(analysis_text, 15))
-            if incremental:
-                return {
-                    "type": "incremental_reference",
-                    "payload": incremental
-                }
-
+        # Un étage « incrémental » annonçait ici le passage vers lequel on se
+        # dirigeait (« Recherche en cours : Romains 8… »). Il est retiré, et la
+        # mesure explique pourquoi : sur 30 minutes de prédication réelle, il
+        # se déclenchait 1 683 fois — une fois toutes les 1,1 seconde — parce
+        # que les articles français entrent dans les abréviations de livres
+        # (« est » → Esther, « la » → Lamentations, « je » → Jérémie).
+        #
+        # Depuis que la cascade passe en premier, « Jean chapitre 3 » remonte
+        # de toute façon comme chapter_candidate : une vraie détection, qui
+        # pose en plus l'ancre VerseGraph. L'étage n'apportait plus rien.
+        # `VerseParserService.parse_incremental` reste disponible et testé si
+        # l'idée revient — il lui faudra alors une amorce et un filtre de
+        # longueur, puis une nouvelle mesure sur du vrai son.
         if not decision:
             return None
 
