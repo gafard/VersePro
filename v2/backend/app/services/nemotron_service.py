@@ -213,12 +213,12 @@ class NemotronService:
     # ── Session de flux ─────────────────────────────────────────────────────
 
     def _preparer_bibliotheque(self) -> None:
-        """Indique au binding où trouver la bibliothèque native.
+        """Repli pour un développeur qui compile transcribe.cpp lui-même.
 
-        `transcribe_cpp` cherche d'abord un « provider » installé par pip, puis
-        la variable TRANSCRIBE_LIBRARY. VersePro livre la bibliothèque à côté
-        du binaire natif : on pointe dessus, sans jamais écraser un réglage que
-        l'utilisateur aurait posé lui-même.
+        En temps normal il n'y a rien à faire : la roue `transcribe-cpp-native`
+        embarque la bibliothèque compilée pour la plateforme, et le binding la
+        trouve seul. Ce repli ne sert qu'à une bibliothèque posée à la main
+        dans bin/, et n'écrase jamais un TRANSCRIBE_LIBRARY déjà défini.
         """
         if os.environ.get("TRANSCRIBE_LIBRARY"):
             return

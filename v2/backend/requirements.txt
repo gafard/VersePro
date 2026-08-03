@@ -11,11 +11,13 @@ pyaudio>=0.2.14
 numpy>=1.24.0
 vosk>=0.3.44
 huggingface-hub>=0.20.0
-# Binding Python OFFICIEL de transcribe.cpp — ctypes pur, généré depuis
-# l'en-tête, avec vérification de l'ABI au chargement. Il ne contient PAS la
-# bibliothèque native : celle-ci est livrée dans bin/ (voir versepro-backend.spec).
-# Source : tmp/transcribe_src/bindings/python
-transcribe-cpp>=0.2.0
+# Moteur ASR local Nemotron. Deux paquets qui vont ensemble et DOIVENT rester
+# à la même version : le binding est du ctypes pur généré depuis l'en-tête, et
+# il vérifie l'ABI de la native au chargement — une version décalée devient une
+# ImportError, pas une corruption mémoire. Les roues « native » embarquent la
+# bibliothèque compilée pour chaque plateforme : rien à compiler côté VersePro.
+transcribe-cpp==0.1.3
+transcribe-cpp-native==0.1.3
 # Embeddings multilingues ONNX pour le retrieval biblique local.
 fastembed>=0.8.0
 

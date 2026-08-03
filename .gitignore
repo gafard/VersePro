@@ -103,9 +103,9 @@ v2/backend/corpus/**/*.wav
 v2/backend/data/models/
 *.gguf
 
-# Binaires natifs (transcribe-cli et ses dépendances) : compilés pour une
-# architecture donnée, ils sont fournis par le paquet d'installation, pas par
-# le dépôt de sources.
+# Binaires natifs compilés à la main pendant l'exploration. En temps normal ce
+# dossier n'existe pas : la bibliothèque ASR arrive par la roue
+# transcribe-cpp-native, une par plateforme.
 v2/backend/bin/
 
 # Clones de sources natives explorés pendant l'intégration ASR.

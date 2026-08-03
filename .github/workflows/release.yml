@@ -76,6 +76,23 @@ jobs:
           ls dist/versepro-backend/_internal/data/semantic/index-*.npz
           echo "gel OK : ressources présentes"
 
+      # Le moteur ASR local est du ctypes pur : la bibliothèque native arrive
+      # par la roue transcribe-cpp-native. Si PyInstaller ne l'embarque pas, le
+      # gel se construit quand même et le backend démarre — Nemotron se
+      # contente d'échouer au premier clic sur le micro, en production. Une
+      # vérification de présence coûte une seconde et évite ça.
+      - name: Vérifier la bibliothèque ASR native embarquée
+        working-directory: v2/backend
+        run: |
+          set -u
+          TROUVE=$(find dist/versepro-backend -iname "libtranscribe*" -o -iname "transcribe*.dll" | head -5)
+          if [ -z "$TROUVE" ]; then
+            echo "::error::bibliothèque native transcribe.cpp absente du gel — Nemotron serait indisponible"
+            find dist/versepro-backend -iname "*transcribe*" | head -20
+            exit 1
+          fi
+          echo "$TROUVE"
+
       # Test de démarrage RÉEL du backend figé. Vérifier la présence des
       # fichiers ne prouve rien : un exécutable peut se construire puis mourir à
       # l'exécution (DLL manquante, import cassé). Sans ce test, un backend mort

@@ -7,6 +7,7 @@ de PyInstaller ne suit pas seule :
   - onnxruntime  (encodeur e5 : .dylib + capi)
   - tokenizers   (extension Rust)
   - vosk         (libvosk + bindings)
+  - transcribe_cpp / transcribe_cpp_native (moteur ASR local, .dylib/.dll)
   - huggingface_hub (téléchargement du modèle Nemotron)
   - keyring      (trousseau macOS / Windows)
   - uvicorn      (workers/protocols chargés dynamiquement)
@@ -28,22 +29,11 @@ for src, dst in (
     if os.path.exists(src):
         datas.append((src, dst))
 
-# Binaire C++ natif d'accélération ASR (transcribe-cli / Metal GPU)
-_cli_bin = os.path.join(SPECPATH, "bin", "transcribe-cli")
-if os.path.exists(_cli_bin):
-    binaries.append((_cli_bin, "bin"))
-
-# Bibliothèque partagée de parakeet.cpp (moteur Nemotron). Elle n'existe que si
-# parakeet.cpp a été compilé avec BUILD_SHARED_LIBS=ON ; la compilation par
-# défaut ne produit qu'un .a statique, inutilisable par ctypes.
-# Bibliothèque native de transcribe.cpp et ses backends ggml. Le binding
-# Python est du ctypes pur : sans ces fichiers, le moteur Nemotron est
-# indisponible dans l'application figée alors qu'il marche en développement.
-_bin = os.path.join(SPECPATH, "bin")
-if os.path.isdir(_bin):
-    for _f in os.listdir(_bin):
-        if _f.endswith((".dylib", ".so", ".dll")) or _f.startswith("transcribe-cli"):
-            binaries.append((os.path.join(_bin, _f), "bin"))
+# La bibliothèque native du moteur ASR (Nemotron) arrive par la roue
+# transcribe-cpp-native, une par plateforme : elle est collectée plus bas avec
+# les autres paquets à extensions natives. Rien à compiler ni à copier ici —
+# une version antérieure de ce fichier embarquait des binaires construits à la
+# main, qui ne valaient que pour la machine du développeur.
 
 # Index sémantique PRÉ-CALCULÉ (e5-base, float16, ~49 Mo npz+json) : identique
 # pour tous les postes (même Bible, même modèle), il est livré avec l'app et
@@ -74,7 +64,7 @@ if os.path.isdir(_fonts):
             datas.append((os.path.join(_fonts, _f), os.path.join("data", "fonts")))
 
 for pkg in (
-    "onnxruntime", "tokenizers", "vosk", "transcribe_cpp",
+    "onnxruntime", "tokenizers", "vosk", "transcribe_cpp", "transcribe_cpp_native",
     "huggingface_hub", "keyring",
     # certifi : sans son cacert.pem embarqué, l'application figée n'a AUCUNE
     # autorité de certification et tout téléchargement de modèle meurt en
