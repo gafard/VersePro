@@ -1011,14 +1011,14 @@ export default function LiveDetection({ setActiveTab }) {
               </div>
             )}
             
+            {/* Texte brut, pas un <span> par mot : le découpage reconstruisait
+                des dizaines de nœuds à chaque partiel, avec des clés d'index
+                que React ne peut pas réutiliser quand la phrase s'allonge.
+                Rien ici ne cible les mots un à un — la lecture vivante mot à
+                mot, elle, vit sur l'écran de projection, qui a son propre
+                rendu. */}
             <div className="live-transcript-scroll" id="live-transcript-scroll">
               {currentTranscript ? (
-                {/* Texte brut, pas un <span> par mot : le découpage
-                    reconstruisait des dizaines de nœuds à chaque partiel, avec
-                    des clés d'index que React ne peut pas réutiliser quand la
-                    phrase s'allonge. Rien ici ne cible les mots un à un — la
-                    lecture vivante mot à mot, elle, vit sur l'écran de
-                    projection, qui a son propre rendu. */}
                 <p className="whitespace-pre-wrap">{currentTranscript}</p>
               ) : (
                 <div className="text-[var(--text-faint)] italic text-center py-8">
