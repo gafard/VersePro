@@ -226,8 +226,16 @@ class BibleReferenceEngine:
         return await self._run_detection_cascade(analysis_text, final_state)
 
     async def process(self, analysis_text: str, is_final: bool, generation: int, source_asr: str = "vosk", session_id: str = "local") -> Optional[Dict[str, Any]]:
-        # 1. Parsing incrémental rapide (si partiel)
-        if not is_final:
+        # 1. Cascade de détection. Sur un PARTIEL elle s'arrête d'elle-même
+        #    après l'étage explicite — mais cet étage doit tourner : quand le
+        #    prédicateur a fini de dire « Romains chapitre huit verset
+        #    vingt-huit », la référence est complète AVANT la fin de l'énoncé,
+        #    et l'attendre ajouterait plusieurs secondes de retard à l'écran.
+        decision = await self._run_detection_cascade(analysis_text, is_final)
+
+        # 2. Rien de complet, et l'énoncé continue : on peut au moins dire vers
+        #    quel passage on se dirige. Purement informatif, jamais projeté.
+        if not decision and not is_final:
             incremental = self.verse_parser.parse_incremental(self._recent_window(analysis_text, 15))
             if incremental:
                 return {
@@ -235,8 +243,6 @@ class BibleReferenceEngine:
                     "payload": incremental
                 }
 
-        # 2. Cascade de détection profonde
-        decision = await self._run_detection_cascade(analysis_text, is_final)
         if not decision:
             return None
 
