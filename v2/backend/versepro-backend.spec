@@ -97,7 +97,26 @@ a = Analysis(
     # sur un poste de développement. La bibliothèque native reste facultative —
     # le driver la charge dans un try/except et se désactive proprement si le
     # runtime NDI de Vizrt n'est pas installé sur la machine.
-    excludes=["PyInstaller"],
+    # VersePro n'importe RIEN de tout ceci. Ces paquets arrivent parce qu'ils
+    # traînent dans l'environnement du développeur — mlx-whisper, installé pour
+    # un script de comparaison de moteurs ASR, tire torch, numba et llvmlite.
+    # Le gel les embarquait, soit 851 Mo sur un bundle de 1,2 Go.
+    #
+    # L'exclusion vaut mieux qu'une désinstallation : elle rend le résultat
+    # indépendant de ce qui est installé sur la machine qui construit.
+    #
+    # La reconnaissance vocale passe par transcribe.cpp (Nemotron) et Vosk, la
+    # recherche sémantique par onnxruntime : aucun de ces chemins n'a besoin de
+    # torch. Si un jour un modèle PyTorch entre dans VersePro, retirer la ligne
+    # correspondante ici — et remesurer le poids du bundle.
+    excludes=[
+        "PyInstaller",
+        "torch", "torchvision", "torchaudio",
+        "numba", "llvmlite",
+        "mlx", "mlx_whisper", "mlx_lm",
+        "faster_whisper", "ctranslate2", "whisper",
+        "tensorboard", "matplotlib", "IPython", "notebook",
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
