@@ -103,9 +103,14 @@ v2/backend/corpus/**/*.wav
 v2/backend/data/models/
 *.gguf
 
-# Binaires natifs compilés localement (parakeet.cpp) : ils dépendent de la
-# machine qui les a produits.
+# Binaires natifs (transcribe-cli et ses dépendances) : compilés pour une
+# architecture donnée, ils sont fournis par le paquet d'installation, pas par
+# le dépôt de sources.
 v2/backend/bin/
+
+# Clones de sources natives explorés pendant l'intégration ASR.
+v2/backend/tmp/transcribe_src/
+v2/backend/tmp/parakeet_src/
 
 # Sorties de travail : transcriptions, extraits audio, rapports d'écoute.
 # Elles contiennent de la parole d'assemblée — voir corpus/README.md.

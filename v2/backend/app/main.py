@@ -75,11 +75,6 @@ ai_service: AIService | None = None
 semantic_service: LocalSemanticService | None = None
 verse_graph: VerseGraphService | None = None
 
-# Nemotron décode en flux et n'annonce jamais la fin d'une phrase. On la
-# déduit : quand son tampon cesse de changer pendant ce délai, l'énoncé est
-# considéré terminé et part en « final ». Assez court pour suivre un
-# prédicateur, assez long pour ne pas couper une phrase à chaque respiration.
-NEMOTRON_SILENCE_S = 1.2
 reference_engine: BibleReferenceEngine | None = None
 sante_transcription: SanteTranscription = SanteTranscription()
 current_session_id: int | None = None
@@ -2081,10 +2076,6 @@ async def websocket_audio(websocket: WebSocket):
     recognizer = None
     use_vosk = False
     use_nemotron = False
-    # État du flux Nemotron : il n'émet pas de « final », on le déduit de
-    # l'arrêt des changements du tampon.
-    dernier_texte_nemotron = ""
-    dernier_changement_nemotron = 0.0
 
     # Barrière vocale : ignore musique et silences avant transcription (optionnelle)
     voice_gate = None
@@ -2258,25 +2249,15 @@ async def websocket_audio(websocket: WebSocket):
                         continue
 
                 if use_nemotron:
-                    # Nemotron décode en FLUX, dans son propre thread : on lui
-                    # pousse les échantillons et on relit son tampon. Il n'y a
-                    # pas de signal de « final » comme chez Vosk — le tampon
-                    # grossit tant que la phrase continue. On considère donc la
-                    # phrase terminée quand le texte cesse de bouger, puis on
-                    # réinitialise pour la suivante.
+                    # Le service accumule le son et découpe lui-même sur les
+                    # silences : il ne rend un énoncé que lorsqu'il est complet.
+                    # L'appel bloque environ 0,5 s quand la transcription se
+                    # déclenche, d'où le passage par un thread.
                     echantillons = np.frombuffer(data, dtype=np.int16)
                     await asyncio.to_thread(nemotron_service.accept_waveform, echantillons)
-                    texte = nemotron_service.get_result().strip()
-                    maintenant = asyncio.get_event_loop().time()
-                    if texte and texte != dernier_texte_nemotron:
-                        dernier_texte_nemotron = texte
-                        dernier_changement_nemotron = maintenant
-                        await queue_transcript(texte, False)
-                    elif (dernier_texte_nemotron
-                          and maintenant - dernier_changement_nemotron > NEMOTRON_SILENCE_S):
-                        await queue_transcript(dernier_texte_nemotron, True)
-                        dernier_texte_nemotron = ""
-                        await asyncio.to_thread(nemotron_service.reset)
+                    enonce = nemotron_service.prendre_enonce_fini()
+                    if enonce:
+                        await queue_transcript(enonce, True)
                 elif not use_vosk:
                     await transcription_session.send_audio(data)
                 else:

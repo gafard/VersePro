@@ -9,8 +9,11 @@ import ctypes
 import json
 import os
 import platform
+import subprocess
+import tempfile
 import threading
 import time
+import wave
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -26,6 +29,19 @@ MODEL_FILENAME = "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"
 MODEL_SHA256 = None  # Validé lors du téléchargement Hugging Face
 MODEL_SUBDIR = "nemotron"
 MODEL_SIZE_MB = 716
+
+# Le locale COMPLET est obligatoire : le modèle refuse « fr » et « auto »
+# (« run: unsupported language »), il accepte « fr-FR ».
+LANGUE = "fr-FR"
+
+# Découpage sur les silences. Un seuil d'énergie suffit ici : on ne cherche pas
+# à distinguer voix et musique — seulement à repérer une fin de phrase pour ne
+# pas couper les mots en deux.
+SEUIL_SILENCE_RMS = 0.006
+SILENCE_MS = 600.0        # silence avant de clore un énoncé
+PAROLE_MIN_MS = 800.0     # en deçà, ce n'est pas une phrase
+ENONCE_MAX_S = 15.0       # plafond : un orateur qui n'inspire jamais
+DELAI_MAX_S = 60.0        # garde-fou sur le processus fils
 
 
 def _find_transcribe_cli_binary() -> Optional[Path]:
@@ -52,129 +68,6 @@ def _find_transcribe_cli_binary() -> Optional[Path]:
     return None
 
 
-def _load_parakeet_library() -> Optional[ctypes.CDLL]:
-    """Charge la bibliothèque PARTAGÉE de parakeet.cpp, ou None si absente.
-
-    Renvoyer None plutôt que lever : l'appelant doit pouvoir se rabattre sur
-    Vosk sans que la session micro tombe. Une exception ici remonterait
-    jusqu'au gestionnaire WebSocket et couperait le direct.
-
-    À noter, et c'est le point qui bloque aujourd'hui : la compilation locale
-    produit `libparakeet.a`, une bibliothèque STATIQUE, que ctypes ne sait pas
-    charger. Il faut un `.dylib` / `.so` / `.dll` — c'est-à-dire recompiler
-    parakeet.cpp avec -DPARAKEET_SHARED=ON (le drapeau du CMakeLists du
-    projet, PAS BUILD_SHARED_LIBS), puis déposer la bibliothèque dans `bin/`.
-    Tant que ce fichier n'existe pas, ce chargeur renvoie None et le moteur
-    reste indisponible, proprement.
-    """
-    systeme = platform.system()
-    noms = {
-        "Darwin": ["libparakeet.dylib"],
-        "Linux": ["libparakeet.so"],
-        "Windows": ["parakeet.dll", "libparakeet.dll"],
-    }.get(systeme, ["libparakeet.so"])
-
-    racine = Path(__file__).resolve().parents[2]
-    dossiers = [
-        racine / "bin",
-        racine / "_internal" / "bin",   # gel PyInstaller (mode onedir)
-        racine / "_internal",
-        racine.parent / "bin",
-        racine / "tmp" / "parakeet_src" / "build",
-    ]
-    def _valide(lib: ctypes.CDLL) -> bool:
-        """Une poignée ne suffit pas : le symbole doit exister.
-
-        Sur macOS, ctypes.CDLL(« libparakeet.dylib ») RÉUSSIT même sans aucun
-        fichier de ce nom — il rend une poignée creuse dont tous les dlsym
-        échouent ensuite. Sans cette vérification, le service croirait avoir
-        chargé la bibliothèque et planterait plus loin, au pire moment.
-        """
-        try:
-            getattr(lib, "parakeet_init")
-            return True
-        except AttributeError:
-            return False
-
-    for dossier in dossiers:
-        for nom in noms:
-            chemin = dossier / nom
-            if not chemin.exists():
-                continue
-            try:
-                lib = ctypes.CDLL(str(chemin))
-            except OSError as exc:
-                logger.warning(f"Bibliothèque parakeet illisible ({chemin}) : {exc}")
-                continue
-            if _valide(lib):
-                return lib
-            logger.warning(f"Bibliothèque parakeet sans les symboles attendus : {chemin}")
-
-    # Dernier recours : le chargeur du système (LD_LIBRARY_PATH, /usr/local/lib…)
-    for nom in noms:
-        try:
-            lib = ctypes.CDLL(nom)
-        except OSError:
-            continue
-        if _valide(lib):
-            return lib
-
-    logger.info(
-        "Bibliothèque parakeet.cpp partagée introuvable (%s). Le moteur Nemotron "
-        "reste indisponible ; VersePro se rabattra sur Vosk.",
-        " / ".join(noms),
-    )
-    return None
-
-
-# ── Binding C flat via ctypes ──────────────────────────────────────────────
-class _ParakeetCAPI:
-    def __init__(self, lib: ctypes.CDLL) -> None:
-        self.lib = lib
-        try:
-            # void* parakeet_init(const char* model_path, const char* params_json);
-            self.lib.parakeet_init.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
-            self.lib.parakeet_init.restype = ctypes.c_void_p
-
-            # void parakeet_free(void* ctx);
-            self.lib.parakeet_free.argtypes = [ctypes.c_void_p]
-            self.lib.parakeet_free.restype = None
-
-            # void* parakeet_create_stream(void* ctx);
-            self.lib.parakeet_create_stream.argtypes = [ctypes.c_void_p]
-            self.lib.parakeet_create_stream.restype = ctypes.c_void_p
-
-            # void parakeet_free_stream(void* stream);
-            self.lib.parakeet_free_stream.argtypes = [ctypes.c_void_p]
-            self.lib.parakeet_free_stream.restype = None
-
-            # void parakeet_accept_waveform(void* stream, float* samples, int n_samples);
-            self.lib.parakeet_accept_waveform.argtypes = [
-                ctypes.c_void_p,
-                ctypes.POINTER(ctypes.c_float),
-                ctypes.c_int,
-            ]
-            self.lib.parakeet_accept_waveform.restype = None
-
-            # int parakeet_is_ready(void* ctx, void* stream);
-            self.lib.parakeet_is_ready.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            self.lib.parakeet_is_ready.restype = ctypes.c_int
-
-            # void parakeet_decode_stream(void* ctx, void* stream);
-            self.lib.parakeet_decode_stream.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            self.lib.parakeet_decode_stream.restype = None
-
-            # const char* parakeet_get_result(void* ctx, void* stream);
-            self.lib.parakeet_get_result.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            self.lib.parakeet_get_result.restype = ctypes.c_char_p
-
-            # void parakeet_reset_stream(void* ctx, void* stream);
-            self.lib.parakeet_reset_stream.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            self.lib.parakeet_reset_stream.restype = None
-        except AttributeError as e:
-            raise RuntimeError(f"Symboles C-API parakeet.cpp manquants dans la librairie dynamique: {e}")
-
-
 # ── Service Nemotron ───────────────────────────────────────────────────────
 class NemotronService:
     """
@@ -191,9 +84,7 @@ class NemotronService:
         self._model_dir = Path(DATA_DIR) / "models" / MODEL_SUBDIR
         self._model_path = self._model_dir / MODEL_FILENAME
 
-        self._capi: Optional[_ParakeetCAPI] = None
-        self._ctx: Optional[ctypes.c_void_p] = None
-        self._stream: Optional[ctypes.c_void_p] = None
+        self._binaire: Optional[Path] = None
 
         self._lock = threading.Lock()
         self._text_buffer = ""
@@ -203,8 +94,11 @@ class NemotronService:
         self.last_error = ""
         self._decode_thread: Optional[threading.Thread] = None
 
-        self._sample_queue: list[np.ndarray] = []
-        self._queue_event = threading.Event()
+        self._pcm: list[np.ndarray] = []
+        self._silence_ms = 0.0
+        self._parole_ms = 0.0
+        # Énoncé transcrit, en attente d'être consommé par l'appelant.
+        self._enonce_fini: Optional[str] = None
 
     @property
     def resolved_model_path(self) -> Path:
@@ -239,7 +133,7 @@ class NemotronService:
             "installed": self.is_ready,
             "model_path": str(self.resolved_model_path),
             "model_size_mb": MODEL_SIZE_MB,
-            "loaded": self._ctx is not None,
+            "loaded": self._running,
             "downloading": self.downloading and not self.is_ready,
             "download_progress": 1.0 if self.is_ready else self.download_progress,
             "last_error": self.last_error,
@@ -298,138 +192,170 @@ class NemotronService:
         threading.Thread(target=_download_task, daemon=True).start()
         return True
 
+    # ── Transcription par le binaire natif ──────────────────────────────────
+    #
+    # POURQUOI PAS ctypes. Le service visait une API C en flux inventée de
+    # toutes pièces : aucun des neuf symboles appelés n'existe. La vraie API de
+    # transcribe.cpp (include/transcribe.h) est faite de structures versionnées
+    # accompagnées d'un fichier `transcribe.abihash` — signe que la disposition
+    # mémoire compte à l'octet près. Un binding ctypes s'y trompant ne lève pas
+    # d'erreur : il corrompt la mémoire. C'est un chantier à part entière.
+    #
+    # Le binaire `transcribe-cli`, lui, fonctionne : il charge ce modèle et
+    # transcrit le français à 8,5× le temps réel — 0,47 s pour 4 s d'audio,
+    # lancement du processus compris. Et sa sortie est PONCTUÉE et
+    # capitalisée, là où Vosk rend une bouillie en minuscules.
+    #
+    # On découpe sur les SILENCES et non à intervalle fixe : couper toutes les
+    # quatre secondes tomberait au milieu des mots, et « Romains chapitre huit
+    # verset » perdrait son numéro.
+
     def start(self) -> None:
-        if not self.is_ready and self.lib_factory is None:
-            raise RuntimeError("Modèle Nemotron non téléchargé. Appelez prepare() d'abord.")
-
-        if self.lib_factory:
-            lib = self.lib_factory()
-        else:
-            lib = _load_parakeet_library()
-
-        if lib is None:
+        """Vérifie que le binaire et le modèle sont là. N'ouvre aucun processus."""
+        if self._running:
+            return
+        binaire = _find_transcribe_cli_binary()
+        if binaire is None:
             self.last_error = (
-                "Bibliothèque parakeet.cpp partagée absente. La compilation "
-                "locale produit libparakeet.a (statique) ; ctypes exige un "
-                ".dylib/.so — recompiler avec -DPARAKEET_SHARED=ON et déposer "
-                "la bibliothèque dans bin/."
+                "Binaire transcribe-cli introuvable. Attendu dans bin/ "
+                "(voir tmp/transcribe_src pour le compiler)."
             )
             raise RuntimeError(self.last_error)
+        chemin = self.resolved_model_path
+        if not (chemin.exists() and chemin.stat().st_size > 0):
+            self.last_error = f"Modèle Nemotron introuvable : {chemin}"
+            raise RuntimeError(self.last_error)
 
-        self._capi = _ParakeetCAPI(lib)
-
-        params = {
-            "language": "fr",
-            "translate": False,
-            "n_threads": max(1, os.cpu_count() or 1),
-            "use_gpu": False,
-        }
-        params_json = json.dumps(params)
-
-        self._ctx = self._capi.lib.parakeet_init(
-            # `resolved_model_path` et non `_model_path` : is_ready cherche le
-            # modèle dans sept emplacements, l'initialisation doit utiliser
-            # CELUI qui a été trouvé, sinon elle échoue sur un chemin vide.
-            str(self.resolved_model_path).encode("utf-8"),
-            params_json.encode("utf-8"),
-        )
-        if not self._ctx:
-            raise RuntimeError("parakeet_init a échoué.")
-
-        self._stream = self._capi.lib.parakeet_create_stream(self._ctx)
-        if not self._stream:
-            raise RuntimeError("parakeet_create_stream a échoué.")
-
-        self._text_buffer = ""
+        self._binaire = binaire
+        with self._lock:
+            self._pcm = []
+            self._silence_ms = 0.0
+            self._parole_ms = 0.0
+            self._text_buffer = ""
+            self._enonce_fini = None
         self._running = True
-        self._decode_thread = threading.Thread(target=self._decode_loop, daemon=True)
-        self._decode_thread.start()
-
-        logger.info("NemotronService démarré (streaming).")
+        logger.info("✅ Nemotron prêt (%s, langue %s)", binaire.name, LANGUE)
 
     def stop(self) -> None:
+        """Transcrit ce qui reste dans le tampon, puis se ferme."""
+        if not self._running:
+            return
         self._running = False
-        self._queue_event.set()
-
-        if self._decode_thread and self._decode_thread.is_alive():
-            self._decode_thread.join(timeout=2.0)
-
-        with self._lock:
-            if self._stream and self._capi:
-                try:
-                    self._capi.lib.parakeet_free_stream(self._stream)
-                except Exception:
-                    pass
-                self._stream = None
-            if self._ctx and self._capi:
-                try:
-                    self._capi.lib.parakeet_free(self._ctx)
-                except Exception:
-                    pass
-                self._ctx = None
-
-        logger.info("NemotronService arrêté.")
+        reste = self._vider()
+        if reste:
+            with self._lock:
+                self._enonce_fini = reste
+        self._binaire = None
 
     def reset(self) -> None:
         with self._lock:
-            if self._ctx and self._stream and self._capi:
-                try:
-                    self._capi.lib.parakeet_reset_stream(self._ctx, self._stream)
-                except Exception as e:
-                    logger.warning(f"Erreur réinitialisation stream Nemotron : {e}")
+            self._pcm = []
+            self._silence_ms = 0.0
+            self._parole_ms = 0.0
             self._text_buffer = ""
+            self._enonce_fini = None
 
     def accept_waveform(self, samples: np.ndarray) -> None:
-        if not self._running or self._stream is None:
+        """Accumule le son ; transcrit dès qu'un énoncé se termine.
+
+        Appel BLOQUANT quand la transcription se déclenche (~0,5 s) : à
+        exécuter hors de la boucle d'événements, ce que fait le WebSocket audio
+        via asyncio.to_thread.
+        """
+        if not self._running:
             return
 
         if samples.dtype == np.int16:
-            samples = samples.astype(np.float32) / 32768.0
+            flottants = samples.astype(np.float32) / 32768.0
         elif samples.dtype != np.float32:
-            samples = samples.astype(np.float32)
+            flottants = samples.astype(np.float32)
+        else:
+            flottants = samples
+        if flottants.ndim > 1:
+            flottants = flottants.reshape(-1)
+        if flottants.size == 0:
+            return
 
-        if samples.ndim > 1:
-            samples = samples.reshape(-1)
+        duree_ms = 1000.0 * flottants.size / self.SAMPLE_RATE
+        energie = float(np.sqrt(np.mean(np.square(flottants))))
 
         with self._lock:
-            self._sample_queue.append(samples.copy())
-        self._queue_event.set()
+            self._pcm.append(flottants.copy())
+            if energie >= SEUIL_SILENCE_RMS:
+                self._parole_ms += duree_ms
+                self._silence_ms = 0.0
+            else:
+                self._silence_ms += duree_ms
+            accumule_ms = sum(p.size for p in self._pcm) * 1000.0 / self.SAMPLE_RATE
+            # Fin d'énoncé : assez parlé, puis assez de silence. Le plafond
+            # évite qu'un prédicateur enchaînant sans pause fasse enfler le
+            # tampon indéfiniment.
+            termine = (
+                (self._parole_ms >= PAROLE_MIN_MS and self._silence_ms >= SILENCE_MS)
+                or accumule_ms >= ENONCE_MAX_S * 1000.0
+            )
+        if not termine:
+            return
+
+        texte = self._vider()
+        if texte:
+            with self._lock:
+                self._enonce_fini = texte
 
     def get_result(self) -> str:
+        """Texte en attente. La CLI ne rend rien avant la fin de l'énoncé."""
         with self._lock:
             return self._text_buffer
 
-    def _decode_loop(self) -> None:
-        while self._running:
-            self._queue_event.wait(timeout=0.05)
-            self._queue_event.clear()
+    def prendre_enonce_fini(self) -> Optional[str]:
+        """Renvoie et consomme l'énoncé transcrit, ou None."""
+        with self._lock:
+            fini, self._enonce_fini = self._enonce_fini, None
+            return fini
 
-            chunks: list[np.ndarray] = []
-            with self._lock:
-                if self._sample_queue:
-                    chunks = self._sample_queue
-                    self._sample_queue = []
+    # ── Interne ─────────────────────────────────────────────────────────────
 
-            if not chunks or self._ctx is None or self._stream is None or self._capi is None:
-                continue
+    def _vider(self) -> str:
+        """Écrit le tampon en WAV, le fait transcrire, et rend le texte."""
+        with self._lock:
+            morceaux, self._pcm = self._pcm, []
+            assez = self._parole_ms >= PAROLE_MIN_MS
+            self._parole_ms = 0.0
+            self._silence_ms = 0.0
+        if not morceaux or not assez:
+            return ""
 
-            pcm = np.concatenate(chunks)
-            n = len(pcm)
-            if n == 0:
-                continue
+        pcm = np.concatenate(morceaux)
+        try:
+            with tempfile.TemporaryDirectory() as dossier:
+                wav = Path(dossier) / "enonce.wav"
+                with wave.open(str(wav), "wb") as flux:
+                    flux.setnchannels(1)
+                    flux.setsampwidth(2)
+                    flux.setframerate(self.SAMPLE_RATE)
+                    flux.writeframes((np.clip(pcm, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+                return self._transcrire(wav)
+        except Exception as exc:
+            self.last_error = f"Transcription Nemotron impossible : {exc}"
+            logger.error(self.last_error)
+            return ""
 
-            buf = pcm.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            self._capi.lib.parakeet_accept_waveform(self._stream, buf, n)
-
-            while (
-                self._capi.lib.parakeet_is_ready(self._ctx, self._stream) != 0
-                and self._running
-            ):
-                self._capi.lib.parakeet_decode_stream(self._ctx, self._stream)
-                c_str = self._capi.lib.parakeet_get_result(self._ctx, self._stream)
-                if c_str:
-                    text = ctypes.string_at(c_str).decode("utf-8", errors="replace")
-                    with self._lock:
-                        if text and text != self._text_buffer:
-                            self._text_buffer = text
-                            logger.debug(f"Nemotron partial: {text}")
+    def _transcrire(self, wav: Path) -> str:
+        """Lance transcribe-cli et extrait la ligne « text: »."""
+        resultat = subprocess.run(
+            [str(self._binaire), "-q",
+             "-m", str(self.resolved_model_path),
+             "-l", LANGUE, str(wav)],
+            capture_output=True, text=True, timeout=DELAI_MAX_S,
+            # bin/ contient aussi les libggml dont le binaire dépend.
+            env={**os.environ, "DYLD_LIBRARY_PATH": str(self._binaire.parent),
+                 "LD_LIBRARY_PATH": str(self._binaire.parent)},
+        )
+        if resultat.returncode != 0:
+            self.last_error = (resultat.stderr or "").strip()[:200]
+            logger.warning(f"transcribe-cli a échoué : {self.last_error}")
+            return ""
+        for ligne in resultat.stdout.splitlines():
+            if ligne.startswith("text:"):
+                return ligne[len("text:"):].strip()
+        return ""
