@@ -1285,6 +1285,9 @@ async def get_output_page():
             // part jamais d'elle-même. Elle avance quand la lecture atteint sa
             // fin, ou sur commande de la régie. C'est le prédicateur qui mène.
             let pages = [], pageCourante = 0, numVersetPage = null, numerosPages = [];
+            // Mots des pages DÉJÀ passées : le suiveur de lecture compte
+            // depuis le début du passage, la page ne connaît que les siens.
+            let motsAvantPage = 0;
 
             function decouperEnPhrases(texte) {
                 // Le point d'une abréviation ne termine pas une phrase : on
@@ -1325,6 +1328,8 @@ async def get_output_page():
             function montrerPage(index) {
                 if (index < 0 || index >= pages.length) return;
                 pageCourante = index;
+                motsAvantPage = pages.slice(0, index)
+                    .reduce((n, p) => n + p.split(/\\s+/).filter(Boolean).length, 0);
                 // Chaque page porte SON numéro de verset quand le passage a été
                 // découpé verset par verset — sinon l'assemblée ne saurait plus
                 // où elle en est au troisième écran.
@@ -1368,9 +1373,17 @@ async def get_output_page():
             function applyProgress(matched) {
                 const spans = textEl.querySelectorAll('.w');
                 if (!spans.length) return;
-                // La lecture atteint le bas de la page : on passe à la suivante
-                // sans attendre la minuterie. Le prédicateur mène, l'écran suit.
-                if (pages.length > 1 && matched >= spans.length - 2
+                // La lecture atteint le bas de la page : on passe à la suivante.
+                // Le prédicateur mène, l'écran suit.
+                //
+                // `matched` compte les mots depuis le début du PASSAGE, alors
+                // que `spans` ne contient que ceux de la page courante. Sans
+                // retrancher ce que les pages précédentes ont déjà consommé, la
+                // condition était vraie DÈS l'apparition de la page 2 : les
+                // versets 29 à 32 auraient défilé en un clin d'œil devant
+                // l'assemblée.
+                const restant = matched - motsAvantPage;
+                if (pages.length > 1 && restant >= spans.length - 2
                     && pageCourante + 1 < pages.length) {
                     montrerPage(pageCourante + 1);
                     return;
@@ -2275,6 +2288,8 @@ async def websocket_audio(websocket: WebSocket):
     recognizer = None
     use_vosk = False
     use_nemotron = False
+    # Dernier partiel Nemotron transmis : on ne renvoie que ce qui a changé.
+    dernier_partiel_nemotron = ""
 
     # Barrière vocale : ignore musique et silences avant transcription (optionnelle)
     voice_gate = None
@@ -2448,15 +2463,25 @@ async def websocket_audio(websocket: WebSocket):
                         continue
 
                 if use_nemotron:
-                    # Le service accumule le son et découpe lui-même sur les
-                    # silences : il ne rend un énoncé que lorsqu'il est complet.
-                    # L'appel bloque environ 0,5 s quand la transcription se
-                    # déclenche, d'où le passage par un thread.
+                    # Le décodage se fait dans le thread pour ne pas bloquer la
+                    # boucle d'événements.
                     echantillons = np.frombuffer(data, dtype=np.int16)
                     await asyncio.to_thread(nemotron_service.accept_waveform, echantillons)
                     enonce = nemotron_service.prendre_enonce_fini()
                     if enonce:
                         await queue_transcript(enonce, True)
+                        dernier_partiel_nemotron = ""
+                    else:
+                        # Le PARTIEL, sans quoi la console reste muette entre
+                        # deux phrases. Mesuré sur 10,7 s : un seul message
+                        # partait, alors que 39 blocs sur 43 avaient un partiel
+                        # à montrer — l'écran ne bougeait pas pendant neuf
+                        # secondes, puis une phrase entière tombait d'un coup.
+                        # C'était plus saccadé que Vosk, qui lui en envoie.
+                        partiel = nemotron_service.get_result()
+                        if partiel and partiel != dernier_partiel_nemotron:
+                            dernier_partiel_nemotron = partiel
+                            await queue_transcript(partiel, False)
                 elif not use_vosk:
                     await transcription_session.send_audio(data)
                 else:
