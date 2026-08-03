@@ -36,10 +36,14 @@ if os.path.exists(_cli_bin):
 # Bibliothèque partagée de parakeet.cpp (moteur Nemotron). Elle n'existe que si
 # parakeet.cpp a été compilé avec BUILD_SHARED_LIBS=ON ; la compilation par
 # défaut ne produit qu'un .a statique, inutilisable par ctypes.
-for _lib in ("libparakeet.dylib", "libparakeet.so", "parakeet.dll"):
-    _p = os.path.join(SPECPATH, "bin", _lib)
-    if os.path.exists(_p):
-        binaries.append((_p, "bin"))
+# Bibliothèque native de transcribe.cpp et ses backends ggml. Le binding
+# Python est du ctypes pur : sans ces fichiers, le moteur Nemotron est
+# indisponible dans l'application figée alors qu'il marche en développement.
+_bin = os.path.join(SPECPATH, "bin")
+if os.path.isdir(_bin):
+    for _f in os.listdir(_bin):
+        if _f.endswith((".dylib", ".so", ".dll")) or _f.startswith("transcribe-cli"):
+            binaries.append((os.path.join(_bin, _f), "bin"))
 
 # Index sémantique PRÉ-CALCULÉ (e5-base, float16, ~49 Mo npz+json) : identique
 # pour tous les postes (même Bible, même modèle), il est livré avec l'app et
@@ -70,7 +74,7 @@ if os.path.isdir(_fonts):
             datas.append((os.path.join(_fonts, _f), os.path.join("data", "fonts")))
 
 for pkg in (
-    "onnxruntime", "tokenizers", "vosk",
+    "onnxruntime", "tokenizers", "vosk", "transcribe_cpp",
     "huggingface_hub", "keyring",
     # certifi : sans son cacert.pem embarqué, l'application figée n'a AUCUNE
     # autorité de certification et tout téléchargement de modèle meurt en

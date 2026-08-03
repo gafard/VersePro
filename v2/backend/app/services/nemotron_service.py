@@ -1,19 +1,47 @@
-"""
-NemotronService - NVIDIA Nemotron-3.5-ASR via parakeet.cpp / GGUF (q8_0)
-Streaming ASR local, CPU-only, cross-platform (Metal/Vulkan/CUDA via GGML).
+"""NemotronService — transcription locale en flux via transcribe.cpp.
+
+Nemotron-3.5-ASR 0.6B (GGUF q8_0), décodé en flux par la bibliothèque native
+transcribe.cpp. Accéléré par Metal sur Apple Silicon, CPU ailleurs.
+
+CE QUE CE SERVICE A ÉTÉ. Il visait au départ une API C inventée de toutes
+pièces : neuf symboles — parakeet_init, parakeet_create_stream,
+parakeet_is_ready… — qui n'existent dans aucune version de la bibliothèque.
+Les tests passaient parce qu'ils simulaient exactement cette API imaginaire :
+ils validaient une fiction pendant que le moteur était incapable de démarrer.
+
+CE QU'IL EST. transcribe.cpp fournit un binding Python OFFICIEL — ctypes pur,
+généré depuis l'en-tête — qui vérifie DEUX FOIS la disposition des structures :
+contre ce que libclang a capturé à la génération, puis contre ce que la
+bibliothèque effectivement chargée déclare. Un désaccord devient une
+ImportError au lieu d'une corruption mémoire silencieuse. C'est ce filet qui
+rend l'approche acceptable là où un binding écrit à la main ne l'était pas.
+
+CE QUE LA MESURE A IMPOSÉ. Le flux expose trois vues — `committed` (figé, en
+ajout seul), `tentative` (volatil) et `full`. On aurait aimé prendre `committed`
+comme final. Mesuré sur 22,9 s de parole avec des pauses nettes : `committed`
+reste VIDE jusqu'à `finalize()`. Tout vit dans `tentative`.
+
+Or la cascade de VersePro n'analyse en profondeur que sur un « final ». Sans
+découpage, RIEN ne serait détecté avant la fermeture du micro.
+
+D'où la solution, qui utilise ce que le modèle donne de mieux : il PONCTUE.
+On coupe sur les fins de phrase, et seulement sur celles qui sont déjà suivies
+d'autre texte — preuve que le modèle les a dépassées et ne les révisera plus.
+
+    « …aiment Dieu. Mon frère Jean va… »
+                  ↑ ici : la phrase précédente part en final
+
+Mesuré : 10,7 s d'audio traitées en 0,6 s sur Metal, sans lancer un seul
+processus. Et la sortie est PONCTUÉE et capitalisée, là où Vosk rend une suite
+de mots en minuscules — ce dont le parseur de références profite directement.
 """
 
 from __future__ import annotations
 
-import ctypes
-import json
 import os
 import platform
-import subprocess
-import tempfile
 import threading
-import time
-import wave
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -30,74 +58,64 @@ MODEL_SHA256 = None  # Validé lors du téléchargement Hugging Face
 MODEL_SUBDIR = "nemotron"
 MODEL_SIZE_MB = 716
 
-# Le locale COMPLET est obligatoire : le modèle refuse « fr » et « auto »
-# (« run: unsupported language »), il accepte « fr-FR ».
+# Le locale COMPLET est obligatoire : le modèle refuse « fr » comme « auto »
+# (« run: unsupported language »), il n'accepte que « fr-FR ». Constaté à
+# l'exécution — aucune relecture de code n'aurait attrapé ça.
 LANGUE = "fr-FR"
 
-# Découpage sur les silences. Un seuil d'énergie suffit ici : on ne cherche pas
-# à distinguer voix et musique — seulement à repérer une fin de phrase pour ne
-# pas couper les mots en deux.
-SEUIL_SILENCE_RMS = 0.006
-SILENCE_MS = 600.0        # silence avant de clore un énoncé
-PAROLE_MIN_MS = 800.0     # en deçà, ce n'est pas une phrase
-ENONCE_MAX_S = 15.0       # plafond : un orateur qui n'inspire jamais
-DELAI_MAX_S = 60.0        # garde-fou sur le processus fils
+# Fins de phrase sur lesquelles on clôt un énoncé. Le modèle ponctue : c'est
+# le seul signal fiable de frontière qu'il fournisse.
+TERMINAISONS = ".!?…"
+
+# Filet quand le modèle ne ponctue pas. Mesuré : sur une suite de phrases
+# séparées par des pauses nettes, il lui arrive de n'écrire aucun point pendant
+# quatre phrases d'affilée. Sans ce plafond, aucun final ne partirait, et la
+# cascade — qui n'analyse en profondeur que sur un final — resterait muette.
+# 300 caractères ≈ 50 mots, soit un peu plus que la fenêtre d'analyse (40).
+SEGMENT_MAX_CARACTERES = 300
+
+# Au-delà de cette longueur d'hypothèse, on referme et rouvre le flux. Sans
+# cela, une prédication de deux heures ferait grossir le texte courant sans
+# fin — le modèle ne fige jamais de lui-même.
+HYPOTHESE_MAX_CARACTERES = 1500
 
 
-def _find_transcribe_cli_binary() -> Optional[Path]:
-    """Localise le binaire natif d'accélération C++ transcribe-cli."""
-    system = platform.system()
-    bin_name = "transcribe-cli.exe" if system == "Windows" else "transcribe-cli"
-    
-    base_dir = Path(__file__).parent.parent.parent
-    candidates = [
-        base_dir / "bin" / bin_name,
-        base_dir / "_internal" / "bin" / bin_name,
-        base_dir.parent / "bin" / bin_name,
-        base_dir / "tmp" / "transcribe_src" / "build" / "bin" / bin_name,
-    ]
-    for cand in candidates:
-        if cand.exists():
-            return cand
-            
-    import shutil
-    found = shutil.which(bin_name)
-    if found:
-        return Path(found)
-        
-    return None
+@contextmanager
+def suppress_erreurs():
+    """Libérer des ressources natives ne doit jamais faire échouer stop()."""
+    try:
+        yield
+    except Exception as exc:  # pragma: no cover - dépend du natif
+        logger.debug(f"Nemotron : libération partielle ({exc})")
 
 
 # ── Service Nemotron ───────────────────────────────────────────────────────
 class NemotronService:
-    """
-    Provider ASR local streaming utilisant Nemotron-3.5-ASR (0.6B q8_0)
-    via parakeet.cpp. Exécute le décodage dans un thread dédié.
-    """
+    """Transcription locale en flux. Ne bloque jamais le direct en cas d'échec."""
 
     NAME = "nemotron"
     DISPLAY_NAME = "Nemotron-3.5-ASR 0.6B (Streaming local)"
     SAMPLE_RATE = 16000
 
     def __init__(self, lib_factory=None) -> None:
+        # `lib_factory` permet aux tests d'injecter un faux module de binding.
         self.lib_factory = lib_factory
         self._model_dir = Path(DATA_DIR) / "models" / MODEL_SUBDIR
         self._model_path = self._model_dir / MODEL_FILENAME
 
-        self._binaire: Optional[Path] = None
+        self._modele = None
+        self._session = None
+        self._flux = None
 
         self._lock = threading.Lock()
-        self._text_buffer = ""
         self._running = False
         self.downloading = False
         self.download_progress = 0.0
         self.last_error = ""
-        self._decode_thread: Optional[threading.Thread] = None
 
-        self._pcm: list[np.ndarray] = []
-        self._silence_ms = 0.0
-        self._parole_ms = 0.0
-        # Énoncé transcrit, en attente d'être consommé par l'appelant.
+        # Longueur du texte figé DÉJÀ transmis à l'appelant.
+        self._fige_emis = 0
+        self._tentatif = ""
         self._enonce_fini: Optional[str] = None
 
     @property
@@ -192,77 +210,113 @@ class NemotronService:
         threading.Thread(target=_download_task, daemon=True).start()
         return True
 
-    # ── Transcription par le binaire natif ──────────────────────────────────
-    #
-    # POURQUOI PAS ctypes. Le service visait une API C en flux inventée de
-    # toutes pièces : aucun des neuf symboles appelés n'existe. La vraie API de
-    # transcribe.cpp (include/transcribe.h) est faite de structures versionnées
-    # accompagnées d'un fichier `transcribe.abihash` — signe que la disposition
-    # mémoire compte à l'octet près. Un binding ctypes s'y trompant ne lève pas
-    # d'erreur : il corrompt la mémoire. C'est un chantier à part entière.
-    #
-    # Le binaire `transcribe-cli`, lui, fonctionne : il charge ce modèle et
-    # transcrit le français à 8,5× le temps réel — 0,47 s pour 4 s d'audio,
-    # lancement du processus compris. Et sa sortie est PONCTUÉE et
-    # capitalisée, là où Vosk rend une bouillie en minuscules.
-    #
-    # On découpe sur les SILENCES et non à intervalle fixe : couper toutes les
-    # quatre secondes tomberait au milieu des mots, et « Romains chapitre huit
-    # verset » perdrait son numéro.
+    # ── Session de flux ─────────────────────────────────────────────────────
+
+    def _preparer_bibliotheque(self) -> None:
+        """Indique au binding où trouver la bibliothèque native.
+
+        `transcribe_cpp` cherche d'abord un « provider » installé par pip, puis
+        la variable TRANSCRIBE_LIBRARY. VersePro livre la bibliothèque à côté
+        du binaire natif : on pointe dessus, sans jamais écraser un réglage que
+        l'utilisateur aurait posé lui-même.
+        """
+        if os.environ.get("TRANSCRIBE_LIBRARY"):
+            return
+        nom = {"Darwin": "libtranscribe.dylib", "Windows": "transcribe.dll"}.get(
+            platform.system(), "libtranscribe.so")
+        racine = Path(__file__).resolve().parents[2]
+        for dossier in (racine / "bin", racine / "_internal" / "bin", racine.parent / "bin"):
+            chemin = dossier / nom
+            if chemin.exists():
+                os.environ["TRANSCRIBE_LIBRARY"] = str(chemin)
+                return
+
+    def _binding(self):
+        """Le module de binding, ou une RuntimeError expliquant ce qui manque."""
+        if self.lib_factory:
+            return self.lib_factory()
+        self._preparer_bibliotheque()
+        try:
+            import transcribe_cpp
+        except Exception as exc:
+            self.last_error = (
+                f"Bibliothèque native transcribe.cpp indisponible : {exc}. "
+                "Attendue dans bin/, ou désignée par la variable TRANSCRIBE_LIBRARY."
+            )
+            raise RuntimeError(self.last_error) from exc
+        return transcribe_cpp
 
     def start(self) -> None:
-        """Vérifie que le binaire et le modèle sont là. N'ouvre aucun processus."""
+        """Charge le modèle et ouvre un flux en français.
+
+        Lève une RuntimeError explicite en cas d'échec : l'appelant
+        (activate_nemotron) l'attrape et se rabat sur Vosk sans couper le micro.
+        """
         if self._running:
             return
-        binaire = _find_transcribe_cli_binary()
-        if binaire is None:
-            self.last_error = (
-                "Binaire transcribe-cli introuvable. Attendu dans bin/ "
-                "(voir tmp/transcribe_src pour le compiler)."
-            )
-            raise RuntimeError(self.last_error)
+
         chemin = self.resolved_model_path
         if not (chemin.exists() and chemin.stat().st_size > 0):
             self.last_error = f"Modèle Nemotron introuvable : {chemin}"
             raise RuntimeError(self.last_error)
 
-        self._binaire = binaire
+        transcribe_cpp = self._binding()
+        try:
+            self._modele = transcribe_cpp.Model(str(chemin))
+            if not self._modele.capabilities.supports_streaming:
+                raise RuntimeError(
+                    f"{self._modele.arch}/{self._modele.variant} ne gère pas le flux"
+                )
+            # On entre les gestionnaires de contexte à la main : leur durée de
+            # vie est celle de la session micro, pas celle d'un bloc `with`.
+            self._session = self._modele.session().__enter__()
+            self._flux = self._session.stream(language=LANGUE).__enter__()
+        except Exception as exc:
+            self._fermer_natif()
+            self.last_error = f"Ouverture du flux Nemotron impossible : {exc}"
+            raise RuntimeError(self.last_error) from exc
+
         with self._lock:
-            self._pcm = []
-            self._silence_ms = 0.0
-            self._parole_ms = 0.0
-            self._text_buffer = ""
+            self._fige_emis = 0
+            self._tentatif = ""
             self._enonce_fini = None
         self._running = True
-        logger.info("✅ Nemotron prêt (%s, langue %s)", binaire.name, LANGUE)
+        logger.info(
+            "✅ Nemotron prêt (%s sur %s, langue %s)",
+            self._modele.variant, self._modele.backend, LANGUE,
+        )
 
     def stop(self) -> None:
-        """Transcrit ce qui reste dans le tampon, puis se ferme."""
+        """Vide la fin du flux, puis libère flux, session et modèle."""
         if not self._running:
             return
         self._running = False
-        reste = self._vider()
-        if reste:
-            with self._lock:
-                self._enonce_fini = reste
-        self._binaire = None
+        if self._flux is not None:
+            with suppress_erreurs():
+                self._flux.finalize()
+                self._recolter(tout=True)
+        self._fermer_natif()
 
     def reset(self) -> None:
+        """Repart d'un texte vide SANS rouvrir le flux.
+
+        Le flux conserve son contexte acoustique d'une phrase à l'autre — c'est
+        précisément ce qui fait la valeur d'un décodage à cache. On ne remet à
+        zéro que le suivi de ce qui a déjà été transmis.
+        """
         with self._lock:
-            self._pcm = []
-            self._silence_ms = 0.0
-            self._parole_ms = 0.0
-            self._text_buffer = ""
+            self._tentatif = ""
             self._enonce_fini = None
+            self._fige_emis = 0
 
     def accept_waveform(self, samples: np.ndarray) -> None:
-        """Accumule le son ; transcrit dès qu'un énoncé se termine.
+        """Pousse un bloc PCM et récolte ce que le modèle vient de figer.
 
-        Appel BLOQUANT quand la transcription se déclenche (~0,5 s) : à
+        Appel bloquant le temps du décodage (quelques dizaines de ms) : à
         exécuter hors de la boucle d'événements, ce que fait le WebSocket audio
         via asyncio.to_thread.
         """
-        if not self._running:
+        if not self._running or self._flux is None:
             return
 
         if samples.dtype == np.int16:
@@ -276,86 +330,117 @@ class NemotronService:
         if flottants.size == 0:
             return
 
-        duree_ms = 1000.0 * flottants.size / self.SAMPLE_RATE
-        energie = float(np.sqrt(np.mean(np.square(flottants))))
-
-        with self._lock:
-            self._pcm.append(flottants.copy())
-            if energie >= SEUIL_SILENCE_RMS:
-                self._parole_ms += duree_ms
-                self._silence_ms = 0.0
-            else:
-                self._silence_ms += duree_ms
-            accumule_ms = sum(p.size for p in self._pcm) * 1000.0 / self.SAMPLE_RATE
-            # Fin d'énoncé : assez parlé, puis assez de silence. Le plafond
-            # évite qu'un prédicateur enchaînant sans pause fasse enfler le
-            # tampon indéfiniment.
-            termine = (
-                (self._parole_ms >= PAROLE_MIN_MS and self._silence_ms >= SILENCE_MS)
-                or accumule_ms >= ENONCE_MAX_S * 1000.0
-            )
-        if not termine:
+        try:
+            maj = self._flux.feed(np.ascontiguousarray(flottants, dtype=np.float32))
+        except Exception as exc:
+            # Un flux mort ne doit pas faire tomber la session : on s'arrête, et
+            # la boucle audio bascule sur un autre moteur au prochain tour.
+            self.last_error = f"Flux Nemotron interrompu : {exc}"
+            logger.error(self.last_error)
+            self._running = False
             return
 
-        texte = self._vider()
-        if texte:
-            with self._lock:
-                self._enonce_fini = texte
+        if getattr(maj, "committed_changed", True) or getattr(maj, "tentative_changed", True):
+            self._recolter()
+
+    @staticmethod
+    def _fin_de_phrase_sure(texte: str, depuis: int) -> int:
+        """Position après la dernière fin de phrase SUIVIE d'autre texte.
+
+        Renvoie `depuis` si aucune frontière sûre n'existe. La condition « suivie
+        d'autre texte » est ce qui rend la coupe sûre : tant que le modèle
+        n'a rien écrit après le point, il peut encore réviser la phrase.
+        """
+        for i in range(len(texte) - 1, depuis - 1, -1):
+            if texte[i] in TERMINAISONS:
+                return i + 1 if texte[i + 1:].strip() else depuis
+
+        # Aucun point : filet de sécurité. Au-delà du plafond, on coupe au
+        # dernier espace — jamais au milieu d'un mot, qui rendrait
+        # « Romains 8:2|8 » indétectable des deux côtés de la coupure.
+        if len(texte) - depuis > SEGMENT_MAX_CARACTERES:
+            espace = texte.rfind(" ", depuis, depuis + SEGMENT_MAX_CARACTERES)
+            if espace > depuis:
+                return espace
+        return depuis
+
+    def _recolter(self, tout: bool = False) -> None:
+        """Lit le flux, en déduit le partiel, et clôt les phrases terminées.
+
+        `tout=True` (à la fermeture) émet le reste sans attendre de frontière :
+        la dernière phrase d'un culte n'est jamais suivie d'autre chose.
+        """
+        if self._flux is None:
+            return
+        vues = self._flux.text()
+        # `committed` reste vide sur ce modèle : l'hypothèse entière vit dans
+        # `tentative`. On prend donc la vue la plus complète des deux.
+        courant = (vues.committed or "") + (vues.tentative or "")
+
+        with self._lock:
+            coupe = len(courant) if tout else self._fin_de_phrase_sure(courant, self._fige_emis)
+            if coupe > self._fige_emis:
+                nouveau = courant[self._fige_emis:coupe].strip()
+                self._fige_emis = coupe
+                if nouveau:
+                    self._enonce_fini = (
+                        f"{self._enonce_fini} {nouveau}".strip()
+                        if self._enonce_fini else nouveau
+                    )
+            self._tentatif = courant[self._fige_emis:].strip()
+            trop_long = len(courant) >= HYPOTHESE_MAX_CARACTERES
+
+        # Hors du verrou : rouvrir le flux appelle du natif, qui peut être lent.
+        if trop_long and not tout:
+            self._rouvrir_flux()
+
+    def _rouvrir_flux(self) -> None:
+        """Referme et rouvre le flux pour borner l'hypothèse courante.
+
+        Ne touche ni au modèle ni à la session : seul le flux repart à zéro,
+        ce qui coûte quelques millisecondes.
+        """
+        if self._session is None:
+            return
+        reste = self._tentatif
+        with suppress_erreurs():
+            self._flux.finalize()
+            self._flux.__exit__(None, None, None)
+        self._flux = None
+        try:
+            self._flux = self._session.stream(language=LANGUE).__enter__()
+        except Exception as exc:
+            self.last_error = f"Réouverture du flux Nemotron impossible : {exc}"
+            logger.error(self.last_error)
+            self._running = False
+            return
+        with self._lock:
+            # Ce qui n'était pas encore clos repart comme début de la nouvelle
+            # hypothèse : on ne perd pas la phrase en cours.
+            self._fige_emis = 0
+            self._tentatif = reste
+        logger.debug("Nemotron : flux rouvert (hypothèse bornée)")
 
     def get_result(self) -> str:
-        """Texte en attente. La CLI ne rend rien avant la fin de l'énoncé."""
+        """Le suffixe encore révisable — l'équivalent d'un partiel Vosk."""
         with self._lock:
-            return self._text_buffer
+            return self._tentatif
 
     def prendre_enonce_fini(self) -> Optional[str]:
-        """Renvoie et consomme l'énoncé transcrit, ou None."""
+        """Renvoie et consomme le texte nouvellement figé, ou None."""
         with self._lock:
             fini, self._enonce_fini = self._enonce_fini, None
             return fini
 
-    # ── Interne ─────────────────────────────────────────────────────────────
-
-    def _vider(self) -> str:
-        """Écrit le tampon en WAV, le fait transcrire, et rend le texte."""
-        with self._lock:
-            morceaux, self._pcm = self._pcm, []
-            assez = self._parole_ms >= PAROLE_MIN_MS
-            self._parole_ms = 0.0
-            self._silence_ms = 0.0
-        if not morceaux or not assez:
-            return ""
-
-        pcm = np.concatenate(morceaux)
-        try:
-            with tempfile.TemporaryDirectory() as dossier:
-                wav = Path(dossier) / "enonce.wav"
-                with wave.open(str(wav), "wb") as flux:
-                    flux.setnchannels(1)
-                    flux.setsampwidth(2)
-                    flux.setframerate(self.SAMPLE_RATE)
-                    flux.writeframes((np.clip(pcm, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
-                return self._transcrire(wav)
-        except Exception as exc:
-            self.last_error = f"Transcription Nemotron impossible : {exc}"
-            logger.error(self.last_error)
-            return ""
-
-    def _transcrire(self, wav: Path) -> str:
-        """Lance transcribe-cli et extrait la ligne « text: »."""
-        resultat = subprocess.run(
-            [str(self._binaire), "-q",
-             "-m", str(self.resolved_model_path),
-             "-l", LANGUE, str(wav)],
-            capture_output=True, text=True, timeout=DELAI_MAX_S,
-            # bin/ contient aussi les libggml dont le binaire dépend.
-            env={**os.environ, "DYLD_LIBRARY_PATH": str(self._binaire.parent),
-                 "LD_LIBRARY_PATH": str(self._binaire.parent)},
-        )
-        if resultat.returncode != 0:
-            self.last_error = (resultat.stderr or "").strip()[:200]
-            logger.warning(f"transcribe-cli a échoué : {self.last_error}")
-            return ""
-        for ligne in resultat.stdout.splitlines():
-            if ligne.startswith("text:"):
-                return ligne[len("text:"):].strip()
-        return ""
+    def _fermer_natif(self) -> None:
+        """Libère flux, session et modèle — dans cet ordre, l'inverse tomberait."""
+        for objet in (self._flux, self._session, self._modele):
+            if objet is None:
+                continue
+            with suppress_erreurs():
+                sortie = getattr(objet, "__exit__", None)
+                if sortie is not None:
+                    sortie(None, None, None)
+                else:
+                    objet.close()
+        self._flux = self._session = self._modele = None

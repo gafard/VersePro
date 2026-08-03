@@ -62,6 +62,41 @@ def _horodater(secondes: float) -> str:
     return f"{int(secondes) // 60:02d}:{int(secondes) % 60:02d}"
 
 
+def transcrire_par_segments_nemotron(wav: Path) -> List[Dict[str, Any]]:
+    """Même contrat que la version Vosk, avec le moteur Nemotron.
+
+    Permet de comparer les deux moteurs sur le MÊME enregistrement et la même
+    cascade — c'est la seule façon honnête de savoir si le changement de moteur
+    apporte quelque chose en conditions réelles.
+    """
+    import numpy as np
+    from app.services.nemotron_service import NemotronService
+
+    service = NemotronService()
+    service.start()
+    segments: List[Dict[str, Any]] = []
+    ecoule = 0.0
+    with wave.open(str(wav), "rb") as flux:
+        while True:
+            donnees = flux.readframes(4000)
+            if not donnees:
+                break
+            echantillons = np.frombuffer(donnees, dtype=np.int16)
+            service.accept_waveform(echantillons)
+            ecoule += echantillons.size / FREQUENCE
+            enonce = service.prendre_enonce_fini()
+            if enonce:
+                segments.append({"texte": enonce, "debut": ecoule, "fin": ecoule,
+                                 "conf_moy": None, "conf_min": None,
+                                 "mots": len(enonce.split())})
+    service.stop()
+    reste = service.prendre_enonce_fini()
+    if reste:
+        segments.append({"texte": reste, "debut": ecoule, "fin": ecoule,
+                         "conf_moy": None, "conf_min": None, "mots": len(reste.split())})
+    return segments
+
+
 def transcrire_par_segments(wav: Path) -> List[Dict[str, Any]]:
     """Transcrit en gardant le DÉCOUPAGE et les horodatages de Vosk.
 
@@ -114,12 +149,13 @@ def transcrire_par_segments(wav: Path) -> List[Dict[str, Any]]:
     return segments
 
 
-async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, Any]:
+async def ecouter(source: Path, garder_wav: Optional[Path] = None,
+                  moteur: str = "vosk") -> Dict[str, Any]:
     parser = VerseParserService()
     semantique = LocalSemanticService(parser.bible_loader)
     semantique.initialize(allow_download=False)
     graphe = VerseGraphService(semantique)
-    moteur = BibleReferenceEngine(
+    cascade = BibleReferenceEngine(
         verse_parser=parser,
         semantic_service=semantique,
         verse_graph=graphe,
@@ -128,7 +164,7 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
     )
     settings.AI_AGENT_ENABLED = False  # on mesure la chaîne LOCALE
     sante = SanteTranscription()
-    moteur.sante_transcription = sante
+    cascade.sante_transcription = sante
 
     with tempfile.TemporaryDirectory() as temporaire:
         wav = Path(garder_wav) if garder_wav else Path(temporaire) / "audio.wav"
@@ -136,8 +172,9 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
         convertir(source, wav)
         duree = wave.open(str(wav), "rb").getnframes() / FREQUENCE
         print(f"  durée       : {_horodater(duree)}")
-        print("  transcription (Vosk large)… cela prend un moment.")
-        segments = transcrire_par_segments(wav)
+        print(f"  transcription ({moteur})… cela prend un moment.")
+        segments = (transcrire_par_segments_nemotron(wav) if moteur == "nemotron"
+                    else transcrire_par_segments(wav))
 
     print(f"  segments    : {len(segments)}\n")
 
@@ -147,7 +184,7 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
         # d'être analysé, jamais après — sinon on jugerait la phrase courante
         # sur une statistique qui l'inclut déjà.
         sante.noter(segment["texte"])
-        resultat = await moteur.detecter_sans_effet(segment["texte"], final_state=True)
+        resultat = await cascade.detecter_sans_effet(segment["texte"], final_state=True)
         if not resultat:
             continue
         # L'ancre se pose comme dans le direct : une citation énoncée ouvre un
@@ -167,6 +204,7 @@ async def ecouter(source: Path, garder_wav: Optional[Path] = None) -> Dict[str, 
 
     return {
         "source": source.name,
+        "moteur": moteur,
         "duree_s": round(duree, 1),
         "segments": len(segments),
         "detections": detections,
@@ -198,6 +236,8 @@ def main() -> int:
         description="Faire passer un vrai enregistrement dans toute la chaîne VersePro.")
     analyseur.add_argument("audio", type=Path, help="enregistrement (mp3, m4a, mp4, wav…)")
     analyseur.add_argument("--sortie", type=Path, help="où écrire le rapport JSON")
+    analyseur.add_argument("--moteur", choices=("vosk", "nemotron"), default="vosk",
+                           help="moteur de transcription à éprouver")
     analyseur.add_argument("--garder-wav", type=Path,
                            help="conserver le WAV converti (utile pour découper des cas)")
     args = analyseur.parse_args()
@@ -207,7 +247,7 @@ def main() -> int:
         return 2
 
     print(f"\nÉcoute — {args.audio.name}\n")
-    rapport = asyncio.run(ecouter(args.audio, args.garder_wav))
+    rapport = asyncio.run(ecouter(args.audio, args.garder_wav, args.moteur))
     afficher(rapport)
 
     if args.sortie:
