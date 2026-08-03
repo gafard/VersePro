@@ -573,12 +573,30 @@ async def get_nemotron_status():
 @router.post("/nemotron/download")
 async def download_nemotron_model():
     """Démarre le téléchargement explicite du modèle Nemotron 3.5 ASR GGUF (716 Mo)."""
+    # `asyncio` s'importe fonction par fonction dans ce module ; celle-ci
+    # l'avait oublié, et levait NameError. Résultat : l'assistant de premier
+    # lancement demandait le téléchargement, recevait une erreur 500, et le
+    # bénévole restait devant une barre qui ne démarrait jamais.
+    import asyncio
+
     from ..main import nemotron_service
     if not nemotron_service:
         raise HTTPException(status_code=503, detail="Service Nemotron indisponible")
 
-    await asyncio.to_thread(nemotron_service.prepare, True)
-    return {"status": "started", "message": "Téléchargement du modèle Nemotron 3.5-ASR démarré en arrière-plan"}
+    # `prepare` rend la main tout de suite : il lance son propre thread de
+    # téléchargement. On l'appelle quand même hors de la boucle d'événements —
+    # il crée des dossiers et vérifie le disque avant de déléguer.
+    lance = await asyncio.to_thread(nemotron_service.prepare, True)
+    if not lance:
+        raise HTTPException(
+            status_code=503,
+            detail=nemotron_service.last_error or "Téléchargement impossible",
+        )
+    return {
+        "status": "started",
+        "message": "Téléchargement du modèle Nemotron 3.5-ASR démarré en arrière-plan",
+        **nemotron_service.status(),
+    }
 
 
 @router.get("/overlay/status")

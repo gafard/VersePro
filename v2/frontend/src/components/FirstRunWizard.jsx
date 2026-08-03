@@ -238,7 +238,8 @@ export default function FirstRunWizard({ onDone }) {
                         <span className="text-xs font-semibold text-emerald-400">Option idéale</span>
                       </div>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        Reconnaissance vocale ultra-rapide Deepgram Cloud quand Internet est présent, avec secours automatique local **NVIDIA Nemotron 3.5-ASR (716 Mo)**.
+                        Reconnaissance vocale ultra-rapide Deepgram Cloud quand Internet est présent,
+                        avec secours automatique local <strong>NVIDIA Nemotron 3.5-ASR (716 Mo)</strong>.
                       </p>
                     </div>
                   </div>
