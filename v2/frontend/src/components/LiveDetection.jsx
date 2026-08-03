@@ -193,9 +193,16 @@ export default function LiveDetection({ setActiveTab }) {
   const transcriptEndRef = useRef(null)
 
   // Fait défiler uniquement le journal, jamais la page entière.
+  //
+  // Défilement INSTANTANÉ, et c'est délibéré. En « smooth », chaque partiel
+  // — Deepgram en envoie plusieurs par seconde — interrompait l'animation
+  // précédente en plein vol pour en relancer une depuis sa position courante.
+  // Le défilement n'aboutissait jamais : c'est ce qui donnait l'impression
+  // d'une transcription saccadée. En instantané, le texte grandit de façon
+  // continue et le bas reste collé, ce qui se lit comme un flux régulier.
   useEffect(() => {
     const scroll = document.getElementById('live-transcript-scroll')
-    if (scroll) scroll.scrollTo({ top: scroll.scrollHeight, behavior: 'smooth' })
+    if (scroll) scroll.scrollTop = scroll.scrollHeight
   }, [currentTranscript])
 
   // Notification de rejet IA (6 s)
@@ -1006,11 +1013,13 @@ export default function LiveDetection({ setActiveTab }) {
             
             <div className="live-transcript-scroll" id="live-transcript-scroll">
               {currentTranscript ? (
-                <p className="whitespace-pre-wrap">
-                  {currentTranscript.split(' ').map((word, idx) => {
-                    return <span key={idx}>{word} </span>
-                  })}
-                </p>
+                {/* Texte brut, pas un <span> par mot : le découpage
+                    reconstruisait des dizaines de nœuds à chaque partiel, avec
+                    des clés d'index que React ne peut pas réutiliser quand la
+                    phrase s'allonge. Rien ici ne cible les mots un à un — la
+                    lecture vivante mot à mot, elle, vit sur l'écran de
+                    projection, qui a son propre rendu. */}
+                <p className="whitespace-pre-wrap">{currentTranscript}</p>
               ) : (
                 <div className="text-[var(--text-faint)] italic text-center py-8">
                   En attente du signal micro...

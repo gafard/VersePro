@@ -127,6 +127,9 @@ async def broadcast_projection(text: str, reference: str, background: str | None
     chapter = None
     verse_start = None
     verse_end = None
+    # Initialisé ici : effacer l'écran appelle cette fonction SANS référence,
+    # et le découpage en versets plus bas lit `parsed` dans tous les cas.
+    parsed = None
     if reference and verse_parser:
         parsed = await verse_parser.parse(reference, skip_text_search=True)
         if parsed:
@@ -135,6 +138,24 @@ async def broadcast_projection(text: str, reference: str, background: str | None
             verse_start = parsed.get("verse_start")
             verse_end = parsed.get("verse_end")
 
+    # Passage de plusieurs versets : on envoie les versets UN À UN plutôt qu'un
+    # bloc collé. L'écran affiche le premier et attend — un lower-third n'a pas
+    # la place pour douze versets, et les entasser obligerait à réduire la
+    # police jusqu'à l'illisible. Le découpage se fait ici parce que c'est ici
+    # qu'on connaît les frontières de versets : le texte assemblé, lui, ne les
+    # porte plus.
+    versets_pages = []
+    if (verse_parser and parsed and verse_end and verse_start
+            and verse_end > verse_start):
+        loader = verse_parser.bible_loader
+        for numero in range(int(verse_start), int(verse_end) + 1):
+            morceau = loader.get_verse_text(parsed.get("book_abbr"), chapter, numero, None)
+            if (morceau or "").strip():
+                versets_pages.append({"n": numero, "text": morceau.strip()})
+        # Un seul verset retrouvé : autant garder le texte d'origine.
+        if len(versets_pages) < 2:
+            versets_pages = []
+
     current_projection_slide = {
         "text": text,
         "reference": reference,
@@ -142,6 +163,9 @@ async def broadcast_projection(text: str, reference: str, background: str | None
         "chapter": chapter,
         "verse_start": verse_start,
         "verse_end": verse_end,
+        # Vide pour un verset seul ; sinon la liste des versets du passage,
+        # que l'écran affiche un par un.
+        "verses": versets_pages,
         "background": background or current_projection_slide.get("background", "black"),
         "theme": theme or current_projection_slide.get("theme", "presentation"),
         "translations": translations or {},
@@ -1168,6 +1192,10 @@ async def get_output_page():
                  défaut : seuls les styles qui la mettent en scène l'affichent,
                  les autres gardent le sigle entre parenthèses. -->
             <div id="edition" style="display: none;"></div>
+            <!-- Compteur de pages d'un passage long. Discret : il informe
+                 l'assemblée qu'une suite vient, sans jamais concurrencer le
+                 texte. Masqué dès qu'il n'y a qu'une page. -->
+            <div id="page-compteur" style="display: none;"></div>
             <div id="split-container" style="display: none;">
                 <div class="split-columns" id="split-cols"></div>
             </div>
@@ -1241,9 +1269,112 @@ async def get_output_page():
                 });
             }
 
+            // ── Passages longs : paginer plutôt que rapetisser ──────────────
+            //
+            // Un « Romains 8:28-39 » fait 900 caractères. Tout afficher d'un
+            // coup obligeait à réduire la police jusqu'à l'illisible — et sur
+            // un lower-third, dont le bandeau fait quelques centaines de
+            // pixels de haut, c'était sans espoir. On découpe donc le passage
+            // en pages qui tiennent à la taille NORMALE du thème.
+            //
+            // La coupe tombe sur une fin de phrase : couper « toutes choses |
+            // concourent au bien » laisserait une demi-proposition à l'écran,
+            // ce qu'aucun régisseur n'accepterait.
+            // Une page = un verset quand le backend les a séparés, sinon un
+            // découpage sur les fins de phrase. AUCUNE minuterie : une page ne
+            // part jamais d'elle-même. Elle avance quand la lecture atteint sa
+            // fin, ou sur commande de la régie. C'est le prédicateur qui mène.
+            let pages = [], pageCourante = 0, numVersetPage = null, numerosPages = [];
+
+            function decouperEnPhrases(texte) {
+                // Le point d'une abréviation ne termine pas une phrase : on
+                // exige une majuscule ou un guillemet derrière.
+                return (texte || '').split(/(?<=[.!?\\u2026])\\s+(?=[\\u00AB"A-Z\\u00C0-\\u00DE])/)
+                                    .map((s) => s.trim()).filter(Boolean);
+            }
+
+            function construirePages(texte, verseNum) {
+                const phrases = decouperEnPhrases(texte);
+                if (phrases.length <= 1) return [texte || ''];
+
+                document.documentElement.style.fontSize = '16px';
+                const zone = document.getElementById('container');
+                const tient = () => {
+                    const r = zone.getBoundingClientRect();
+                    return r.top >= -1 && r.bottom <= window.innerHeight + 1;
+                };
+
+                const resultat = [];
+                let accumule = '';
+                for (const phrase of phrases) {
+                    const essai = accumule ? accumule + ' ' + phrase : phrase;
+                    renderWords(essai, resultat.length === 0 ? verseNum : null);
+                    // `!accumule` : une phrase seule qui déborde reste sur sa
+                    // page — c'est l'ajustement de police qui la rattrapera.
+                    if (tient() || !accumule) {
+                        accumule = essai;
+                    } else {
+                        resultat.push(accumule);
+                        accumule = phrase;
+                    }
+                }
+                if (accumule) resultat.push(accumule);
+                return resultat;
+            }
+
+            function montrerPage(index) {
+                if (index < 0 || index >= pages.length) return;
+                pageCourante = index;
+                // Chaque page porte SON numéro de verset quand le passage a été
+                // découpé verset par verset — sinon l'assemblée ne saurait plus
+                // où elle en est au troisième écran.
+                renderWords(pages[index], numerosPages[index] ?? (index === 0 ? numVersetPage : null));
+                const compteur = document.getElementById('page-compteur');
+                if (compteur) {
+                    compteur.textContent = pages.length > 1
+                        ? (index + 1) + ' / ' + pages.length : '';
+                    compteur.style.display = pages.length > 1 ? '' : 'none';
+                }
+                ajusterAuCadre();
+            }
+
+            function pageSuivante() {
+                if (pageCourante + 1 < pages.length) montrerPage(pageCourante + 1);
+            }
+            function pagePrecedente() {
+                if (pageCourante > 0) montrerPage(pageCourante - 1);
+            }
+
+            function afficherParPages(texte, verseNum, versets) {
+                numVersetPage = verseNum;
+                if (Array.isArray(versets) && versets.length > 1) {
+                    // Le backend a séparé les versets : un verset par page.
+                    pages = versets.map((v) => v.text);
+                    numerosPages = versets.map((v) => v.n);
+                } else {
+                    pages = construirePages(texte, verseNum);
+                    numerosPages = [];
+                }
+                montrerPage(0);
+            }
+
+            // La régie peut avancer à la main — indispensable quand le
+            // prédicateur commente au lieu de lire, ou quand le micro est coupé.
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); pageSuivante(); }
+                if (e.key === 'ArrowLeft') { e.preventDefault(); pagePrecedente(); }
+            });
+
             function applyProgress(matched) {
                 const spans = textEl.querySelectorAll('.w');
                 if (!spans.length) return;
+                // La lecture atteint le bas de la page : on passe à la suivante
+                // sans attendre la minuterie. Le prédicateur mène, l'écran suit.
+                if (pages.length > 1 && matched >= spans.length - 2
+                    && pageCourante + 1 < pages.length) {
+                    montrerPage(pageCourante + 1);
+                    return;
+                }
                 // Une voix suit réellement le texte : on peut armer l'extinction
                 // des mots à venir. Sans cette garde, un verset projeté sans
                 // lecture restait gris de bout en bout devant l'assemblée.
@@ -1488,7 +1619,7 @@ async def get_output_page():
                             splitCols.appendChild(col);
                         });
                     } else {
-                        renderWords(data.text, data.verse_start);
+                        afficherParPages(data.text, data.verse_start, data.verses);
                         // Les styles « filet » et « souffle » portent l'édition dans
                         // un élément propre, en toutes lettres : « Louis Segond 1910 »
                         // plutôt qu'un « (LSG) » que personne dans l'assemblée ne sait
@@ -1507,8 +1638,76 @@ async def get_output_page():
                     }
 
                     if (data.text || data.reference) container.classList.add('visible');
+                    ajusterAuCadre();
                 }, 150);
             }
+
+            // ── Ajustement du texte au cadre ────────────────────────────────
+            //
+            // La taille de police était FIXE, quelle que soit la longueur du
+            // passage. Mesuré : sur une lecture de dix versets (1 290
+            // caractères), le panneau atteignait 1 010 px dans une fenêtre de
+            // 720 — 320 pixels sortaient par le haut, et la référence
+            // disparaissait complètement de l'écran. L'assemblée ne voyait pas
+            // le début du verset.
+            //
+            // On réduit donc la police jusqu'à ce que tout tienne. Recherche
+            // dichotomique : une dizaine de mesures suffisent là où une
+            // décroissance pas à pas en demanderait des centaines, et le
+            // rendu doit être instantané entre deux versets.
+            // On agit sur la taille de police de la RACINE : toutes les tailles
+            // des thèmes sont en `rem`, donc tout suit d'un coup — et surtout
+            // le texte se REMET EN PAGE au lieu d'être déformé, ce que ferait
+            // un transform: scale().
+            const RACINE_PX = 16;      // la valeur du thème, jamais modifiée
+            const FACTEUR_MIN = 0.42;  // en deçà, le fond de salle ne lit plus
+            let ajustementEnCours = false;
+
+            function ajusterAuCadre() {
+                if (ajustementEnCours) return;
+                const zone = document.getElementById('container');
+                const texte = document.getElementById('text');
+                if (!zone || !texte) return;
+                ajustementEnCours = true;
+
+                const appliquer = (f) => {
+                    document.documentElement.style.fontSize = (RACINE_PX * f).toFixed(2) + 'px';
+                };
+                const tient = () => {
+                    const r = zone.getBoundingClientRect();
+                    // Marge d'un pixel : les arrondis de rendu ne doivent pas
+                    // déclencher une réduction inutile.
+                    return r.top >= -1 && r.bottom <= window.innerHeight + 1;
+                };
+
+                // On repart TOUJOURS de la taille du thème, sinon un passage
+                // long rapetisserait définitivement tous les versets suivants.
+                appliquer(1);
+                if (!texte.textContent.trim() || tient()) {
+                    ajustementEnCours = false;
+                    return;
+                }
+
+                // Recherche dichotomique : dix mesures suffisent là où une
+                // décroissance pas à pas en demanderait des centaines, et le
+                // passage d'un verset à l'autre doit rester instantané.
+                let bas = FACTEUR_MIN, haut = 1;
+                for (let i = 0; i < 10; i++) {
+                    const milieu = (bas + haut) / 2;
+                    appliquer(milieu);
+                    if (tient()) bas = milieu; else haut = milieu;
+                }
+                appliquer(bas);
+                ajustementEnCours = false;
+            }
+
+            // Un vidéoprojecteur branché en cours de culte change la
+            // résolution : on réajuste plutôt que de laisser un texte coupé.
+            let minuterieRedim;
+            window.addEventListener('resize', () => {
+                clearTimeout(minuterieRedim);
+                minuterieRedim = setTimeout(ajusterAuCadre, 120);
+            });
 
             function showSubtitle(data) {
                 if (!subtitlesEnabled) return;
