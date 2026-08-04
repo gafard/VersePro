@@ -63,11 +63,25 @@ class BibleReferenceEngine:
         if not final_state or not self.settings.LOCAL_SEMANTIC_ENABLED:
             return None
 
+        # Un segment trop court ne peut désigner aucun verset : « j'avais de
+        # l'eau » (4 mots) faisait sortir Ézéchiel 47:4. Ce filtre-ci reste.
         if self.sante_transcription:
             if not self.sante_transcription.segment_exploitable(recent):
                 return None
-            if not self.sante_transcription.est_fiable():
-                return None
+
+        # LE FILTRE « SON DIFFICILE » EST RETIRÉ, sur décision de l'utilisateur.
+        #
+        # Il suspendait toute détection sémantique quand la transcription se
+        # hachait — utile contre le bruit, mais il éteignait le logiciel
+        # précisément dans les églises qu'il doit servir. Le contexte tranche :
+        # ce sont des cultes charismatiques, musique pendant la prédication,
+        # donc l'état « difficile » y est la NORME et non l'exception. Un
+        # logiciel muet tout le culte n'aide personne, et rater un verset coûte
+        # plus cher qu'une proposition de trop dans un panneau qu'on peut
+        # ignorer.
+        #
+        # La mesure, elle, reste calculée et exposée (`etat()`) : elle informe
+        # l'opérateur sans plus rien lui interdire.
 
         cleaned = self.verse_parser.normalize_spoken(recent)
         query = strip_attribution(cleaned)
