@@ -196,12 +196,16 @@ def rendre_habillage(
     return cadre
 
 
-def vers_bgrx(image: Image.Image) -> np.ndarray:
-    """NDI attend du BGRX ; Pillow produit du RGBA."""
+def vers_bgra(image: Image.Image) -> np.ndarray:
+    """Pillow produit du RGBA ; NDI attend les octets dans l'ordre BGRA.
+
+    L'alpha est conservé tel quel : c'est lui qui permet au mélangeur
+    d'incruster le bandeau sur la vidéo, sans chroma key.
+    """
     arr = np.asarray(image, dtype=np.uint8)
-    bgrx = np.empty_like(arr)
-    bgrx[..., 0] = arr[..., 2]
-    bgrx[..., 1] = arr[..., 1]
-    bgrx[..., 2] = arr[..., 0]
-    bgrx[..., 3] = arr[..., 3]
-    return np.ascontiguousarray(bgrx)
+    bgra = np.empty_like(arr)
+    bgra[..., 0] = arr[..., 2]
+    bgra[..., 1] = arr[..., 1]
+    bgra[..., 2] = arr[..., 0]
+    bgra[..., 3] = arr[..., 3]
+    return np.ascontiguousarray(bgra)

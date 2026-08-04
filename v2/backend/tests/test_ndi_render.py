@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.outputs.ndi_render import rendre_habillage, vers_bgrx, _rgba
+from app.outputs.ndi_render import rendre_habillage, vers_bgra, _rgba
 from app.services import overlay_store
 
 
@@ -102,11 +102,53 @@ def test_une_image_de_fond_absente_nempeche_pas_le_rendu():
 def test_conversion_bgrx_permute_le_rouge_et_le_bleu():
     from PIL import Image
     source = Image.new("RGBA", (2, 2), (10, 20, 30, 40))
-    arr = vers_bgrx(source)
+    arr = vers_bgra(source)
     assert tuple(arr[0, 0]) == (30, 20, 10, 40)
 
 
 def test_la_trame_est_contigue_pour_la_bibliotheque_native():
     """NDIlib lit un tampon brut : un tableau non contigu produirait du bruit."""
-    arr = vers_bgrx(_rendu())
+    arr = vers_bgra(_rendu())
     assert arr.flags["C_CONTIGUOUS"] and arr.dtype.name == "uint8"
+
+
+# ── Canal alpha : ce qui distingue une incrustation d'un cache ───────────────
+
+def test_la_trame_porte_un_alpha_reellement_variable():
+    """Une incrustation professionnelle EXIGE de la transparence.
+
+    Mesuré sur un bandeau 1920×1080 : 99,3 % de la trame est totalement
+    transparente, 0,5 % opaque, et 0,19 % en dégradé — les bords adoucis du
+    texte et des coins arrondis.
+
+    L'émission déclarait pourtant `FOURCC_VIDEO_TYPE_BGRX`, où le « X » signifie
+    octet IGNORÉ : le mélangeur recevait un cadre opaque plein écran qui
+    masquait la vidéo. L'alpha était calculé, transporté, puis jeté à la
+    dernière ligne.
+    """
+    formes = overlay_store.parse_shapes(
+        '[{"x":0.03,"y":0.78,"w":0.94,"h":0.18,"fill":"#101418",'
+        '"corners":[{"r":18,"mode":"out"},{"r":18,"mode":"out"},'
+        '{"r":18,"mode":"out"},{"r":18,"mode":"out"}]}]'
+    )
+    image = rendre_habillage(
+        640, 360, overlay_store.parse_zones(""), formes,
+        "Jean 3:16", "Car Dieu a tant aimé le monde", None, None,
+    )
+    alpha = vers_bgra(image)[..., 3]
+
+    assert alpha.min() == 0, "aucun pixel transparent : rien à incruster"
+    assert alpha.max() == 255, "aucun pixel opaque : le bandeau serait invisible"
+    part_transparente = float((alpha == 0).mean())
+    assert part_transparente > 0.5, (
+        f"seulement {part_transparente:.0%} de transparent — le bandeau "
+        "couvrirait la vidéo au lieu de s'y incruster"
+    )
+
+
+def test_l_ordre_des_octets_est_bien_BGRA():
+    """B et R permutés par rapport à Pillow, alpha inchangé en 4e position."""
+    from PIL import Image
+    source = Image.new("RGBA", (2, 2), (10, 20, 30, 40))
+    arr = vers_bgra(source)
+    assert tuple(arr[0, 0]) == (30, 20, 10, 40)

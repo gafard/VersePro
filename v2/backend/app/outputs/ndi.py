@@ -18,7 +18,7 @@ import numpy as np
 from loguru import logger
 
 from .base import BaseOutput
-from .ndi_render import rendre_habillage, vers_bgrx
+from .ndi_render import rendre_habillage, vers_bgra
 
 import os
 import sys
@@ -144,7 +144,12 @@ class NDIOutput(BaseOutput):
                 return False
             video = ndi.VideoFrameV2()
             video.xres, video.yres = LARGEUR, HAUTEUR
-            video.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRX
+            # BGRA et non BGRX : dans BGRX, le « X » signifie octet IGNORÉ. Le
+            # rendu compose pourtant une vraie image transparente et transporte
+            # son alpha jusqu'ici — il était jeté à cette ligne, et le mélangeur
+            # recevait un cadre opaque. L'opérateur devait alors incruster en
+            # chroma key sur du vert, ce qui bave sur les bords de texte.
+            video.FourCC = ndi.FOURCC_VIDEO_TYPE_BGRA
             video.frame_format_type = ndi.FRAME_FORMAT_TYPE_PROGRESSIVE
             video.picture_aspect_ratio = LARGEUR / HAUTEUR
             video.data = trame
@@ -184,7 +189,7 @@ class NDIOutput(BaseOutput):
             reference, texte, numero,
             str(image) if image else None,
         )
-        return vers_bgrx(rendu)
+        return vers_bgra(rendu)
 
     async def send_scene(self, scene: Dict[str, Any]) -> bool:
         if not self._ensure_sender():

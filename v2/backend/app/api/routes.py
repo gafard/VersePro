@@ -1427,3 +1427,75 @@ async def control_status():
         "next_reference": current_projection_slide.get("next_reference", ""),
         "next_text": current_projection_slide.get("next_text", "")
     }
+
+
+# ── Préparation et envoi à l'antenne (preview / program) ─────────────────────
+#
+# Le geste fondamental d'une régie : monter l'écran suivant, LE VOIR, puis
+# l'envoyer. Avant ces routes, valider une détection l'envoyait directement
+# devant l'assemblée — l'opérateur découvrait le rendu en même temps qu'elle,
+# et n'avait aucun moyen de rattraper un verset mal coupé ou un habillage
+# inadapté.
+
+class PreviewRequest(BaseModel):
+    reference: str
+    text: Optional[str] = None
+    version: Optional[str] = None
+
+
+@router.post("/projection/preview")
+async def preparer(request: PreviewRequest):
+    """Monte une référence en préparation. N'atteint AUCUN écran de salle."""
+    from ..main import preparer_projection, verse_parser
+
+    if not verse_parser:
+        raise HTTPException(status_code=503, detail="Parser non disponible")
+
+    parsed = await verse_parser.parse(request.reference, skip_text_search=True)
+    if not parsed and not (request.text or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Référence biblique invalide : {request.reference}",
+        )
+
+    texte = (parsed or {}).get("text") or request.text or ""
+    demandee = (request.version or "").strip().upper()
+    if demandee and parsed:
+        loader = verse_parser.bible_loader
+        if demandee not in loader.versions:
+            raise HTTPException(status_code=422,
+                                detail=f"Version biblique inconnue : {demandee}")
+        autre = loader.get_verse_text(parsed.get("book_abbr"), parsed.get("chapter"),
+                                      parsed.get("verse_start"), parsed.get("verse_end"),
+                                      version_id=demandee)
+        if (autre or "").strip():
+            texte = autre
+
+    scene = await preparer_projection(
+        texte,
+        (parsed or {}).get("reference") or request.reference.strip(),
+        translations=(parsed or {}).get("translations"),
+    )
+    return {"success": True, **{k: scene.get(k) for k in ("reference", "text", "verses")}}
+
+
+@router.get("/projection/preview")
+async def lire_preparation():
+    """Ce qui est actuellement monté, sans l'envoyer."""
+    from ..main import preview_slide
+    return preview_slide or {}
+
+
+@router.post("/projection/take")
+async def envoyer_a_l_antenne():
+    """Envoie la préparation à l'antenne — le « take » d'une régie."""
+    from ..main import envoyer_preparation, preview_slide
+
+    if not (preview_slide.get("reference") or preview_slide.get("text")):
+        raise HTTPException(status_code=409, detail="Aucune préparation à envoyer")
+    receipts = await envoyer_preparation()
+    if not (receipts or {}).get("browser"):
+        raise HTTPException(status_code=503,
+                            detail="Le moteur d'affichage n'a pas confirmé la scène")
+    return {"success": True, "reference": preview_slide.get("reference"),
+            "outputs": receipts}

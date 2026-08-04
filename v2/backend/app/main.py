@@ -100,6 +100,10 @@ current_projection_slide = {
     "translations": {}
 }
 
+# Ce que l'opérateur PRÉPARE, distinct de ce qui est à l'antenne. Vide tant
+# qu'il n'a rien monté. Aucune sortie autre que la console ne le voit.
+preview_slide: dict = {}
+
 async def _lookup_next_verse(reference: str) -> tuple[str, str]:
     """Texte du verset suivant (pré-affiché sur le moniteur prédicateur)"""
     try:
@@ -192,6 +196,66 @@ async def broadcast_projection(text: str, reference: str, background: str | None
     if output_manager:
         return await output_manager.project_scene(current_projection_slide)
     return {}
+
+
+async def preparer_projection(text: str, reference: str, translations: dict | None = None):
+    """Monte une scène en PRÉPARATION, sans rien envoyer à la salle.
+
+    Le geste fondamental d'une régie : voir l'écran avant qu'il y soit. Avant
+    ça, valider une détection l'envoyait directement devant l'assemblée —
+    l'opérateur découvrait le rendu en même temps qu'elle.
+    """
+    global preview_slide
+    if not output_manager:
+        return {}
+    browser = output_manager.outputs.get("browser")
+    if not browser:
+        return {}
+
+    versets = []
+    numero_debut = None
+    if reference and verse_parser:
+        analyse = await verse_parser.parse(reference, skip_text_search=True)
+        if analyse:
+            numero_debut = analyse.get("verse_start")
+            fin = analyse.get("verse_end")
+            if fin and numero_debut and fin > numero_debut:
+                loader = verse_parser.bible_loader
+                for n in range(int(numero_debut), int(fin) + 1):
+                    morceau = loader.get_verse_text(analyse.get("book_abbr"),
+                                                    analyse.get("chapter"), n, None)
+                    if (morceau or "").strip():
+                        versets.append({"n": n, "text": morceau.strip()})
+                if len(versets) < 2:
+                    versets = []
+
+    preview_slide = {
+        "type": "scripture",
+        "text": text,
+        "reference": reference,
+        "verse_start": numero_debut,
+        "verses": versets,
+        "translations": translations or {},
+        "background": current_projection_slide.get("background", "black"),
+        "theme": current_projection_slide.get("theme", "presentation"),
+        "style": settings.PROJECTION_STYLE,
+        "show_version": settings.SHOW_BIBLE_VERSION,
+        "active_version": settings.BIBLE_VERSION,
+    }
+    await browser.send_preview(preview_slide)
+    return preview_slide
+
+
+async def envoyer_preparation():
+    """Envoie à l'antenne ce qui est en préparation. Le « take » d'une régie."""
+    if not preview_slide.get("reference") and not preview_slide.get("text"):
+        return None
+    receipts = await broadcast_projection(
+        preview_slide.get("text", ""),
+        preview_slide.get("reference", ""),
+        translations=preview_slide.get("translations"),
+    )
+    return receipts
 
 
 @asynccontextmanager
@@ -2073,11 +2137,16 @@ async def get_follow_page():
 
 @app.websocket("/ws/output")
 async def websocket_output(websocket: WebSocket):
-    """WebSocket pour les écrans d'affichage unifiés (écoute uniquement)"""
+    """WebSocket pour les écrans d'affichage unifiés (écoute uniquement).
+
+    `?canal=preview` abonne au canal de PRÉPARATION : ce que l'opérateur monte
+    sans que l'assemblée le voie. Par défaut, `program` — la salle.
+    """
     await websocket.accept()
+    canal = websocket.query_params.get("canal", "program")
     browser_driver = output_manager.outputs.get("browser") if output_manager else None
     if browser_driver:
-        await browser_driver.register_connection(websocket)
+        await browser_driver.register_connection(websocket, canal)
         try:
             while True:
                 await websocket.receive_text()
