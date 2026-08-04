@@ -152,3 +152,47 @@ def test_l_ordre_des_octets_est_bien_BGRA():
     source = Image.new("RGBA", (2, 2), (10, 20, 30, 40))
     arr = vers_bgra(source)
     assert tuple(arr[0, 0]) == (30, 20, 10, 40)
+
+
+# ── Fonds animés : optionnels, et la sobriété reste le défaut ────────────────
+
+def _output_html():
+    """Le HTML de l'écran de projection, tel que servi."""
+    import re
+    from pathlib import Path
+    source = Path(__file__).resolve().parents[1] / "app" / "main.py"
+    texte = source.read_text(encoding="utf-8")
+    debut = texte.index("async def get_output_page")
+    return texte[debut:debut + 120000]
+
+
+def test_les_fonds_animes_ne_tournent_que_sur_demande():
+    """Sans `?bg=`, l'écran ne déclare AUCUNE animation infinie.
+
+    C'est une propriété de performance, pas un détail : elle rend l'écran
+    tenable sur la machine modeste d'une petite église. Les fonds animés sont
+    donc conditionnés à une classe qu'aucun réglage par défaut ne pose.
+    """
+    html = _output_html()
+    assert 'body[class*="fond-"]::before' in html, "le fond animé doit être conditionné"
+    # L'animation infinie n'existe QUE sous ce sélecteur conditionnel.
+    for ligne in html.split("\n"):
+        if "infinite" in ligne:
+            assert "derive-fond" in ligne, (
+                f"animation infinie hors des fonds optionnels : {ligne.strip()}"
+            )
+
+
+def test_un_fond_anime_respecte_le_mouvement_reduit():
+    """Un fond qui bouge peut gêner ; la demande système existe pour ça."""
+    html = _output_html()
+    assert "prefers-reduced-motion" in html
+    bloc = html[html.index("prefers-reduced-motion"):]
+    assert 'fond-' in bloc[:220] and "animation: none" in bloc[:220]
+
+
+def test_la_liste_des_fonds_est_fermee():
+    """`bg` vient d'un paramètre d'URL : une valeur libre concaténée dans un nom
+    de classe laisserait n'importe qui styler l'écran depuis un lien."""
+    html = _output_html()
+    assert "['aurore', 'braise', 'nuit', 'sable'].includes(bg)" in html

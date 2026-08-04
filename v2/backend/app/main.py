@@ -525,6 +525,52 @@ async def get_output_page():
             .chroma-green { background: #00ff00 !important; background-color: #00ff00 !important; }
             .chroma-blue { background: #0000ff !important; background-color: #0000ff !important; }
 
+            /* ── Fonds animés ────────────────────────────────────────────────
+               OPTIONNELS et désactivés par défaut, et ce choix est mesuré :
+               sans eux, cet écran ne déclare AUCUNE animation infinie, ce qui
+               le rend tenable sur la machine modeste d'une petite église. Les
+               activer est un arbitrage que l'utilisateur pose sciemment.
+
+               Tout se joue sur `background-position` d'un dégradé surdimensionné
+               — une propriété que le compositeur traite sans redessiner le
+               texte. Pas de filtre, pas de flou, pas d'opacité animée sur le
+               verset lui-même : le texte doit rester net et stable pendant que
+               le fond respire.
+
+               Le fond vit sur ::before, sous le texte (z-index) : une animation
+               posée sur <body> aurait fait recalculer la mise en page du verset
+               à chaque image. */
+            body[class*="fond-"]::before {
+                content: ""; position: fixed; inset: 0; z-index: -1;
+                background-size: 400% 400%;
+                animation: derive-fond 38s ease-in-out infinite;
+            }
+            body.fond-aurore::before {
+                background-image: linear-gradient(130deg,
+                    #05070c 0%, #0b1b2e 28%, #12324a 52%, #0a1526 76%, #05070c 100%);
+            }
+            body.fond-braise::before {
+                background-image: linear-gradient(130deg,
+                    #0a0705 0%, #241408 30%, #3a1f0b 55%, #1a0f06 78%, #0a0705 100%);
+            }
+            body.fond-nuit::before {
+                background-image: linear-gradient(130deg,
+                    #04050a 0%, #0a0f24 30%, #131a3a 55%, #080c1c 78%, #04050a 100%);
+            }
+            body.fond-sable::before {
+                background-image: linear-gradient(130deg,
+                    #0c0a07 0%, #211b12 30%, #33291b 55%, #181309 78%, #0c0a07 100%);
+            }
+            @keyframes derive-fond {
+                0%, 100% { background-position: 0% 50%; }
+                50%      { background-position: 100% 50%; }
+            }
+            /* Un fond qui bouge peut gêner, et la demande système existe pour
+               ça. On garde le dégradé, on arrête le mouvement. */
+            @media (prefers-reduced-motion: reduce) {
+                body[class*="fond-"]::before { animation: none; }
+            }
+
             @keyframes fadeInUp {
                 from { opacity: 0; transform: translateY(8px); }
                 to { opacity: 1; transform: translateY(0); }
@@ -1625,6 +1671,13 @@ async def get_output_page():
                 if (bg === 'transparent') document.body.classList.add('bg-transparent');
                 else if (bg === 'green') document.body.classList.add('chroma-green');
                 else if (bg === 'blue') document.body.classList.add('chroma-blue');
+                // Fonds animés, sur demande explicite seulement. La liste est
+                // FERMÉE : `bg` vient d'un paramètre d'URL, et concaténer une
+                // valeur libre dans un nom de classe laisserait n'importe qui
+                // styler l'écran de projection depuis un lien.
+                else if (['aurore', 'braise', 'nuit', 'sable'].includes(bg)) {
+                    document.body.classList.add('fond-' + bg);
+                }
 
                 const theme = forcedTheme || data.theme || 'presentation';
                 document.body.classList.add('theme-' + theme);
@@ -1798,7 +1851,7 @@ async def get_output_page():
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : ''));
                 ws.onopen = () => { signalEl.classList.remove('lost'); container.classList.add('visible'); };
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
@@ -1944,7 +1997,7 @@ async def get_stage_display():
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const url = `${proto}//${window.location.host}/ws/output`;
+                const url = `${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : '');
                 console.log('⏳ [Moniteur] Tentative de connexion WebSocket sur', url);
                 ws = new WebSocket(url);
                 ws.onopen = () => {
@@ -2114,7 +2167,7 @@ async def get_follow_page():
             let ws;
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${window.location.host}/ws/output`);
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : ''));
                 ws.onopen = () => { connEl.textContent = 'En direct'; };
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
