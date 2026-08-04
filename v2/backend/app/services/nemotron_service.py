@@ -41,6 +41,7 @@ from __future__ import annotations
 import os
 import platform
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -73,6 +74,32 @@ TERMINAISONS = ".!?…"
 # cascade — qui n'analyse en profondeur que sur un final — resterait muette.
 # 300 caractères ≈ 50 mots, soit un peu plus que la fenêtre d'analyse (40).
 SEGMENT_MAX_CARACTERES = 300
+
+# CLÔTURE SUR PAUSE — le correctif qui rendait Nemotron inutilisable sans lui.
+#
+# Mesuré sur 30 minutes de prédication réelle, à découpage identique :
+#     Vosk      un final toutes les  4,9 s
+#     Nemotron  un final toutes les 35,3 s
+#
+# Or la cascade ne lance ses étages profonds — sémantique, VerseGraph — que sur
+# un final. Nemotron la faisait donc travailler SEPT FOIS moins souvent : un
+# verset cité en milieu de phrase attendait jusqu'à trente-cinq secondes avant
+# d'être seulement examiné, et le prédicateur était passé à autre chose.
+#
+# Vosk clôt naturellement sur les silences. On fait pareil : quand l'hypothèse
+# cesse de grandir, l'orateur a marqué une pause — l'énoncé est mûr.
+#
+# LE SEUIL SE DÉDUIT DU DÉCODEUR, il ne se choisit pas. Mesuré : Nemotron ne
+# met son hypothèse à jour que toutes les 1,0 à 1,25 s. Un seuil plus court se
+# déclenche ENTRE DEUX TICS, alors que le modèle travaille encore — essayé à
+# 700 ms, la coupe tombait au milieu d'un mot :
+#
+#     « Ouvrons ensemble Romain chapitre hu » | « it verset vingt-huit… »
+#
+# 1,8 s passe confortablement au-dessus du maximum observé, tout en ramenant la
+# cadence de 35 s à quelques secondes. Si un jour le modèle change de rythme,
+# c'est cette mesure qu'il faut refaire — pas ce nombre qu'il faut deviner.
+STABILITE_S = 1.8
 
 # Au-delà de cette longueur d'hypothèse, on referme et rouvre le flux. Sans
 # cela, une prédication de deux heures ferait grossir le texte courant sans
@@ -117,6 +144,8 @@ class NemotronService:
         self._fige_emis = 0
         self._tentatif = ""
         self._enonce_fini: Optional[str] = None
+        # Dernier instant où l'hypothèse a bougé : sert à repérer les pauses.
+        self._dernier_changement = 0.0
 
     @property
     def resolved_model_path(self) -> Path:
@@ -280,6 +309,7 @@ class NemotronService:
             self._fige_emis = 0
             self._tentatif = ""
             self._enonce_fini = None
+            self._dernier_changement = time.monotonic()
         self._running = True
         logger.info(
             "✅ Nemotron prêt (%s sur %s, langue %s)",
@@ -343,6 +373,15 @@ class NemotronService:
         if getattr(maj, "committed_changed", True) or getattr(maj, "tentative_changed", True):
             self._recolter()
 
+        # Clôture sur pause : l'hypothèse ne bouge plus, l'orateur a respiré.
+        # Sans cela, il fallait attendre une ponctuation ou 300 caractères, et
+        # la détection tournait sept fois moins souvent qu'avec Vosk.
+        with self._lock:
+            en_attente = self._tentatif
+            fige_depuis = time.monotonic() - self._dernier_changement
+        if en_attente and fige_depuis >= STABILITE_S:
+            self._recolter(tout=True)
+
     @staticmethod
     def _fin_de_phrase_sure(texte: str, depuis: int) -> int:
         """Position après la dernière fin de phrase SUIVIE d'autre texte.
@@ -387,7 +426,10 @@ class NemotronService:
                         f"{self._enonce_fini} {nouveau}".strip()
                         if self._enonce_fini else nouveau
                     )
-            self._tentatif = courant[self._fige_emis:].strip()
+            nouveau_tentatif = courant[self._fige_emis:].strip()
+            if nouveau_tentatif != self._tentatif:
+                self._dernier_changement = time.monotonic()
+            self._tentatif = nouveau_tentatif
             trop_long = len(courant) >= HYPOTHESE_MAX_CARACTERES
 
         # Hors du verrou : rouvrir le flux appelle du natif, qui peut être lent.

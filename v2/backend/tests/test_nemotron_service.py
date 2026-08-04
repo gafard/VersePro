@@ -253,3 +253,50 @@ def test_hypothese_trop_longue_rouvre_le_flux(service, flux):
     _pousser(service, flux, "x" * (N.HYPOTHESE_MAX_CARACTERES + 10))
     assert service._session.flux_ouverts == 2
     assert flux.finalise == 1
+
+
+# ── Clôture sur pause : la cadence qui décide si on rate les versets ─────────
+
+def test_une_pause_clot_l_enonce_sans_attendre_de_ponctuation(service, flux, monkeypatch):
+    """Sans cela, Nemotron faisait travailler la cascade SEPT FOIS moins souvent.
+
+    Mesuré sur 30 minutes de prédication réelle, à découpage identique :
+    Vosk clôturait toutes les 4,9 s, Nemotron toutes les 35,3 s. Or les étages
+    profonds — sémantique, VerseGraph — ne tournent que sur un final : un verset
+    cité en milieu de phrase attendait une demi-minute avant d'être examiné.
+    """
+    horloge = {"t": 1000.0}
+    monkeypatch.setattr(N.time, "monotonic", lambda: horloge["t"])
+    service.start()
+
+    _pousser(service, flux, "Ouvrons Romains chapitre huit")
+    assert service.prendre_enonce_fini() is None, "l'orateur parle encore"
+
+    # L'hypothèse ne bouge plus : il a marqué une pause.
+    horloge["t"] += N.STABILITE_S + 0.1
+    _pousser(service, flux, "Ouvrons Romains chapitre huit")
+    assert service.prendre_enonce_fini() == "Ouvrons Romains chapitre huit"
+
+
+def test_le_seuil_de_stabilite_depasse_la_periode_du_decodeur():
+    """Le seuil se DÉDUIT du décodeur, il ne se choisit pas.
+
+    Nemotron ne met son hypothèse à jour que toutes les 1,0 à 1,25 s. Un seuil
+    plus court se déclenche entre deux tics, pendant que le modèle travaille
+    encore — essayé à 700 ms, la coupe tombait au milieu d'un mot :
+    « …chapitre hu » | « it verset vingt-huit… ».
+    """
+    PERIODE_MAX_OBSERVEE = 1.25
+    assert N.STABILITE_S > PERIODE_MAX_OBSERVEE, (
+        f"{N.STABILITE_S}s clôturerait pendant que le décodeur travaille"
+    )
+
+
+def test_une_pause_sur_un_tampon_vide_ne_declenche_rien(service, flux, monkeypatch):
+    """Le silence avant le premier mot ne doit pas produire d'énoncé vide."""
+    horloge = {"t": 2000.0}
+    monkeypatch.setattr(N.time, "monotonic", lambda: horloge["t"])
+    service.start()
+    horloge["t"] += N.STABILITE_S * 3
+    _pousser(service, flux, "")
+    assert service.prendre_enonce_fini() is None
