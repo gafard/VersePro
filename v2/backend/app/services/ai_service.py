@@ -143,7 +143,23 @@ class AIService:
         )
         return re.sub(r"[^a-z0-9]", "", normalized)
 
-    def _build_detection_prompt(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> str:
+    def _build_detection_prompt(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None,
+                                contexte: Optional[List[str]] = None) -> str:
+        # CE QUI PRÉCÈDE compte autant que la phrase elle-même. « Il tenait les
+        # bras levés » ne désigne rien tout seul ; précédé de « Moïse était sur
+        # la colline », il désigne Exode 17. Une allusion vit dans son fil, et
+        # l'analyser hors contexte revient à juger une phrase sortie d'un livre.
+        #
+        # Le contexte est donné pour COMPRENDRE, jamais pour être cité : la
+        # réponse doit porter sur la phrase courante, sinon un verset annoncé
+        # deux minutes plus tôt reviendrait à l'écran indéfiniment.
+        contexte_block = ""
+        if contexte:
+            contexte_block = (
+                "\n\nCE QUI VIENT D'ETRE DIT (contexte, a ne PAS analyser) :\n"
+                + "\n".join(f"- {c}" for c in contexte[-3:])
+            )
+
         candidate_block = ""
         if candidates:
             lines = []
@@ -161,7 +177,8 @@ class AIService:
         return (
             "Analyse cette transcription de sermon. Identifie une citation ou paraphrase biblique "
             "uniquement si le lien est suffisamment net.\n\n"
-            f'Transcription: "{text}"'
+            f'Phrase a analyser: "{text}"'
+            f"{contexte_block}"
             f"{candidate_block}\n\n"
             "Reponds uniquement avec un objet JSON valide: "
             '{"reference": "Jean 3:16" ou null, "confidence": entier de 0 a 100}.'
@@ -208,6 +225,7 @@ class AIService:
         self,
         text: str,
         candidates: Optional[List[Dict[str, Any]]] = None,
+        contexte: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Analyse sémantiquement le texte pour détecter une référence biblique (implicite ou explicite).
@@ -229,21 +247,21 @@ class AIService:
             
         # 1. OpenRouter
         if self.openrouter_key:
-            ref = self._validate_candidate_result(await self._call_openrouter(text, candidates), candidates)
+            ref = self._validate_candidate_result(await self._call_openrouter(text, candidates, contexte), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
                 
         # 2. Gemini Direct
         if self.api_key:
-            ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates), candidates)
+            ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates, contexte), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
                 
         # 3. Ollama Local
         if self.ollama_active:
-            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates), candidates)
+            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates, contexte), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
@@ -251,11 +269,11 @@ class AIService:
         self._cache_put(self._reference_cache, cache_key, None)
         return None
         
-    async def _call_openrouter(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    async def _call_openrouter(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None, contexte: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API OpenRouter pour détecter le verset avec score de confiance"""
         url = "https://openrouter.ai/api/v1/chat/completions"
         
-        prompt = self._build_detection_prompt(text, candidates)
+        prompt = self._build_detection_prompt(text, candidates, contexte)
         
         headers = {
             "Authorization": f"Bearer {self.openrouter_key}",
@@ -309,12 +327,12 @@ class AIService:
             
         return None
         
-    async def _call_gemini_direct(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    async def _call_gemini_direct(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None, contexte: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Gemini directe de Google avec score de confiance"""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
         headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
         
-        prompt = self._build_detection_prompt(text, candidates)
+        prompt = self._build_detection_prompt(text, candidates, contexte)
         
         schema = {
             "type": "OBJECT",
@@ -371,11 +389,12 @@ class AIService:
             
         return None
 
-    async def _call_ollama_local(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    async def _call_ollama_local(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None,
+                                 contexte: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Ollama locale pour détecter le verset avec score de confiance de façon 100% hors-ligne"""
         url = f"{self.ollama_url}/api/generate"
         
-        prompt = self._build_detection_prompt(text, candidates)
+        prompt = self._build_detection_prompt(text, candidates, contexte)
         
         system_instruction = (
             "Tu es un assistant théologique de régie d'église. Analyse le texte et "

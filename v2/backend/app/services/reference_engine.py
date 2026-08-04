@@ -5,10 +5,17 @@ Moteur central de détection de références bibliques. Découplé de l'ASR.
 
 import time
 import asyncio
+from collections import deque
 from typing import Optional, Dict, Any
 from loguru import logger
 from app.services.ai_service import AIService
 from app.services.detection_fusion import fuse as fuse_detection, strip_attribution
+
+# Nombre d'énoncés précédents fournis à l'IA. Trois est le réglage que
+# SmartVerses expose sous « Prior chunks for AI », et c'est un bon compromis :
+# assez pour situer une allusion dans son récit, assez peu pour que le verset
+# annoncé cinq minutes plus tôt ne pèse plus sur la phrase courante.
+CONTEXTE_ENONCES = 3
 
 BIBLE_KEYWORDS = {
     "dieu", "seigneur", "jésus", "jesus", "christ", "esprit", "bible", "écriture",
@@ -40,6 +47,10 @@ class BibleReferenceEngine:
 
         self.last_detected_ref = None
         self.last_detected_at = 0.0
+        # Les derniers énoncés CLOS, donnés à l'IA comme contexte. Une allusion
+        # vit dans son fil : « il tenait les bras levés » ne désigne rien seul,
+        # précédé de « Moïse était sur la colline » il désigne Exode 17.
+        self._contexte_recent: deque[str] = deque(maxlen=CONTEXTE_ENONCES)
         self._ai_last_resort_lock = asyncio.Lock()
 
     def _recent_window(self, text: str, word_limit: int = 40) -> str:
@@ -142,8 +153,20 @@ class BibleReferenceEngine:
             return None
         if self._ai_last_resort_lock.locked():
             return None
-        if self.settings.AI_FILTERING_MODE == "strict" and not any(k in query.lower() for k in BIBLE_KEYWORDS):
-            return None
+        # Mode strict : on n'interroge l'IA que si le propos est manifestement
+        # religieux, pour ne pas la solliciter sur la parole du quotidien.
+        #
+        # Mais le mot-clé est cherché dans la PHRASE ET SON CONTEXTE, pas dans
+        # la phrase seule — et cette nuance décide de tout. « Tant qu'il tenait
+        # les bras levés, le peuple l'emportait » ne contient aucun mot
+        # biblique : le filtre l'écartait, comme il écartait la plupart des
+        # ALLUSIONS, c'est-à-dire exactement ce que l'IA doit traiter. Précédée
+        # de « Moïse était monté sur la colline », la même phrase est
+        # évidemment religieuse.
+        if self.settings.AI_FILTERING_MODE == "strict":
+            fil = " ".join([query, *self._contexte_recent]).lower()
+            if not any(k in fil for k in BIBLE_KEYWORDS):
+                return None
 
         async with self._ai_last_resort_lock:
             try:
@@ -152,9 +175,22 @@ class BibleReferenceEngine:
                 )
                 if self.semantic_service and self.semantic_service.initialized:
                     shortlist += await asyncio.to_thread(self.semantic_service.search, query, 3, 0.0)
-                if not shortlist:
-                    return None
-                res = await self.ai_service.detect_bible_reference(query, candidates=shortlist)
+                # PAS DE `return None` SI LA LISTE EST VIDE, et c'était le
+                # défaut le plus profond de cette cascade.
+                #
+                # Mesuré : sur « tant qu'il tenait les bras levés le peuple
+                # l'emportait », la recherche lexicale rend ZÉRO candidat. Le
+                # code s'arrêtait donc là — l'IA n'était même pas appelée,
+                # précisément dans le seul cas où elle sert à quelque chose.
+                #
+                # Une liste vide ne veut pas dire « rien à trouver », elle veut
+                # dire « les moteurs locaux n'ont pas su ». On interroge alors
+                # l'IA SANS liste : elle propose librement, et sa réponse est
+                # revalidée contre la Bible chargée juste après — elle ne peut
+                # donc toujours pas inventer un verset.
+                res = await self.ai_service.detect_bible_reference(
+                    query, candidates=shortlist, contexte=list(self._contexte_recent),
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -174,11 +210,44 @@ class BibleReferenceEngine:
             (c for c in shortlist if normaliser(c.get("reference", "")) == attendu),
             None,
         )
+
+        # Proposition LIBRE : l'IA a répondu sans liste fermée. On la ramène
+        # au sol en la résolvant contre la Bible chargée. Si la référence
+        # n'existe pas — livre inventé, chapitre hors bornes — elle est
+        # écartée. L'IA choisit, la Bible tranche.
+        if not selected and not shortlist:
+            resolue = await self.verse_parser.parse(res.get("reference", ""),
+                                                    skip_text_search=True)
+            if resolue and (resolue.get("text") or "").strip():
+                selected = {
+                    "reference": resolue["reference"],
+                    "text": resolue["text"],
+                    "book_abbr": resolue.get("book_abbr"),
+                    "chapter": resolue.get("chapter"),
+                    "verse_start": resolue.get("verse_start"),
+                    "verse_end": resolue.get("verse_end"),
+                    "translations": resolue.get("translations"),
+                    "_libre": True,
+                }
+                logger.info(f"🤖 Proposition IA libre, ancrée : {resolue['reference']}")
+            else:
+                logger.info(f"Suggestion IA écartée : « {res.get('reference')} » "
+                            "ne correspond à aucun verset de la Bible chargée")
+                return None
+
         if not selected:
             logger.info("Suggestion IA écartée : référence absente de la liste fermée")
             return None
             
-        if not res.get("candidate_validated"):
+        # Voie libre : la confiance du modèle fait foi telle quelle. Le
+        # plafond « 70 + score×30 » dérive d'un score de récupération qui
+        # n'existe pas ici — l'appliquer revenait à écraser toute proposition
+        # libre à 85, sous un seuil de 95, donc à l'interdire.
+        libre = bool(selected.get("_libre"))
+        if libre:
+            res = {**res, "reference": selected["reference"], "candidate_validated": True,
+                   "raw_model_confidence": float(res.get("confidence") or 0)}
+        elif not res.get("candidate_validated"):
             raw_confidence = max(0.0, min(100.0, float(res.get("confidence") or 0)))
             try:
                 raw_score = selected.get("score")
@@ -201,8 +270,10 @@ class BibleReferenceEngine:
             }
             
         confidence = float(res.get("confidence") or 0)
-        if confidence < self.settings.AI_CONFIDENCE_THRESHOLD:
-            logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {self.settings.AI_CONFIDENCE_THRESHOLD} %)")
+        seuil = (self.settings.AI_FREE_CONFIDENCE_THRESHOLD if libre
+                 else self.settings.AI_CONFIDENCE_THRESHOLD)
+        if confidence < seuil:
+            logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {seuil} %)")
             return None
 
         grounded = await self.verse_parser.parse(res["reference"], skip_text_search=True)
@@ -246,6 +317,15 @@ class BibleReferenceEngine:
         #    vingt-huit », la référence est complète AVANT la fin de l'énoncé,
         #    et l'attendre ajouterait plusieurs secondes de retard à l'écran.
         decision = await self._run_detection_cascade(analysis_text, is_final)
+
+        # 1 bis. Mémoire de contexte. On ne retient QUE les énoncés clos : un
+        # partiel change à chaque seconde et remplirait la mémoire de versions
+        # successives de la même phrase. On la remplit APRÈS la cascade, sinon
+        # la phrase courante figurerait dans son propre contexte.
+        if is_final:
+            enonce = self._recent_window(analysis_text, self.settings.HYBRID_WINDOW_WORDS).strip()
+            if enonce and (not self._contexte_recent or self._contexte_recent[-1] != enonce):
+                self._contexte_recent.append(enonce)
 
         # Un étage « incrémental » annonçait ici le passage vers lequel on se
         # dirigeait (« Recherche en cours : Romains 8… »). Il est retiré, et la

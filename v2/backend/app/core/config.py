@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     AI_AGENT_ENABLED: bool = True
     AI_FILTERING_MODE: str = "strict"  # "strict" (filtre sémantique de mots-clés) ou "open" (sans filtre)
     AI_CONFIDENCE_THRESHOLD: int = 95  # Seuil de confiance minimal pour l'IA (en %)
+
+    # Seuil PROPRE aux propositions libres de l'IA — celles faites sans liste
+    # fermée, quand les moteurs locaux n'ont rien trouvé. C'est une autre
+    # nature de preuve : aucune corroboration lexicale ni sémantique ne vient
+    # l'appuyer, seulement le jugement du modèle. Lui appliquer le seuil de 95 %
+    # revenait à l'interdire, puisque la confiance y plafonnait à 85 faute de
+    # score de récupération.
+    #
+    # 80 % par défaut, et c'est un réglage à exposer : SmartVerses fait de même
+    # avec son « Paraphrase Confidence Threshold » — 60 % en ligne, 80 % hors
+    # ligne. Toute proposition libre part de toute façon en validation manuelle.
+    AI_FREE_CONFIDENCE_THRESHOLD: int = 80
     OPENROUTER_MODEL: str = "google/gemini-2.5-flash"
     GEMINI_MODEL: str = "gemini-2.0-flash"
     OLLAMA_URL: str = "http://localhost:11434"
