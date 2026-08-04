@@ -204,29 +204,39 @@ class NemotronService:
         self.download_progress = 0.0
 
         def _download_task():
+            # LE TÉLÉCHARGEMENT DIRECT PASSE EN PREMIER, et c'est un choix
+            # d'interface, pas de performance.
+            #
+            # `hf_hub_download` n'expose aucune progression : la barre restait
+            # figée à 20 % pendant TOUT le téléchargement. Sur la connexion
+            # d'une église, 716 Mo peuvent prendre dix minutes — un bénévole
+            # devant une barre immobile conclut légitimement que c'est cassé,
+            # et c'est exactement le retour qu'on a eu.
+            #
+            # Le téléchargement direct, lui, rapporte octet par octet. Il était
+            # relégué en secours alors qu'il est le seul à pouvoir rassurer.
+            def _progression(recus, total):
+                if total > 0:
+                    self.download_progress = min(0.99, float(recus) / float(total))
+                else:
+                    self.download_progress = min(0.95, self.download_progress + 0.01)
+
             try:
                 try:
+                    url = f"https://huggingface.co/{MODEL_REPO}/resolve/main/{MODEL_FILENAME}"
+                    logger.info(f"Téléchargement de Nemotron-3.5-ASR ({MODEL_SIZE_MB} Mo)…")
+                    download_file(url, self._model_path, on_progress=_progression)
+                except Exception as exc:
+                    # Repli sur huggingface_hub : reprises, miroirs et cache
+                    # partagé. Sans progression fine, mais il aboutit là où le
+                    # téléchargement direct échoue (proxy d'entreprise, jeton).
+                    logger.warning(f"Téléchargement direct impossible ({exc}), repli sur huggingface_hub")
                     from huggingface_hub import hf_hub_download
                     import shutil
-                    logger.info("Téléchargement de Nemotron-3.5-ASR via huggingface_hub...")
-                    self.download_progress = 0.2
-                    downloaded_path = hf_hub_download(
-                        repo_id=MODEL_REPO,
-                        filename=MODEL_FILENAME,
-                    )
+                    self.download_progress = max(self.download_progress, 0.1)
+                    chemin = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILENAME)
                     self.download_progress = 0.9
-                    shutil.copy2(downloaded_path, self._model_path)
-                except Exception as ex:
-                    logger.warning(f"Fallback téléchargement direct pour Nemotron: {ex}")
-                    def _progress_cb(received, total):
-                        if total > 0:
-                            self.download_progress = min(0.99, float(received) / float(total))
-                        else:
-                            self.download_progress = min(0.95, self.download_progress + 0.01)
-
-                    url = f"https://huggingface.co/{MODEL_REPO}/resolve/main/{MODEL_FILENAME}"
-                    logger.info(f"Téléchargement de Nemotron-3.5-ASR (716 Mo) depuis {url}...")
-                    download_file(url, self._model_path, on_progress=_progress_cb)
+                    shutil.copy2(chemin, self._model_path)
 
                 self.download_progress = 1.0
                 logger.info("✅ Modèle Nemotron-3.5-ASR q8_0 téléchargé avec succès")
