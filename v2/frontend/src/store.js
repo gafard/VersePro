@@ -424,7 +424,9 @@ export const useStore = create((set, get) => ({
   setBibleVersion: (version) => get().selectBible(version),
 
   setSelectedEngine: (selectedEngine) => {
+    const prevEngine = get().selectedEngine
     set({ selectedEngine, _switchingEngine: true })
+
     // Sauvegarder la préférence de moteur au backend pour persistance
     fetch(`${BACKEND_BASE}/api/v1/settings`, {
       method: 'POST',
@@ -432,23 +434,27 @@ export const useStore = create((set, get) => ({
       body: JSON.stringify({ asr_default_engine: selectedEngine })
     }).catch(() => {})
 
-    const { isListening } = get()
+    const timer = get()._reconnectTimer
+    if (timer) {
+      clearTimeout(timer)
+      set({ _reconnectTimer: null })
+    }
+
+    const { isListening, websocket } = get()
+    if (websocket) {
+      set({ websocket: null, _manualDisconnect: true })
+      try {
+        websocket.onclose = null
+        websocket.close()
+      } catch (e) {}
+    }
+
+    set({ _connectionAttempts: 0, _manualDisconnect: false, _switchingEngine: false })
+
     if (isListening) {
-      const ws = get().websocket
-      if (ws) {
-        set({ _manualDisconnect: true })
-        ws.close()
-      }
-      
-      const timer = get()._reconnectTimer
-      if (timer) clearTimeout(timer)
-      
-      set({ _connectionAttempts: 0, _manualDisconnect: false, _switchingEngine: false })
       setTimeout(() => {
         get().connectWebSocket().catch(() => {})
-      }, 50)
-    } else {
-      set({ _switchingEngine: false })
+      }, 80)
     }
   },
   

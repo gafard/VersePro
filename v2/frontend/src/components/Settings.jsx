@@ -96,7 +96,8 @@ export default function Settings() {
     setSelectedAudioDeviceId,
     refreshAudioDevices,
     audioFilterMode,
-    setAudioFilterMode
+    setAudioFilterMode,
+    setSelectedEngine
   } = useStore()
 
   const [form, setForm] = useState({
@@ -474,7 +475,11 @@ export default function Settings() {
           <div className="settings-form-grid">
             <label>
               <small>Moteur par défaut</small>
-              <select value={form.asr_default_engine} onChange={(e) => updateField('asr_default_engine', e.target.value)}>
+              <select value={form.asr_default_engine} onChange={(e) => {
+                const val = e.target.value
+                updateField('asr_default_engine', val)
+                setSelectedEngine(val)
+              }}>
                 <option value="auto">Auto (Deepgram Cloud puis Nemotron local)</option>
                 <option value="deepgram">Deepgram Cloud (Rapide &lt; 0.5 s)</option>
                 <option value="nemotron">Nemotron 3.5-ASR 0.6B (Recommandé Local, 716 Mo)</option>
