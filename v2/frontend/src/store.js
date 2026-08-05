@@ -238,6 +238,7 @@ export const useStore = create((set, get) => ({
       version: verse.version || state.activeBible,
       detectedAt: verse.detected_at || new Date().toISOString(),
       confidence: verse.confidence,
+      detectedFrom: verse.detected_from || verse.transcript || '',
       source: verse.source || (['ai_semantic', 'semantic_local'].includes(verse.detection_method) ? 'semantic' : 'local'),
       detectionMethod: verse.detection_method,
       explanation: verse.explanation || '',

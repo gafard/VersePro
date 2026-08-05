@@ -36,6 +36,43 @@ function shiftVerse(reference, delta) {
   return `${match[1]} ${match[2]}:${verse}`
 }
 
+/** Illumine les mots clés ou expressions prononcées dans le texte du verset (Paraphrase / Sémantique) */
+function renderHighlightedVerseText(verseText, transcript, isParaphrase) {
+  if (!verseText) return 'Texte non chargé.'
+  if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
+    return verseText
+  }
+
+  const STOP_WORDS = new Set(['dans', 'pour', 'avec', 'cette', 'celui', 'ceux', 'mais', 'donc', 'nous', 'vous', 'sont', 'sera', 'avez', 'était', 'alors', 'leurs'])
+  const cleanTranscript = transcript.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/g, "")
+  const transcriptWords = new Set(cleanTranscript.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w)))
+
+  if (transcriptWords.size === 0) return verseText
+
+  const tokens = verseText.split(/(\s+)/)
+
+  return tokens.map((token, idx) => {
+    const cleanToken = token.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/g, "")
+    const isMatch = cleanToken.length > 2 && transcriptWords.has(cleanToken)
+
+    if (isMatch) {
+      return (
+        <mark
+          key={idx}
+          className={`px-1 py-0.5 rounded font-semibold transition-all ${
+            isParaphrase
+              ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
+              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+          }`}
+        >
+          {token}
+        </mark>
+      )
+    }
+    return token
+  })
+}
+
 function MicIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -573,12 +610,10 @@ export default function LiveDetection({ setActiveTab }) {
               📖 Chapitre
             </button>
           </div>
-          <span className={`live-card-badge ${accent === 'ai' ? 'is-ai' : 'is-local'} ${isProjected ? 'is-projected-badge' : ''}`}>
-            {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Match Sémantique ${confidencePct ?? 95}%` : 'Match Exact')}
+          <span className={`live-card-badge ${accent === 'ai' ? 'is-ai bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold' : 'is-local'} ${isProjected ? 'is-projected-badge' : ''}`}>
+            {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Paraphrase (${confidencePct ?? 95}%)` : 'Match Exact')}
           </span>
         </div>
-
-
 
         {/* Jauge de confiance */}
         {!isProjected && confidencePct != null && (
@@ -594,7 +629,9 @@ export default function LiveDetection({ setActiveTab }) {
           </div>
         )}
 
-        <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
+        <p className="live-card-text leading-relaxed">
+          {renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
+        </p>
 
         {/* Quick Verse Navigation */}
         <div className="flex items-center gap-1.5 my-1.5 pt-1.5 border-t border-white/5">
