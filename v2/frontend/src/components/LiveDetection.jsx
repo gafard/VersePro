@@ -578,13 +578,7 @@ export default function LiveDetection({ setActiveTab }) {
           </span>
         </div>
 
-        {/* Snippet vocal entendu lors de la détection ASR */}
-        {(item.heard || item.transcriptSnippet || currentTranscript) && (
-          <div className="text-[11px] italic text-text-dim bg-surface-2/60 px-2 py-1 rounded border border-white/5 my-1 font-mono">
-            <span className="text-accent font-semibold not-italic">Entendu : </span>
-            "{item.heard || item.transcriptSnippet || (currentTranscript ? currentTranscript.slice(-60) : '')}"
-          </div>
-        )}
+
 
         {/* Jauge de confiance */}
         {!isProjected && confidencePct != null && (
@@ -1016,20 +1010,20 @@ export default function LiveDetection({ setActiveTab }) {
                   type="text"
                   value={manualReference}
                   onChange={(e) => setManualReference(e.target.value)}
-                  placeholder="Ajouter au déroulé (ex : Jn 3:16, Romains 8:28…)"
+                  placeholder="Saisir un verset (ex : Jn 3:16, Romains 8:28…)"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      handlePrepareManual()
+                      handleSendManual()
                     }
                   }}
                 />
                 <button
-                  className="vp-btn vp-btn--primary px-4 text-xs"
-                  onClick={handlePrepareManual}
-                  disabled={!manualReference.trim() || preparingReference}
+                  className="vp-btn vp-btn--primary px-4 text-xs font-semibold"
+                  onClick={handleSendManual}
+                  disabled={!manualReference.trim()}
                 >
-                  {preparingReference ? 'Ajout…' : 'Ajouter'}
+                  Projeter
                 </button>
                 <button
                   className="vp-btn vp-btn--ghost px-3 text-xs"
@@ -1038,13 +1032,6 @@ export default function LiveDetection({ setActiveTab }) {
                   title="Monter en préparation, sans rien envoyer à la salle"
                 >
                   Préparer
-                </button>
-                <button
-                  className="vp-btn vp-btn--ghost px-3 text-xs"
-                  onClick={handleSendManual}
-                  disabled={!manualReference.trim() || preparingReference}
-                >
-                  Projeter
                 </button>
               </div>
               <div className="live-quick-row flex gap-2 overflow-x-auto pb-1">
