@@ -51,13 +51,191 @@ class BibleInvalide(ValueError):
     """Fichier refusé, avec une raison présentable à un bénévole."""
 
 
+STANDARD_66_BOOKS = [
+    "Genèse", "Exode", "Lévitique", "Nombres", "Deutéronome", "Josué", "Juges", "Ruth",
+    "1 Samuel", "2 Samuel", "1 Rois", "2 Rois", "1 Chroniques", "2 Chroniques", "Esdras", "Néhémie",
+    "Esther", "Job", "Psaumes", "Proverbes", "Ecclésiaste", "Cantique des cantiques", "Ésaïe", "Jérémie",
+    "Lamentations", "Ézéchiel", "Daniel", "Osée", "Joël", "Amos", "Abdias", "Jonas", "Michée",
+    "Nahum", "Habacuc", "Sophonie", "Aggée", "Zacharie", "Malachie",
+    "Matthieu", "Marc", "Luc", "Jean", "Actes", "Romains", "1 Corinthiens", "2 Corinthiens",
+    "Galates", "Éphésiens", "Philippiens", "Colossiens", "1 Thessaloniciens", "2 Thessaloniciens",
+    "1 Timothée", "2 Timothée", "Tite", "Philémon", "Hébreux", "Jacques",
+    "1 Pierre", "2 Pierre", "1 Jean", "2 Jean", "3 Jean", "Jude", "Apocalypse"
+]
+
+
+def _normaliser_liste_livres(livres_raw: list) -> list:
+    """Standardise les clés des livres, chapitres et versets (ex: Text -> text, ID -> chapter/verse, etc.)"""
+    livres = []
+    for idx, b in enumerate(livres_raw):
+        if not isinstance(b, dict):
+            continue
+        nom = str(b.get("name") or b.get("Text") or b.get("title") or b.get("bname") or b.get("nom") or b.get("abbreviation") or (STANDARD_66_BOOKS[idx] if idx < len(STANDARD_66_BOOKS) else f"Livre {idx+1}")).strip()
+        abbr = str(b.get("abbreviation") or b.get("abbr") or b.get("sigle") or "").strip()
+        
+        chapitres_raw = b.get("chapters") or b.get("Chapters") or b.get("chapitres") or []
+        chapitres = []
+        if isinstance(chapitres_raw, list):
+            for ch_idx, c in enumerate(chapitres_raw):
+                if not isinstance(c, dict):
+                    continue
+                ch_num = c.get("chapter") or c.get("num") or c.get("ID") or c.get("c") or (ch_idx + 1)
+                versets_raw = c.get("verses") or c.get("Verses") or c.get("versets") or []
+                versets = []
+                if isinstance(versets_raw, list):
+                    for v_idx, v in enumerate(versets_raw):
+                        if isinstance(v, dict):
+                            v_num = v.get("verse") or v.get("num") or v.get("ID") or v.get("v") or (v_idx + 1)
+                            v_text = str(v.get("text") or v.get("Text") or v.get("texte") or v.get("content") or "").strip()
+                            if v_text:
+                                versets.append({"verse": int(v_num), "text": v_text})
+                        elif isinstance(v, str) and v.strip():
+                            versets.append({"verse": v_idx + 1, "text": v.strip()})
+                if versets:
+                    chapitres.append({"chapter": int(ch_num), "verses": versets})
+        if chapitres:
+            item = {"name": nom, "chapters": chapitres}
+            if abbr:
+                item["abbreviation"] = abbr
+            livres.append(item)
+    return livres
+
+
+def normaliser_structure_bible(donnees: Any) -> Dict[str, Any]:
+    """Normalise n'importe quelle structure JSON de Bible vers le schéma officiel VersePro {"books": [...]}"""
+    if isinstance(donnees, str) and donnees.strip().startswith("<"):
+        return _parse_xml_bible(donnees.strip())
+
+    if isinstance(donnees, list):
+        return {"books": _normaliser_liste_livres(donnees)}
+
+    if not isinstance(donnees, dict):
+        raise BibleInvalide("Le fichier doit être un objet JSON ou une liste de livres.")
+
+    # Format racine "bible", "data", "corpus"
+    for key in ("bible", "data", "corpus"):
+        if key in donnees and isinstance(donnees[key], (dict, list)):
+            sub = normaliser_structure_bible(donnees[key])
+            if "version" not in sub and "version" in donnees:
+                sub["version"] = donnees["version"]
+            return sub
+
+    # Format avec "Testaments"
+    testaments = donnees.get("Testaments") or donnees.get("testaments") or donnees.get("TESTAMENTS")
+    if isinstance(testaments, list):
+        livres = []
+        for t in testaments:
+            if isinstance(t, dict):
+                b_list = t.get("Books") or t.get("books") or t.get("LIVRES") or t.get("livres") or []
+                if isinstance(b_list, list):
+                    livres.extend(b_list)
+        return {"version": donnees.get("version"), "books": _normaliser_liste_livres(livres)}
+
+    # Clef "livres", "book", "books_list", "LIVRES", "books"
+    livres_raw = (
+        donnees.get("books")
+        or donnees.get("livres")
+        or donnees.get("book")
+        or donnees.get("LIVRES")
+        or donnees.get("books_list")
+    )
+    if isinstance(livres_raw, list):
+        return {"version": donnees.get("version"), "books": _normaliser_liste_livres(livres_raw)}
+
+    # Format indexé par livres 1-66 (ex: {"1": {"1": {"1": "text"}}})
+    if "1" in donnees and isinstance(donnees["1"], dict):
+        livres = []
+        for b_idx_str in sorted(donnees.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+            if not b_idx_str.isdigit():
+                continue
+            b_idx = int(b_idx_str) - 1
+            b_name = STANDARD_66_BOOKS[b_idx] if 0 <= b_idx < len(STANDARD_66_BOOKS) else f"Livre {b_idx_str}"
+            chapters_dict = donnees[b_idx_str]
+            chapitres = []
+            if isinstance(chapters_dict, dict):
+                for ch_str in sorted(chapters_dict.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+                    if not ch_str.isdigit():
+                        continue
+                    ch_num = int(ch_str)
+                    verses_dict = chapters_dict[ch_str]
+                    versets = []
+                    if isinstance(verses_dict, dict):
+                        for v_str in sorted(verses_dict.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+                            if not v_str.isdigit():
+                                continue
+                            v_num = int(v_str)
+                            v_text = str(verses_dict[v_str]).strip()
+                            if v_text:
+                                versets.append({"verse": v_num, "text": v_text})
+                    if versets:
+                        chapitres.append({"chapter": ch_num, "verses": versets})
+            if chapitres:
+                livres.append({"name": b_name, "chapters": chapitres})
+        if livres:
+            return {"version": donnees.get("version"), "books": livres}
+
+    return donnees
+
+
+def _parse_xml_bible(contenu: str) -> Dict[str, Any]:
+    """Parse un fichier XML (Zefania, OSIS, OpenSong, OpenBible) vers la structure VersePro"""
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(contenu)
+    except Exception as exc:
+        raise BibleInvalide(f"Fichier XML invalide : {exc}") from exc
+
+    version_title = root.attrib.get("biblename") or root.attrib.get("name") or root.attrib.get("id") or "XML"
+    livres = []
+    
+    # Détecter si la racine est un livre ou contient des livres
+    if "BOOK" in root.tag.upper() or "LIVRE" in root.tag.upper():
+        book_nodes = [root]
+    else:
+        book_nodes = (
+            root.findall(".//BIBLEBOOK")
+            or root.findall(".//book")
+            or root.findall(".//Book")
+            or root.findall(".//livre")
+            or root.findall(".//Livre")
+            or root.findall(".//div[@type='book']")
+        )
+    
+    for idx, b_node in enumerate(book_nodes):
+        name = b_node.attrib.get("bname") or b_node.attrib.get("name") or b_node.attrib.get("n")
+        if not name and idx < len(STANDARD_66_BOOKS):
+            name = STANDARD_66_BOOKS[idx]
+        
+        chapitres = []
+        ch_nodes = b_node.findall(".//CHAPTER") or b_node.findall(".//chapter") or b_node.findall(".//c")
+        for ch_idx, c_node in enumerate(ch_nodes):
+            ch_num = int(c_node.attrib.get("cnumber") or c_node.attrib.get("n") or (ch_idx + 1))
+            versets = []
+            v_nodes = c_node.findall(".//VERS") or c_node.findall(".//verse") or c_node.findall(".//v")
+            for v_idx, v_node in enumerate(v_nodes):
+                v_num = int(v_node.attrib.get("vnumber") or v_node.attrib.get("n") or (v_idx + 1))
+                v_text = "".join(v_node.itertext()).strip()
+                if v_text:
+                    versets.append({"verse": v_num, "text": v_text})
+            if versets:
+                chapitres.append({"chapter": ch_num, "verses": versets})
+        if chapitres:
+            livres.append({"name": name or f"Livre {idx+1}", "chapters": chapitres})
+            
+    if not livres:
+        raise BibleInvalide("Aucun livre extrait du fichier XML.")
+        
+    return {"version": version_title, "books": livres}
+
+
 def valider(donnees: Any) -> Dict[str, Any]:
     """Vérifie la structure et retourne un résumé (sigle, langue, comptages)."""
+    donnees = normaliser_structure_bible(donnees)
     if not isinstance(donnees, dict):
-        raise BibleInvalide("Le fichier doit contenir un objet JSON, pas une liste.")
+        raise BibleInvalide("Le fichier doit contenir une structure de Bible valide.")
     livres = donnees.get("books")
     if not isinstance(livres, list) or len(livres) < MIN_LIVRES:
-        raise BibleInvalide("Aucun livre trouvé : la clé « books » doit être une liste non vide.")
+        raise BibleInvalide("Aucun livre trouvé dans le fichier importé.")
 
     nb_chapitres = 0
     nb_versets = 0
@@ -242,10 +420,16 @@ def importer(contenu: str, sigle_propose: str = "") -> Dict[str, Any]:
         raise BibleInvalide(
             f"Fichier trop lourd ; maximum {MAX_BIBLE_BYTES // (1024 * 1024)} Mo."
         )
-    try:
-        donnees = json.loads(contenu)
-    except ValueError as exc:
-        raise BibleInvalide(f"JSON illisible : {exc}") from exc
+    
+    clean_content = contenu.strip()
+    if clean_content.startswith("<"):
+        donnees = _parse_xml_bible(clean_content)
+    else:
+        try:
+            donnees_raw = json.loads(clean_content)
+        except ValueError as exc:
+            raise BibleInvalide(f"Fichier JSON illisible : {exc}") from exc
+        donnees = normaliser_structure_bible(donnees_raw)
 
     resume = valider(donnees)
     sigle = normaliser_sigle(sigle_propose, resume)
