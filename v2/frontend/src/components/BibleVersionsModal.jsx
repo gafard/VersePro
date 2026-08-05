@@ -14,10 +14,21 @@ const BIBLE_CATALOG = [
 ]
 
 export default function BibleVersionsModal({ onClose }) {
-  const { availableBibles, activeBible, setBibleVersion } = useStore()
+  const { availableBibles, activeBible, selectBible, fetchBibles } = useStore()
   const [search, setSearch] = useState('')
-  const [activeTab, setActiveTab] = useState('official') // 'official' | 'custom' | 'download'
+  const [activeTab, setActiveTab] = useState('official') // 'official' | 'custom'
   const [filterLang, setFilterLang] = useState('all')
+  const [loadingCode, setLoadingCode] = useState(null)
+
+  const handleSelect = async (code) => {
+    setLoadingCode(code)
+    try {
+      await selectBible(code)
+      await fetchBibles()
+    } finally {
+      setLoadingCode(null)
+    }
+  }
 
   const filteredBibles = BIBLE_CATALOG.filter((b) => {
     const matchesSearch = b.name.toLowerCase().includes(search.toLowerCase()) || b.code.toLowerCase().includes(search.toLowerCase())
@@ -26,15 +37,15 @@ export default function BibleVersionsModal({ onClose }) {
   })
 
   return (
-    <div className="vp-modal-backdrop z-50 flex items-center justify-center p-4">
-      <div className="vp-modal max-w-2xl w-full max-h-[85vh] flex flex-col bg-surface-1 border border-border-weak rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+    <div className="vp-modal-backdrop z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="vp-modal max-w-2xl w-full max-h-[85vh] flex flex-col bg-surface-1 border border-border-weak rounded-2xl shadow-2xl overflow-hidden animate-scale-in" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border-weak bg-surface-2">
           <div className="flex items-center gap-3">
             <span className="text-2xl">📚</span>
             <div>
               <h2 className="text-lg font-bold text-text-strong">Gestionnaire de Bibles</h2>
-              <p className="text-xs text-text-dim">Gérez et installez vos versions officielles et fichiers d'import</p>
+              <p className="text-xs text-text-dim">Gérez vos versions officielles et traductions actives</p>
             </div>
           </div>
           <button onClick={onClose} className="vp-btn vp-btn--ghost vp-btn--sm">✕</button>
@@ -51,16 +62,6 @@ export default function BibleVersionsModal({ onClose }) {
             onClick={() => setActiveTab('official')}
           >
             Versions Officielles
-          </button>
-          <button
-            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all ${
-              activeTab === 'custom'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-dim hover:text-text-strong'
-            }`}
-            onClick={() => setActiveTab('custom')}
-          >
-            Fichiers Tierces (XML / JSON)
           </button>
         </div>
 
@@ -93,6 +94,7 @@ export default function BibleVersionsModal({ onClose }) {
           {filteredBibles.map((bible) => {
             const isInstalled = availableBibles.includes(bible.code)
             const isActive = activeBible === bible.code
+            const isLoading = loadingCode === bible.code
 
             return (
               <div
@@ -117,23 +119,19 @@ export default function BibleVersionsModal({ onClose }) {
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {isInstalled ? (
-                    <button
-                      onClick={() => setBibleVersion(bible.code)}
-                      className={`vp-btn vp-btn--sm text-xs py-1 px-3 ${
-                        isActive ? 'vp-btn--ok font-bold' : 'vp-btn--ghost'
-                      }`}
-                    >
-                      {isActive ? '✓ Version Active' : 'Utiliser'}
-                    </button>
-                  ) : (
-                    <button
-                      className="vp-btn vp-btn--primary vp-btn--sm text-xs py-1 px-3"
-                      onClick={() => setBibleVersion(bible.code)}
-                    >
-                      Installer (Gratuit)
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleSelect(bible.code)}
+                    disabled={isLoading || isActive}
+                    className={`vp-btn vp-btn--sm text-xs py-1 px-3 ${
+                      isActive
+                        ? 'vp-btn--ok font-bold shadow-emerald-500/20'
+                        : isInstalled
+                        ? 'vp-btn--primary'
+                        : 'vp-btn--ghost'
+                    }`}
+                  >
+                    {isLoading ? 'Chargement…' : isActive ? '✓ Version Active' : isInstalled ? 'Utiliser' : 'Activer'}
+                  </button>
                 </div>
               </div>
             )

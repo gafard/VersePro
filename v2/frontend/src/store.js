@@ -420,17 +420,24 @@ export const useStore = create((set, get) => ({
   
   setAiActive: (aiActive) => set({ aiActive }),
   
+  setBibleVersion: (version) => get().selectBible(version),
+
   setSelectedEngine: (selectedEngine) => {
     set({ selectedEngine, _switchingEngine: true })
-    const { websocket, isListening } = get()
-    if (websocket && isListening) {
+    // Sauvegarder la préférence de moteur au backend pour persistance
+    fetch(`${BACKEND_BASE}/api/v1/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asr_default_engine: selectedEngine })
+    }).catch((err) => console.error('Erreur sauvegarde moteur ASR:', err))
+
+    const { isListening } = get()
+    if (isListening) {
       get().disconnectWebSocket()
-      // Un court délai permet de s'assurer de la fermeture propre avant reconnexion
       setTimeout(() => {
         get().connectWebSocket()
-        // Laisse le temps au onopen de se déclencher avant de lever le flag
         setTimeout(() => set({ _switchingEngine: false }), 1500)
-      }, 200)
+      }, 300)
     } else {
       set({ _switchingEngine: false })
     }

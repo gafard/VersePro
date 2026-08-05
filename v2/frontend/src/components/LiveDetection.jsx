@@ -98,14 +98,14 @@ export default function LiveDetection({ setActiveTab }) {
   const lastAdvancedRef = useRef(null)
   const advanceTimerRef = useRef(null)
 
-  const { activeBible, availableBibles, undoLastProjection } = useStore()
+  const { activeBible, availableBibles, undoLastProjection, selectedEngine, setSelectedEngine } = useStore()
   const [compareOpen, setCompareOpen] = useState(false)
   const [comparePreviews, setComparePreviews] = useState(null)
 
-  // Effet d'auto-scroll automatique
+  // Effet d'auto-scroll automatique vers le verset le plus récent (en haut de liste)
   useEffect(() => {
     if (autoScroll && queueScrollRef.current) {
-      queueScrollRef.current.scrollTo({ top: queueScrollRef.current.scrollHeight, behavior: 'smooth' })
+      queueScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [projectionQueue, currentTranscript, autoScroll])
 
@@ -927,6 +927,19 @@ export default function LiveDetection({ setActiveTab }) {
                   />
                   <span className="font-medium">Auto-Scroll</span>
                 </label>
+
+                {/* Selector Moteur ASR */}
+                <select
+                  value={selectedEngine || 'auto'}
+                  onChange={(e) => setSelectedEngine(e.target.value)}
+                  className="vp-input text-xs py-1 px-2 font-medium bg-surface-3/80 text-text-dim border border-white/5 hover:border-white/10 rounded cursor-pointer"
+                  title="Sélectionner le moteur de transcription ASR"
+                >
+                  <option value="auto">⚡ Auto (Cloud/Local)</option>
+                  <option value="nemotron">🧠 Nemotron 3.5 (Local)</option>
+                  <option value="vosk">🎙️ Vosk (Local)</option>
+                  <option value="deepgram">☁️ Deepgram (Cloud)</option>
+                </select>
 
                 <button
                   className="vp-btn vp-btn--ghost vp-btn--sm py-1 px-2.5 text-xs text-accent font-semibold flex items-center gap-1"

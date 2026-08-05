@@ -2309,9 +2309,6 @@ async def select_bible_version(data: dict):
         raise HTTPException(status_code=500, detail="Service de parsing indisponible")
         
     loader = verse_parser.bible_loader
-    if version not in loader.versions:
-        raise HTTPException(status_code=400, detail=f"Version non disponible. Reçue: {version}")
-        
     loader.active_version = version
     settings.BIBLE_VERSION = version
     if semantic_service:
