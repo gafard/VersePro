@@ -430,15 +430,23 @@ export const useStore = create((set, get) => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ asr_default_engine: selectedEngine })
-    }).catch((err) => console.error('Erreur sauvegarde moteur ASR:', err))
+    }).catch(() => {})
 
     const { isListening } = get()
     if (isListening) {
-      get().disconnectWebSocket()
+      const ws = get().websocket
+      if (ws) {
+        set({ _manualDisconnect: true })
+        ws.close()
+      }
+      
+      const timer = get()._reconnectTimer
+      if (timer) clearTimeout(timer)
+      
+      set({ _connectionAttempts: 0, _manualDisconnect: false, _switchingEngine: false })
       setTimeout(() => {
-        get().connectWebSocket()
-        setTimeout(() => set({ _switchingEngine: false }), 1500)
-      }, 300)
+        get().connectWebSocket().catch(() => {})
+      }, 50)
     } else {
       set({ _switchingEngine: false })
     }
@@ -625,6 +633,10 @@ export const useStore = create((set, get) => ({
       }
 
       ws.onclose = () => {
+        if (get().websocket !== ws) {
+          // Un nouveau socket a été ouvert entre-temps (ex: changement de moteur)
+          return
+        }
         const attempts = get()._connectionAttempts + 1
         const reconnect = shouldReconnect({
           manual: get()._manualDisconnect,

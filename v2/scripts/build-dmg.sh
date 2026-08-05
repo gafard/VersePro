@@ -57,8 +57,9 @@ STAGING="$(mktemp -d)"
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 mkdir -p "$BUNDLE/dmg"
+rm -rf "$BUNDLE/dmg/$DMG" "$HOME/Desktop/$DMG"
 hdiutil create -volname "VersePro" -srcfolder "$STAGING" -ov -format UDZO \
-               "$BUNDLE/dmg/$DMG" >/dev/null
+               "$BUNDLE/dmg/$DMG"
 rm -rf "$STAGING"
 hdiutil verify "$BUNDLE/dmg/$DMG" >/dev/null 2>&1 || { echo "DMG corrompu"; exit 1; }
 

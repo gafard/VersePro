@@ -102,7 +102,7 @@ export default function LiveDetection({ setActiveTab }) {
     asrMode, fetchBibles,
     aiActive,
     translationLang, currentTranslation, setTranslationLang,
-    autopilotMode, setAutopilotMode,
+    autoSend, setAutoSend,
     projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearProjectionQueue,
     previewSlide, previewBusy, previewReference, takePreview, clearPreview, fetchPreview,
     preparedVerses, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
@@ -573,9 +573,16 @@ export default function LiveDetection({ setActiveTab }) {
     ['ai', 'semantic'].includes(item.source)
     || ['ai_semantic', 'semantic_local'].includes(item.detectionMethod)
   )
-  const pendingLocal = pendingItems.filter((item) => !isSemanticSuggestion(item))
-  const pendingAi = pendingItems.filter(isSemanticSuggestion)
-  const recentDone = projectionQueue.filter((i) => i.status !== 'pending').slice(0, 3)
+  const displayQueue = useMemo(() => {
+    const pending = projectionQueue.filter((item) => item.status === 'pending')
+    const done = projectionQueue.filter((item) => item.status !== 'pending')
+    // Garde tous les éléments en attente, et les 3 derniers validés/rejetés
+    const recentDoneItems = done.slice(-3)
+    
+    // Préserve l'ordre chronologique naturel d'insertion
+    return projectionQueue.filter(item => pending.includes(item) || recentDoneItems.includes(item))
+  }, [projectionQueue])
+  
   const projectedHistory = projectionQueue.filter((item) => item.status === 'projected')
   const canShift = Boolean(shiftVerse(onAirDisplay?.reference, 1))
   const selectedAudioDevice = audioDevices.find((device) => device.deviceId === selectedAudioDeviceId)
@@ -954,43 +961,24 @@ export default function LiveDetection({ setActiveTab }) {
               <div className="flex items-center gap-3">
                 <h2>À valider <span className="count">{pendingItems.length}</span></h2>
                 
-                {/* Toggle Auto-Scroll & Bouton Bibles */}
-                <label className="flex items-center gap-1.5 text-xs text-text-dim cursor-pointer bg-surface-3/80 px-2 py-1 rounded border border-white/5 hover:border-white/10 transition-all">
-                  <input
-                    type="checkbox"
-                    checked={autoScroll}
-                    onChange={(e) => setAutoScroll(e.target.checked)}
-                    className="accent-accent"
-                  />
-                  <span className="font-medium">Auto-Scroll</span>
-                </label>
+                {/* Triggers: Auto-Scroll & Diffusion en direct */}
+                <div className="flex items-center gap-2">
+                  <button
+                    className={`vp-btn vp-btn--sm py-1 px-2.5 text-xs font-semibold transition-all shadow-sm ${autoScroll ? 'vp-btn--primary' : 'vp-btn--ghost border border-white/10'}`}
+                    onClick={() => setAutoScroll(!autoScroll)}
+                    title="Défilement automatique vers le dernier verset"
+                  >
+                    Auto-Scroll : {autoScroll ? 'ON' : 'OFF'}
+                  </button>
 
-                {/* Selector Moteur ASR */}
-                <select
-                  value={selectedEngine || 'auto'}
-                  onChange={(e) => setSelectedEngine(e.target.value)}
-                  className="vp-input text-xs py-1 px-2 font-medium bg-surface-3/80 text-text-dim border border-white/5 hover:border-white/10 rounded cursor-pointer"
-                  title="Sélectionner le moteur de transcription ASR"
-                >
-                  <option value="auto">⚡ Auto (Cloud/Local)</option>
-                  <option value="nemotron">🧠 Nemotron 3.5 (Local)</option>
-                  <option value="vosk">🎙️ Vosk (Local)</option>
-                  <option value="deepgram">☁️ Deepgram (Cloud)</option>
-                </select>
-
-                <button
-                  className="vp-btn vp-btn--ghost vp-btn--sm py-1 px-2.5 text-xs text-accent font-semibold flex items-center gap-1.5 border border-accent/20 hover:border-accent/40 bg-accent/10 hover:bg-accent/20 rounded-lg transition-all shadow-sm"
-                  onClick={() => setVersionsModalOpen(true)}
-                  title="Gérer les versions de Bibles"
-                >
-                  <svg className="w-3.5 h-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
-                  <span>Bibles</span>
-                  <span className="font-mono text-[10px] px-1.5 py-0.2 bg-accent text-surface-1 font-bold rounded">
-                    {activeBible || 'LSG'}
-                  </span>
-                </button>
+                  <button
+                    className={`vp-btn vp-btn--sm py-1 px-2.5 text-xs font-semibold transition-all shadow-sm ${autoSend ? 'vp-btn--primary' : 'vp-btn--ghost border border-white/10'}`}
+                    onClick={() => setAutoSend(!autoSend)}
+                    title="Projeter automatiquement les versets fiables sans validation manuelle"
+                  >
+                    Diffusion en direct : {autoSend ? 'ON' : 'OFF'}
+                  </button>
+                </div>
               </div>
 
               <div className="live-queue-tools">
@@ -1028,30 +1016,12 @@ export default function LiveDetection({ setActiveTab }) {
                 </div>
               ) : (
                 <>
-                  {pendingLocal.map((item) => renderCard(item, 'local'))}
-
-                  {pendingLocal.length > 0 && pendingAi.length > 0 && (
-                    <div className="live-queue-divider"><span className="vp-label">Suggestions IA</span></div>
-                  )}
-
-                  {pendingAi.map((item) => renderCard(item, 'ai'))}
-
-                  {recentDone.length > 0 && (
-                    <>
-                      <div className="live-queue-divider"><span className="vp-label">Récents</span></div>
-                      {recentDone.map((item) => (
-                        <article 
-                          key={item.queueId} 
-                          className={`live-card is-done ${item.status === 'projected' ? 'is-projected' : ''}`}
-                        >
-                          <div className="live-card-head">
-                            <span className="live-card-ref">{item.reference}</span>
-                            <span className="live-card-badge is-muted">{item.status === 'projected' ? 'Projeté' : 'Ignoré'}</span>
-                          </div>
-                        </article>
-                      ))}
-                    </>
-                  )}
+                  {displayQueue.map((item) => {
+                    const isSemantic = isSemanticSuggestion(item)
+                    const isDone = item.status !== 'pending'
+                    const accent = isDone ? 'done' : (isSemantic ? 'ai' : 'local')
+                    return renderCard(item, accent)
+                  })}
                 </>
               )}
             </div>
@@ -1334,12 +1304,7 @@ export default function LiveDetection({ setActiveTab }) {
             {/* Son difficile : le logiciel se dégrade au lieu de deviner. Sans
                 ce bandeau, l'opérateur voit VersePro devenir muet et le croit
                 en panne — alors qu'il fait exactement ce qu'il doit. */}
-            {santeTranscription && !santeTranscription.fiable && (
-              <div className="live-health-notice" role="status">
-                <span className="live-health-dot" aria-hidden="true" />
-                <span>{santeTranscription.message}</span>
-              </div>
-            )}
+
             
             {/* Texte brut, pas un <span> par mot : le découpage reconstruisait
                 des dizaines de nœuds à chaque partiel, avec des clés d'index

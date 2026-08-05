@@ -8,6 +8,7 @@ import BibleImport from './BibleImport.jsx'
 // branche le micro, on choisit les moteurs, on règle ce qui s'affiche, on
 // connecte les sorties, et le reste ne sert qu'occasionnellement.
 const ONGLETS = [
+  { cle: 'general', nom: 'Général', note: 'statuts, système' },
   { cle: 'audio', nom: 'Audio', note: 'micro, filtres' },
   { cle: 'moteurs', nom: 'Moteurs', note: 'transcription, IA' },
   { cle: 'projection', nom: 'Projection', note: 'thèmes, habillage' },
@@ -57,6 +58,19 @@ const BIBLE_NAMES = {
   NBS: 'Nouvelle Bible Segond',
   FC: 'Français Courant',
   TOB: 'Traduction Oecumenique'
+}
+
+
+function getIconForTab(cle) {
+  switch (cle) {
+    case 'general': return '📊'
+    case 'audio': return '🎤'
+    case 'moteurs': return '🧠'
+    case 'projection': return '🖥️'
+    case 'sorties': return '📡'
+    case 'avance': return '⚙️'
+    default: return '🔹'
+  }
 }
 
 export default function Settings() {
@@ -138,7 +152,7 @@ export default function Settings() {
   // longtemps pour trouver un réglage. L'onglet est mémorisé — un bénévole qui
   // revient tombe là où il s'était arrêté.
   const [onglet, setOnglet] = useState(() => {
-    try { return localStorage.getItem('versepro_settings_tab') || 'audio' } catch { return 'audio' }
+    try { return localStorage.getItem('versepro_settings_tab') || 'general' } catch { return 'general' }
   })
   const changerOnglet = (cle) => {
     setOnglet(cle)
@@ -312,8 +326,46 @@ export default function Settings() {
   }
 
   return (
-    <div className="settings-page app-soft-page">
-      <section className="settings-hero">
+    <div className="settings-page vp-settings-layout">
+      {/* Barre latérale (Sidebar) */}
+      <aside className="vp-settings-sidebar">
+        <div className="vp-settings-sidebar-header">
+          <h2>SETTINGS</h2>
+        </div>
+        <nav className="vp-settings-nav" aria-label="Onglets de configuration">
+          {ONGLETS.map(({ cle, nom, note }) => (
+            <button
+              key={cle}
+              type="button"
+              className={`vp-settings-nav-item ${onglet === cle ? 'is-active' : ''}`}
+              onClick={() => changerOnglet(cle)}
+            >
+              <span className="vp-settings-nav-icon">{getIconForTab(cle)}</span>
+              <div className="vp-settings-nav-text">
+                <span className="vp-settings-nav-label">{nom}</span>
+              </div>
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Contenu principal */}
+      <main className="vp-settings-main">
+        <div className="vp-settings-main-header">
+          <h1>{ONGLETS.find(o => o.cle === onglet)?.nom || 'Réglages'}</h1>
+          <p className="vp-settings-main-subtitle">{ONGLETS.find(o => o.cle === onglet)?.note}</p>
+        </div>
+
+        <section className="settings-grid" data-active={onglet}>
+
+        <div data-cat="general" className="settings-card is-wide">
+          <div className="settings-card-head">
+            <div>
+              <span>Général</span>
+              <h2>État du système</h2>
+            </div>
+          </div>
+          <section className="settings-hero-inner">
         <div>
           <span>Paramètres</span>
           <h1>Console de configuration</h1>
@@ -331,26 +383,8 @@ export default function Settings() {
           ))}
         </div>
       </section>
+        </div>
 
-      <nav className="settings-tabs" aria-label="Catégories de réglages">
-        {ONGLETS.map(({ cle, nom, note }) => (
-          <button
-            key={cle}
-            type="button"
-            className={`settings-tab ${onglet === cle ? 'is-active' : ''}`}
-            aria-current={onglet === cle ? 'page' : undefined}
-            onClick={() => changerOnglet(cle)}
-          >
-            <strong>{nom}</strong>
-            <small>{note}</small>
-          </button>
-        ))}
-      </nav>
-
-      {/* Le filtre est porté par la grille : chaque carte déclare sa catégorie
-          et le CSS masque les autres. Découper le JSX en dix fragments
-          conditionnels aurait multiplié les risques pour le même résultat. */}
-      <section className="settings-grid" data-active={onglet}>
         <div data-cat="audio" className="settings-card is-wide is-primary">
           <div className="settings-card-head">
             <div>
@@ -390,6 +424,30 @@ export default function Settings() {
           <span className="settings-secret-hint">
             Le filtre Église atténue les graves continus sans couper les consonnes. Le signal brut reste le choix le plus fidèle avec une sortie console propre.
           </span>
+        </div>
+
+        <div data-cat="audio" className="settings-card">
+          <div className="settings-card-head">
+            <div>
+              <span>Audio</span>
+              <h2>Barrière vocale (anti-musique)</h2>
+            </div>
+            <label className="settings-switch">
+              <input
+                type="checkbox"
+                aria-label="Activer la barrière vocale anti-musique"
+                checked={form.voice_gate_enabled}
+                disabled={!settings?.voice_gate_available}
+                onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}
+              />
+              <span />
+            </label>
+          </div>
+          <p>
+            Filtre local (Silero VAD) qui ignore la musique, les chants et les silences avant
+            transcription : moins de fausses détections pendant la louange, moins de quota consommé.
+            {!settings?.voice_gate_available && ' — Modèle silero_vad.onnx absent du dossier data/.'}
+          </p>
         </div>
 
         <div data-cat="moteurs" className="settings-card is-wide">
@@ -492,6 +550,168 @@ export default function Settings() {
           </div>
         </div>
 
+        <div data-cat="moteurs" className="settings-card">
+          <span>Deepgram</span>
+          <h2>Transcription cloud</h2>
+          <div className="settings-two-cols">
+            <label>
+              <small>Modèle</small>
+              <select value={form.deepgram_model} onChange={(e) => updateField('deepgram_model', e.target.value)}>
+                <option value="nova-2">nova-2</option>
+                <option value="nova-3">nova-3</option>
+                <option value="base">base</option>
+                <option value="enhanced">enhanced</option>
+              </select>
+            </label>
+            <label>
+              <small>Langue</small>
+              <select value={form.deepgram_language} onChange={(e) => updateField('deepgram_language', e.target.value)}>
+                <option value="fr">Français</option>
+                <option value="en">Anglais</option>
+                <option value="es">Espagnol</option>
+                <option value="pt">Portugais</option>
+              </select>
+            </label>
+          </div>
+          <div className="settings-divider">
+            <label>
+              <small className="settings-label-row">
+                <span>Clé API Deepgram</span>
+                <button
+                  type="button"
+                  onClick={() => setHelpModal('deepgram')}
+                  className="settings-help-button"
+                >
+                  Obtenir une clé
+                </button>
+              </small>
+              <input
+                type="password"
+                placeholder={settings?.deepgram_api_key_configured ? `Configuree (${settings.deepgram_api_key_hint})` : 'Coller une cle Deepgram'}
+                value={secretForm.deepgram_api_key}
+                onChange={(e) => updateSecret('deepgram_api_key', e.target.value)}
+              />
+            </label>
+            <span className="settings-secret-hint">
+              Le backend conserve la cle. L interface ne la relit jamais en clair.
+            </span>
+          </div>
+        </div>
+
+        <div data-cat="moteurs" className="settings-card is-wide">
+          <div className="settings-card-head">
+            <div>
+              <span>Analyse intelligente</span>
+              <h2>Moteur semantique</h2>
+            </div>
+            <label className="settings-switch">
+              <input
+                type="checkbox"
+                checked={form.ai_agent_enabled}
+                onChange={(e) => updateField('ai_agent_enabled', e.target.checked)}
+              />
+              <span />
+            </label>
+          </div>
+          <p>
+            L'IA peut proposer une référence quand le prédicateur paraphrase, mais elle ne doit pas prendre le contrôle de l'écran.
+          </p>
+
+          <div className="settings-form-grid">
+            <label>
+              <small className="settings-label-row">
+                <span>Clé API OpenRouter</span>
+                <button
+                  type="button"
+                  onClick={() => setHelpModal('openrouter')}
+                  className="settings-help-button"
+                >
+                  Obtenir une clé
+                </button>
+              </small>
+              <input
+                type="password"
+                placeholder={settings?.openrouter_api_key_configured ? `Configuree (${settings.openrouter_api_key_hint})` : 'sk-or-v1-...'}
+                value={secretForm.openrouter_api_key}
+                onChange={(e) => updateSecret('openrouter_api_key', e.target.value)}
+              />
+            </label>
+            <label>
+              <small className="settings-label-row">
+                <span>Clé API Gemini Direct</span>
+                <button
+                  type="button"
+                  onClick={() => setHelpModal('gemini')}
+                  className="settings-help-button"
+                >
+                  Obtenir une clé
+                </button>
+              </small>
+              <input
+                type="password"
+                placeholder={settings?.gemini_api_key_configured ? `Configuree (${settings.gemini_api_key_hint})` : 'AIzaSy...'}
+                value={secretForm.gemini_api_key}
+                onChange={(e) => updateSecret('gemini_api_key', e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="settings-divider">
+            <label>
+              <small>Quand consulter l'IA (dernier recours)</small>
+              <div className="live-segmented settings-segmented">
+                <button
+                  type="button"
+                  className={form.ai_filtering_mode === 'strict' ? 'is-active' : ''}
+                  onClick={() => updateField('ai_filtering_mode', 'strict')}
+                >
+                  Prudent — si le sujet est biblique
+                </button>
+                <button
+                  type="button"
+                  className={form.ai_filtering_mode === 'open' ? 'is-active' : ''}
+                  onClick={() => updateField('ai_filtering_mode', 'open')}
+                >
+                  Large — à chaque phrase non résolue
+                </button>
+              </div>
+              <span className="settings-muted-note">
+                Ce réglage ne change <strong>rien</strong> à la détection locale : citations, versets lus et
+                paraphrases sont toujours analysés. Il décide seulement quand l'IA est sollicitée, et
+                uniquement <strong>si le moteur local n'a rien trouvé</strong>.
+                <br />
+                <strong>Prudent</strong> — l'IA n'est appelée que si la phrase contient un mot du registre
+                biblique. <strong>Large</strong> — elle est appelée sur chaque phrase non résolue : quelques
+                versets implicites en plus, au prix d'un appel de 10 à 20 s (modèle local) qui charge le
+                processeur pendant le direct. Dans les deux cas, une suggestion de l'IA passe toujours par
+                votre validation, jamais directement à l'écran.
+              </span>
+            </label>
+          </div>
+
+          <div className="settings-divider">
+            <label>
+              <small>
+                Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
+                {form.ai_confidence_threshold >= 90 && (
+                  <span className="settings-muted-note">
+                    Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour protéger le direct.
+                  </span>
+                )}
+              </small>
+              <input
+                type="range"
+                min="50"
+                max="99"
+                value={form.ai_confidence_threshold}
+                onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
+              />
+              <span className="settings-muted-note">
+                Toute suggestion IA sous ce seuil sera automatiquement rejetée pour éviter les hallucinations.
+              </span>
+            </label>
+          </div>
+        </div>
         <div data-cat="projection" className="settings-card is-wide">
           <div className="settings-card-head">
             <div>
@@ -815,192 +1035,6 @@ export default function Settings() {
           </label>
         </div>
 
-        <div data-cat="moteurs" className="settings-card">
-          <span>Deepgram</span>
-          <h2>Transcription cloud</h2>
-          <div className="settings-two-cols">
-            <label>
-              <small>Modèle</small>
-              <select value={form.deepgram_model} onChange={(e) => updateField('deepgram_model', e.target.value)}>
-                <option value="nova-2">nova-2</option>
-                <option value="nova-3">nova-3</option>
-                <option value="base">base</option>
-                <option value="enhanced">enhanced</option>
-              </select>
-            </label>
-            <label>
-              <small>Langue</small>
-              <select value={form.deepgram_language} onChange={(e) => updateField('deepgram_language', e.target.value)}>
-                <option value="fr">Français</option>
-                <option value="en">Anglais</option>
-                <option value="es">Espagnol</option>
-                <option value="pt">Portugais</option>
-              </select>
-            </label>
-          </div>
-          <div className="settings-divider">
-            <label>
-              <small className="settings-label-row">
-                <span>Clé API Deepgram</span>
-                <button
-                  type="button"
-                  onClick={() => setHelpModal('deepgram')}
-                  className="settings-help-button"
-                >
-                  Obtenir une clé
-                </button>
-              </small>
-              <input
-                type="password"
-                placeholder={settings?.deepgram_api_key_configured ? `Configuree (${settings.deepgram_api_key_hint})` : 'Coller une cle Deepgram'}
-                value={secretForm.deepgram_api_key}
-                onChange={(e) => updateSecret('deepgram_api_key', e.target.value)}
-              />
-            </label>
-            <span className="settings-secret-hint">
-              Le backend conserve la cle. L interface ne la relit jamais en clair.
-            </span>
-          </div>
-        </div>
-
-        <div data-cat="moteurs" className="settings-card is-wide">
-          <div className="settings-card-head">
-            <div>
-              <span>Analyse intelligente</span>
-              <h2>Moteur semantique</h2>
-            </div>
-            <label className="settings-switch">
-              <input
-                type="checkbox"
-                checked={form.ai_agent_enabled}
-                onChange={(e) => updateField('ai_agent_enabled', e.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <p>
-            L'IA peut proposer une référence quand le prédicateur paraphrase, mais elle ne doit pas prendre le contrôle de l'écran.
-          </p>
-
-          <div className="settings-form-grid">
-            <label>
-              <small className="settings-label-row">
-                <span>Clé API OpenRouter</span>
-                <button
-                  type="button"
-                  onClick={() => setHelpModal('openrouter')}
-                  className="settings-help-button"
-                >
-                  Obtenir une clé
-                </button>
-              </small>
-              <input
-                type="password"
-                placeholder={settings?.openrouter_api_key_configured ? `Configuree (${settings.openrouter_api_key_hint})` : 'sk-or-v1-...'}
-                value={secretForm.openrouter_api_key}
-                onChange={(e) => updateSecret('openrouter_api_key', e.target.value)}
-              />
-            </label>
-            <label>
-              <small className="settings-label-row">
-                <span>Clé API Gemini Direct</span>
-                <button
-                  type="button"
-                  onClick={() => setHelpModal('gemini')}
-                  className="settings-help-button"
-                >
-                  Obtenir une clé
-                </button>
-              </small>
-              <input
-                type="password"
-                placeholder={settings?.gemini_api_key_configured ? `Configuree (${settings.gemini_api_key_hint})` : 'AIzaSy...'}
-                value={secretForm.gemini_api_key}
-                onChange={(e) => updateSecret('gemini_api_key', e.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="settings-divider">
-            <label>
-              <small>Quand consulter l'IA (dernier recours)</small>
-              <div className="live-segmented settings-segmented">
-                <button
-                  type="button"
-                  className={form.ai_filtering_mode === 'strict' ? 'is-active' : ''}
-                  onClick={() => updateField('ai_filtering_mode', 'strict')}
-                >
-                  Prudent — si le sujet est biblique
-                </button>
-                <button
-                  type="button"
-                  className={form.ai_filtering_mode === 'open' ? 'is-active' : ''}
-                  onClick={() => updateField('ai_filtering_mode', 'open')}
-                >
-                  Large — à chaque phrase non résolue
-                </button>
-              </div>
-              <span className="settings-muted-note">
-                Ce réglage ne change <strong>rien</strong> à la détection locale : citations, versets lus et
-                paraphrases sont toujours analysés. Il décide seulement quand l'IA est sollicitée, et
-                uniquement <strong>si le moteur local n'a rien trouvé</strong>.
-                <br />
-                <strong>Prudent</strong> — l'IA n'est appelée que si la phrase contient un mot du registre
-                biblique. <strong>Large</strong> — elle est appelée sur chaque phrase non résolue : quelques
-                versets implicites en plus, au prix d'un appel de 10 à 20 s (modèle local) qui charge le
-                processeur pendant le direct. Dans les deux cas, une suggestion de l'IA passe toujours par
-                votre validation, jamais directement à l'écran.
-              </span>
-            </label>
-          </div>
-
-          <div className="settings-divider">
-            <label>
-              <small>
-                Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
-                {form.ai_confidence_threshold >= 90 && (
-                  <span className="settings-muted-note">
-                    Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour protéger le direct.
-                  </span>
-                )}
-              </small>
-              <input
-                type="range"
-                min="50"
-                max="99"
-                value={form.ai_confidence_threshold}
-                onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
-              />
-              <span className="settings-muted-note">
-                Toute suggestion IA sous ce seuil sera automatiquement rejetée pour éviter les hallucinations.
-              </span>
-            </label>
-          </div>
-        </div>
-        <div data-cat="audio" className="settings-card">
-          <div className="settings-card-head">
-            <div>
-              <span>Audio</span>
-              <h2>Barrière vocale (anti-musique)</h2>
-            </div>
-            <label className="settings-switch">
-              <input
-                type="checkbox"
-                aria-label="Activer la barrière vocale anti-musique"
-                checked={form.voice_gate_enabled}
-                disabled={!settings?.voice_gate_available}
-                onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <p>
-            Filtre local (Silero VAD) qui ignore la musique, les chants et les silences avant
-            transcription : moins de fausses détections pendant la louange, moins de quota consommé.
-            {!settings?.voice_gate_available && ' — Modèle silero_vad.onnx absent du dossier data/.'}
-          </p>
-        </div>
-
         <div data-cat="avance" className="settings-card">
           <span>Avant le culte</span>
           <h2>Mode répétition</h2>
@@ -1076,6 +1110,7 @@ export default function Settings() {
         </button>
       </div>
 
+      </main>
       {helpModal && (
         <div className="vp-modal-backdrop">
           <div className="vp-modal settings-modal">
