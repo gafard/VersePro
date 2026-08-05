@@ -248,7 +248,7 @@ export const useStore = create((set, get) => ({
       status: wasAutoProjected ? 'projected' : 'pending' // 'pending' | 'projected' | 'rejected'
     }
     return {
-      projectionQueue: [newEntry, ...state.projectionQueue]
+      projectionQueue: [...state.projectionQueue, newEntry]
     }
   }),
   

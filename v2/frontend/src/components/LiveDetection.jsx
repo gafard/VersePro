@@ -102,10 +102,10 @@ export default function LiveDetection({ setActiveTab }) {
   const [compareOpen, setCompareOpen] = useState(false)
   const [comparePreviews, setComparePreviews] = useState(null)
 
-  // Effet d'auto-scroll automatique vers le verset le plus récent (en haut de liste)
+  // Effet d'auto-scroll automatique vers le dernier verset (en bas de liste)
   useEffect(() => {
     if (autoScroll && queueScrollRef.current) {
-      queueScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+      queueScrollRef.current.scrollTo({ top: queueScrollRef.current.scrollHeight, behavior: 'smooth' })
     }
   }, [projectionQueue, currentTranscript, autoScroll])
 
