@@ -63,7 +63,7 @@ STANDARD_BOOK_MAP = {
     "luc": "Lc",
     "jean": "Jn",
     "actes": "Ac", "actes des apotres": "Ac", "actes des apôtres": "Ac", "ac": "Ac",
-    "romains": "Rm",
+    "romains": "Rm", "rm": "Rm", "rom": "Rm", "ro": "Rm",
     "1 corinthiens": "1 Co",
     "2 corinthiens": "2 Co",
     "galates": "Ga",
@@ -846,7 +846,13 @@ class VerseParserService:
         text = self._convert_ordinal_ranks(text)
         replacements = {
             r'\bgens\b': 'jean',
+            r'\brm\b': 'romains',
+            r'\brom\b': 'romains',
+            r'\bro\b': 'romains',
             r'\bromain\b': 'romains',
+            r'\bjn\b': 'jean',
+            r'\bps\b': 'psaumes',
+            r'\beph\b': 'éphésiens',
             r'\bapoc\b': 'apocalypse',
             r'\bpoème\b': 'psaume',
             r'\bpoèmes\b': 'psaumes',
@@ -1020,8 +1026,9 @@ class VerseParserService:
         # mais il ne doit pas primer sur une référence pleinement énoncée.
         pattern_groups = [(0, 1, 2), (self.SINGLE_CHAPTER_PATTERN_INDEX,),
                           (self.LOOSE_PATTERN_INDEX,), (4,)]
+        is_direct_input = skip_text_search or len(clean_text_regex) <= 30
         for group in pattern_groups:
-            if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue:
+            if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue and not is_direct_input:
                 continue
             candidates = []
             for idx in group:
