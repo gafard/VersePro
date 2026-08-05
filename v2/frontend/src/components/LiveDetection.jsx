@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
 import TranscriptTicker from './TranscriptTicker.jsx'
+import ChapterModal from './ChapterModal.jsx'
+import BibleVersionsModal from './BibleVersionsModal.jsx'
 import { BACKEND_BASE, BACKEND_WS_BASE, openExternal } from '../env.js'
 
 const BIBLE_NAMES = {
@@ -65,6 +67,7 @@ export default function LiveDetection({ setActiveTab }) {
     translationLang, currentTranslation, setTranslationLang,
     autopilotMode, setAutopilotMode,
     projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearProjectionQueue,
+    previewSlide, previewBusy, previewReference, takePreview, clearPreview, fetchPreview,
     preparedVerses, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
     lastAiRejection,
     onAir, clearProjectionScreen,
@@ -83,15 +86,28 @@ export default function LiveDetection({ setActiveTab }) {
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [failedIds, setFailedIds] = useState(new Set())
   const [preparingReference, setPreparingReference] = useState(false)
+  const [previewDeplie, setPreviewDeplie] = useState(false)
+  const [autoScroll, setAutoScroll] = useState(true)
+  const [chapterModalRef, setChapterModalRef] = useState(null)
+  const [versionsModalOpen, setVersionsModalOpen] = useState(false)
+  const queueScrollRef = useRef(null)
+
   const [dismissedPpAlert, setDismissedPpAlert] = useState(() => {
     try { return localStorage.getItem('versepro_dismiss_pp_alert') === 'true' } catch { return false }
   })
   const lastAdvancedRef = useRef(null)
   const advanceTimerRef = useRef(null)
 
-  const { activeBible, undoLastProjection } = useStore()
+  const { activeBible, availableBibles, undoLastProjection } = useStore()
   const [compareOpen, setCompareOpen] = useState(false)
   const [comparePreviews, setComparePreviews] = useState(null)
+
+  // Effet d'auto-scroll automatique
+  useEffect(() => {
+    if (autoScroll && queueScrollRef.current) {
+      queueScrollRef.current.scrollTo({ top: queueScrollRef.current.scrollHeight, behavior: 'smooth' })
+    }
+  }, [projectionQueue, currentTranscript, autoScroll])
 
   // Raccourci global Cmd+Z / Ctrl+Z (Annulation immédiate de projection / version)
   useEffect(() => {
@@ -236,9 +252,22 @@ export default function LiveDetection({ setActiveTab }) {
         return
       }
       if (typing) return
+
+      // « T » comme take : envoyer la préparation, même file vide — c'est
+      // justement quand rien n'est détecté que l'opérateur monte à la main.
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        takePreview()
+        return
+      }
       if (pendingItems.length === 0) return
 
       const currentItem = pendingItems[selectedQueueIndex]
+      if (e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        if (currentItem) previewReference(currentItem.reference)
+        return
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setSelectedQueueIndex((prev) => Math.min(pendingItems.length - 1, prev + 1))
@@ -255,12 +284,13 @@ export default function LiveDetection({ setActiveTab }) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [pendingItems, selectedQueueIndex, projectVerseFromQueue, rejectVerseFromQueue])
+  }, [pendingItems, selectedQueueIndex, projectVerseFromQueue, rejectVerseFromQueue, takePreview, previewReference])
 
   useEffect(() => {
     fetchBibles()
     refreshAudioDevices()
     runPreflight()
+    fetchPreview()
 
     if (navigator.permissions?.query) {
       navigator.permissions.query({ name: 'microphone' })
@@ -442,9 +472,9 @@ export default function LiveDetection({ setActiveTab }) {
     .split(/\s+/)
     .filter((w) => w.length >= 3)
 
-  const onAirDisplay = onAir || (() => {
+  const onAirDisplay = (onAir && onAir.reference) ? onAir : (() => {
     const projected = projectionQueue.find((item) => item.status === 'projected')
-    return projected ? { reference: projected.reference, text: projected.text } : null
+    return projected ? { reference: projected.reference, text: projected.text, version: projected.version || activeBible } : null
   })()
 
   const followProgress = useMemo(() => {
@@ -523,22 +553,40 @@ export default function LiveDetection({ setActiveTab }) {
     const isLoading = projectingIds.has(item.queueId)
     const isFailed = failedIds.has(item.queueId)
     const isProjected = item.status === 'projected'
+    const prevRef = shiftVerse(item.reference, -1)
+    const nextRef = shiftVerse(item.reference, 1)
 
     return (
       <article
         key={item.queueId}
-        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''} ${isProjected ? 'is-projected' : ''} ${isLoading ? 'is-loading' : ''} ${isFailed ? 'is-failed' : ''}`}
+        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''} ${isProjected ? 'is-projected ring-2 ring-emerald-500/70 shadow-lg shadow-emerald-500/20' : ''} ${isLoading ? 'is-loading' : ''} ${isFailed ? 'is-failed' : ''}`}
         onClick={() => setSelectedQueueIndex(pendingIdx)}
       >
         <div className="live-card-head">
-          <span className="live-card-ref">{item.reference}</span>
+          <div className="flex items-center gap-2">
+            <span className="live-card-ref">{item.reference}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setChapterModalRef(item.reference) }}
+              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-3 hover:bg-accent/20 text-accent transition-all"
+              title="Ouvrir tout le chapitre"
+            >
+              📖 Chapitre
+            </button>
+          </div>
           <span className={`live-card-badge ${accent === 'ai' ? 'is-ai' : 'is-local'} ${isProjected ? 'is-projected-badge' : ''}`}>
-            {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Copilote ${confidencePct ?? 95}%` : 'Direct')}
+            {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Match Sémantique ${confidencePct ?? 95}%` : 'Match Exact')}
           </span>
         </div>
-        {/* Jauge de confiance : l'opérateur décide de projeter ou non, et lire
-            un pourcentage prend plus longtemps que voir une barre. Trois
-            paliers seulement — au-delà, la nuance ne se lit plus à distance. */}
+
+        {/* Snippet vocal entendu lors de la détection ASR */}
+        {(item.heard || item.transcriptSnippet || currentTranscript) && (
+          <div className="text-[11px] italic text-text-dim bg-surface-2/60 px-2 py-1 rounded border border-white/5 my-1 font-mono">
+            <span className="text-accent font-semibold not-italic">Entendu : </span>
+            "{item.heard || item.transcriptSnippet || (currentTranscript ? currentTranscript.slice(-60) : '')}"
+          </div>
+        )}
+
+        {/* Jauge de confiance */}
         {!isProjected && confidencePct != null && (
           <div
             className={`live-card-gauge ${confidencePct >= 95 ? 'is-sure' : confidencePct >= 80 ? 'is-likely' : 'is-doubtful'}`}
@@ -551,7 +599,31 @@ export default function LiveDetection({ setActiveTab }) {
             <span style={{ width: `${Math.max(4, Math.min(100, confidencePct))}%` }} />
           </div>
         )}
+
         <p className="live-card-text">{item.text || 'Texte non chargé.'}</p>
+
+        {/* Quick Verse Navigation */}
+        <div className="flex items-center gap-1.5 my-1.5 pt-1.5 border-t border-white/5">
+          {prevRef && (
+            <button
+              className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white"
+              onClick={(e) => { e.stopPropagation(); prepareReference(prevRef) }}
+              title={`Préparer ${prevRef}`}
+            >
+              ◄ {prevRef.split(' ').pop()}
+            </button>
+          )}
+          {nextRef && (
+            <button
+              className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white"
+              onClick={(e) => { e.stopPropagation(); prepareReference(nextRef) }}
+              title={`Préparer ${nextRef}`}
+            >
+              {nextRef.split(' ').pop()} ►
+            </button>
+          )}
+        </div>
+
         <div className="live-card-foot">
           <span className="live-card-time">
             {new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -567,9 +639,20 @@ export default function LiveDetection({ setActiveTab }) {
               </button>
             )}
             
+            {!isProjected && (
+              <button
+                className="vp-btn vp-btn--ghost vp-btn--sm"
+                onClick={(e) => { e.stopPropagation(); previewReference(item.reference) }}
+                disabled={isLoading || previewBusy}
+                title={`Monter ${item.reference} en préparation, sans l'envoyer [ P ]`}
+              >
+                Préparer
+              </button>
+            )}
+
             {isProjected ? (
               <button
-                className="vp-btn vp-btn--sm vp-btn--ok"
+                className="vp-btn vp-btn--sm vp-btn--ok shadow-emerald-500/20 shadow-md"
                 disabled
                 style={{ cursor: 'default', opacity: 1 }}
               >
@@ -714,35 +797,121 @@ export default function LiveDetection({ setActiveTab }) {
             </div>
           </div>
 
-          {/* Actions opérationnelles */}
-          <div className="vp-panel flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="vp-label">Sécurité</span>
+          {/* Arrêt d'urgence — le seul geste qui doit rester sous la main sans
+              qu'on le cherche. */}
+          <button className="vp-btn vp-btn--danger vp-btn--sm w-full flex-shrink-0" onClick={handlePanic}>
+            Arrêt d'urgence
+          </button>
+
+          {/* Ouvrir un écran, lancer le contrôle avant direct, régler l'audio :
+              trois gestes d'AVANT le culte, faits une fois. Ils occupaient en
+              permanence la moitié de la colonne, au détriment de la file de
+              détection — qui, elle, sert toute la prédication. Ils sont ici,
+              repliés. */}
+          <details className="live-outils flex-shrink-0">
+            <summary>
+              <span className="vp-label">Avant le culte</span>
               <span className={`vp-chip ${sundaySafeMode || shadowMode ? 'is-ok' : 'is-warn'}`}>
                 {shadowMode ? 'Ombre' : sundaySafeMode ? 'Mode sûr' : 'Auto autorisé'}
               </span>
-            </div>
-
-            <button className="vp-btn vp-btn--sm w-full" onClick={() => { runPreflight(); setPreflightOpen(true) }}>
-              Contrôle avant direct
-            </button>
-            <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={() => setActiveTab('settings')}>
-              Paramètres audio et moteurs
-            </button>
-            <button className="vp-btn vp-btn--danger vp-btn--sm w-full" onClick={handlePanic}>
-              Arrêt d'urgence
-            </button>
-
-            <div className="flex flex-col gap-2 pt-2 border-t border-border-weak">
-              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openProjectionWindow}>
+            </summary>
+            <div className="live-outils-corps">
+              <button className="vp-btn vp-btn--sm w-full" onClick={() => { runPreflight(); setPreflightOpen(true) }}>
+                Contrôle avant direct
+              </button>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={openProjectionWindow}>
                 Écran Secours
               </button>
-              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openStageWindow}>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={openStageWindow}>
                 Moniteur Scène
               </button>
-              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full py-1.5" onClick={openObsWindow}>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={openObsWindow}>
                 Source OBS/vMix
               </button>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={() => setActiveTab('settings')}>
+                Paramètres audio et moteurs
+              </button>
+            </div>
+          </details>
+
+          {/* ── DÉROULÉ DU CULTE ──
+              Il traversait toute la largeur sous les trois colonnes, pour une
+              liste de références qui tient dans une colonne étroite. Il occupe
+              maintenant la place laissée libre à gauche, et la file de détection
+              récupère la hauteur. */}
+          <div className="cult-timeline-panel">
+            <div className="cult-timeline-head">
+              <span className="cult-timeline-title">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+                </svg>
+                Déroulé du culte
+                {preparedVerses.length > 0 && <span className="count">{preparedVerses.length}</span>}
+              </span>
+              {preparedVerses.length > 0 && (
+                <button className="vp-btn vp-btn--ghost vp-btn--sm cult-timeline-clear" onClick={clearPreparedVerses}>
+                  Vider
+                </button>
+              )}
+            </div>
+            <div className="cult-timeline-scroll">
+              {preparedVerses.length === 0 && projectedHistory.length === 0 ? (
+                <span className="text-xs text-[var(--text-faint)] italic">Aucun verset préparé. Saisissez une référence puis validez avec Entrée.</span>
+              ) : (
+                <>
+                  {preparedVerses.length > 0 && <span className="cult-timeline-section">Préparés</span>}
+                  {preparedVerses.map((item, idx) => {
+                    const isCurrent = onAirDisplay?.reference === item.reference
+                    const isLoading = projectingIds.has(item.id)
+                    return (
+                      <div
+                        key={item.id}
+                        className={`cult-timeline-item is-prepared ${isCurrent ? 'is-current' : ''} ${isLoading ? 'is-loading' : ''}`}
+                      >
+                        <button
+                          className="cult-timeline-project"
+                          onClick={() => handleProjectPrepared(item)}
+                          disabled={isLoading}
+                          title={`Projeter ${item.reference}`}
+                        >
+                          <span className="cult-timeline-order">{idx + 1}</span>
+                          <span className="cult-timeline-ref">{item.reference}</span>
+                          <span className="cult-timeline-state">
+                            {isLoading ? 'Envoi…' : isCurrent ? 'À l’antenne' : item.lastProjectedAt ? 'Déjà projeté' : 'Prêt'}
+                          </span>
+                        </button>
+                        <button
+                          className="cult-timeline-remove"
+                          onClick={() => removePreparedVerse(item.id)}
+                          aria-label={`Retirer ${item.reference} du déroulé`}
+                          title="Retirer du déroulé"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )
+                  })}
+
+                  {projectedHistory.length > 0 && <span className="cult-timeline-section">Historique</span>}
+                  {projectedHistory.map((item, idx) => {
+                    const isCurrent = onAirDisplay?.reference === item.reference
+                    const timeStr = item.detectedAt
+                      ? new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                      : '10:00'
+                    return (
+                      <button
+                        key={item.queueId || idx}
+                        className={`cult-timeline-item ${isCurrent ? 'is-current' : ''}`}
+                        onClick={() => handleProjectFromQueue(item.queueId, item.reference, item.text)}
+                        title="Cliquer pour reprojeter à l'antenne"
+                      >
+                        <span className="cult-timeline-time">{timeStr}</span>
+                        <span className="cult-timeline-ref">{item.reference}</span>
+                      </button>
+                    )
+                  })}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -751,7 +920,29 @@ export default function LiveDetection({ setActiveTab }) {
         <div className="live-col-center">
           <section className="vp-panel live-queue flex-1 flex flex-col min-height-0 overflow-hidden">
             <div className="live-queue-head flex-shrink-0">
-              <h2>À valider <span className="count">{pendingItems.length}</span></h2>
+              <div className="flex items-center gap-3">
+                <h2>À valider <span className="count">{pendingItems.length}</span></h2>
+                
+                {/* Toggle Auto-Scroll & Bouton Bibles */}
+                <label className="flex items-center gap-1.5 text-xs text-text-dim cursor-pointer bg-surface-3/80 px-2 py-1 rounded border border-white/5 hover:border-white/10 transition-all">
+                  <input
+                    type="checkbox"
+                    checked={autoScroll}
+                    onChange={(e) => setAutoScroll(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  <span className="font-medium">Auto-Scroll</span>
+                </label>
+
+                <button
+                  className="vp-btn vp-btn--ghost vp-btn--sm py-1 px-2.5 text-xs text-accent font-semibold flex items-center gap-1"
+                  onClick={() => setVersionsModalOpen(true)}
+                  title="Gérer les versions de Bibles"
+                >
+                  📚 Bibles
+                </button>
+              </div>
+
               <div className="live-queue-tools">
                 <span className="live-queue-hints">
                   <span className="vp-kbd">↑↓</span> naviguer
@@ -779,7 +970,7 @@ export default function LiveDetection({ setActiveTab }) {
               </div>
             )}
 
-            <div className="live-queue-scroll flex-1 overflow-y-auto pr-1">
+            <div ref={queueScrollRef} className="live-queue-scroll flex-1 overflow-y-auto pr-1">
               {projectionQueue.length === 0 ? (
                 <div className="live-empty">
                   <strong>Aucun verset en attente</strong>
@@ -842,6 +1033,14 @@ export default function LiveDetection({ setActiveTab }) {
                 </button>
                 <button
                   className="vp-btn vp-btn--ghost px-3 text-xs"
+                  onClick={() => { previewReference(manualReference.trim()); setManualReference('') }}
+                  disabled={!manualReference.trim() || previewBusy}
+                  title="Monter en préparation, sans rien envoyer à la salle"
+                >
+                  Préparer
+                </button>
+                <button
+                  className="vp-btn vp-btn--ghost px-3 text-xs"
                   onClick={handleSendManual}
                   disabled={!manualReference.trim() || preparingReference}
                 >
@@ -859,8 +1058,90 @@ export default function LiveDetection({ setActiveTab }) {
           </section>
         </div>
 
-        {/* ── COLONNE DROITE : RETOUR ANTENNE (PROGRAM) & JOURNAL TRANSCRIPT ── */}
+        {/* ── COLONNE DROITE : PRÉPARATION, ANTENNE, JOURNAL ── */}
         <div className="live-col-right">
+          {/* ── PRÉPARATION (preview) ──
+              Ce panneau ne touche aucun écran de salle. Il montre ce que
+              l'assemblée verra APRÈS l'envoi — le seul moment où un verset mal
+              coupé peut encore être rattrapé. */}
+          <section className="vp-panel live-preview flex-shrink-0">
+            <div className="live-preview-head">
+              <span className={`live-preview-badge ${previewSlide ? 'is-armed' : ''}`}>
+                <span className="dot" />Préparation
+              </span>
+              {previewSlide && (
+                <button
+                  className="vp-btn vp-btn--ghost vp-btn--sm py-0.5 px-2 text-[10px]"
+                  onClick={clearPreview}
+                  title="Vider la préparation (n'affecte pas l'antenne)"
+                >
+                  Vider
+                </button>
+              )}
+            </div>
+
+            {previewSlide ? (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="live-preview-ref font-bold">{previewSlide.reference}</div>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    {previewSlide.version}
+                  </span>
+                </div>
+
+                {/* Seul le PREMIER verset part à l'écran ; les suivants sont là
+                    pour vérifier le découpage. Les déplier coûterait la hauteur
+                    dont le journal de transcription a besoin — ils restent donc
+                    repliés, sous un compteur qui dit ce qui suit. */}
+                {previewSlide.verses?.length > 1 ? (
+                  <div className="live-preview-verses">
+                    <p className="live-preview-verse">
+                      <span className="live-preview-verse-n">{previewSlide.verses[0].n}</span>
+                      {previewSlide.verses[0].text}
+                    </p>
+                    <button
+                      type="button"
+                      className="live-preview-count"
+                      onClick={() => setPreviewDeplie((v) => !v)}
+                      aria-expanded={previewDeplie}
+                    >
+                      {previewDeplie ? '▲ Replier' : `▼ ${previewSlide.verses.length - 1} verset${previewSlide.verses.length > 2 ? 's' : ''} à suivre`}
+                    </button>
+                    {previewDeplie && (
+                      <div className="live-preview-suite">
+                        {previewSlide.verses.slice(1).map((v) => (
+                          <p key={v.n} className="live-preview-verse">
+                            <span className="live-preview-verse-n">{v.n}</span>{v.text}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="live-preview-text">{previewSlide.text || 'Texte non chargé.'}</p>
+                )}
+
+                <button
+                  className="live-preview-take"
+                  onClick={takePreview}
+                  disabled={previewBusy}
+                  title="Envoyer la préparation à l'antenne [ T ]"
+                >
+                  {previewBusy ? 'Envoi…' : 'Envoyer à l’antenne'}
+                  <span className="vp-kbd">T</span>
+                </button>
+              </>
+            ) : (
+              <div className="live-preview-empty">
+                <strong>Rien en préparation</strong>
+                <p>
+                  <span className="vp-kbd">P</span> sur une détection, ou « Préparer » sous la
+                  saisie manuelle. L'assemblée ne verra rien avant l'envoi.
+                </p>
+              </div>
+            )}
+          </section>
+
           {/* Section ON AIR */}
           <section className="vp-panel live-onair flex-shrink-0">
             <div className="live-onair-head">
@@ -886,7 +1167,13 @@ export default function LiveDetection({ setActiveTab }) {
             {/* BARRE DE PILLS DE VERSIONS DANS LE HEADER (Accès 1-Clic) */}
             {onAirDisplay?.reference && (
               <div className="flex items-center gap-1 overflow-x-auto py-1.5 my-1 border-y border-white/5">
-                {['LSG', 'NBS', 'SEM', 'TOB', 'FC', 'KJF'].map((ver) => {
+                {/* Les versions RÉELLEMENT chargées, pas une liste écrite en
+                    dur. Les six pastilles existaient sur le poste de
+                    développement, où les six fichiers sont présents ; le paquet
+                    installé n'en embarque que deux. Chez l'église, le pasteur
+                    demandait la Semeur, l'opérateur cliquait « SEM », et
+                    l'écran ne bougeait pas. */}
+                {availableBibles.map((ver) => {
                   const currentVer = onAirDisplay?.version || activeBible || 'LSG'
                   const isActive = currentVer === ver
                   return (
@@ -1031,84 +1318,6 @@ export default function LiveDetection({ setActiveTab }) {
         </div>
       </div>
 
-      {/* ── DÉROULÉ PRÉPARÉ ET HISTORIQUE DU CULTE ── */}
-      <div className="cult-timeline-panel">
-        <div className="cult-timeline-head">
-          <span className="cult-timeline-title">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-            </svg>
-            Déroulé du culte
-            {preparedVerses.length > 0 && <span className="count">{preparedVerses.length}</span>}
-          </span>
-          {preparedVerses.length > 0 && (
-            <button className="vp-btn vp-btn--ghost vp-btn--sm cult-timeline-clear" onClick={clearPreparedVerses}>
-              Vider les préparés
-            </button>
-          )}
-        </div>
-        <div className="cult-timeline-scroll">
-          {preparedVerses.length === 0 && projectedHistory.length === 0 ? (
-            <span className="text-xs text-[var(--text-faint)] italic">Aucun verset préparé. Saisissez une référence puis validez avec Entrée.</span>
-          ) : (
-            <>
-              {preparedVerses.length > 0 && <span className="cult-timeline-section">Préparés</span>}
-              {preparedVerses.map((item, idx) => {
-                const isCurrent = onAirDisplay?.reference === item.reference
-                const isLoading = projectingIds.has(item.id)
-                return (
-                  <div
-                    key={item.id}
-                    className={`cult-timeline-item is-prepared ${isCurrent ? 'is-current' : ''} ${isLoading ? 'is-loading' : ''}`}
-                  >
-                    <button
-                      className="cult-timeline-project"
-                      onClick={() => handleProjectPrepared(item)}
-                      disabled={isLoading}
-                      title={`Projeter ${item.reference}`}
-                    >
-                      <span className="cult-timeline-order">{idx + 1}</span>
-                      <span className="cult-timeline-ref">{item.reference}</span>
-                      <span className="cult-timeline-state">
-                        {isLoading ? 'Envoi…' : isCurrent ? 'À l’antenne' : item.lastProjectedAt ? 'Déjà projeté' : 'Prêt'}
-                      </span>
-                    </button>
-                    <button
-                      className="cult-timeline-remove"
-                      onClick={() => removePreparedVerse(item.id)}
-                      aria-label={`Retirer ${item.reference} du déroulé`}
-                      title="Retirer du déroulé"
-                    >
-                      ×
-                    </button>
-                  </div>
-                )
-              })}
-
-              {projectedHistory.length > 0 && <span className="cult-timeline-section">Historique</span>}
-              {projectedHistory.map((item, idx) => {
-              const isCurrent = onAirDisplay?.reference === item.reference
-              const timeStr = item.detectedAt 
-                ? new Date(item.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) 
-                : '10:00'
-              
-              return (
-                <button
-                  key={item.queueId || idx}
-                  className={`cult-timeline-item ${isCurrent ? 'is-current' : ''}`}
-                  onClick={() => handleProjectFromQueue(item.queueId, item.reference, item.text)}
-                  title="Cliquer pour reprojeter à l'antenne"
-                >
-                  <span className="cult-timeline-time">{timeStr}</span>
-                  <span className="cult-timeline-ref">{item.reference}</span>
-                </button>
-              )
-              })}
-            </>
-          )}
-        </div>
-      </div>
-
       {/* ── BARRE D'ÉTAT INFÉRIEURE ── */}
       <footer className="live-statusbar">
         <div className="live-statusbar-left">
@@ -1139,6 +1348,19 @@ export default function LiveDetection({ setActiveTab }) {
           </span>
         </div>
       </footer>
+
+      {chapterModalRef && (
+        <ChapterModal
+          reference={chapterModalRef}
+          onClose={() => setChapterModalRef(null)}
+        />
+      )}
+
+      {versionsModalOpen && (
+        <BibleVersionsModal
+          onClose={() => setVersionsModalOpen(false)}
+        />
+      )}
     </div>
   )
 }

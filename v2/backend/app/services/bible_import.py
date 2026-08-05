@@ -147,6 +147,95 @@ def lister() -> List[Dict[str, Any]]:
     return versions
 
 
+# ── Catalogue des traductions ────────────────────────────────────────────────
+#
+# La console proposait six pastilles de version — LSG, NBS, SEM, TOB, FC, KJF —
+# alors que l'application installée n'en embarque que DEUX. Sur le poste de
+# développement les six fichiers existent, donc tout paraissait fonctionner ;
+# chez l'église, le pasteur demandait la Semeur, l'opérateur cliquait « SEM »,
+# et rien ne changeait à l'écran.
+#
+# Ce catalogue dit la vérité : ce qui est là, ce qui ne l'est pas, et pourquoi.
+# VersePro ne distribue que le domaine public. Une traduction sous droits reste
+# à la charge de l'église qui en possède l'usage.
+
+CATALOGUE = [
+    # Livrées avec VersePro — domaine public, toujours présentes.
+    {"id": "LSG", "nom": "Louis Segond", "annee": 1910,
+     "licence": "domaine-public", "origine": "livree"},
+    {"id": "KJF", "nom": "King James Française", "annee": 2006,
+     "licence": "domaine-public", "origine": "livree"},
+
+    # Domaine public, non embarquées pour ne pas alourdir le paquet : sept Mo
+    # chacune, pour des traductions que peu d'églises emploient au culte.
+    {"id": "DBY", "nom": "Darby", "annee": 1885,
+     "licence": "domaine-public", "origine": "publique"},
+    {"id": "OST", "nom": "Ostervald", "annee": 1867,
+     "licence": "domaine-public", "origine": "publique"},
+    {"id": "MAR", "nom": "Martin", "annee": 1744,
+     "licence": "domaine-public", "origine": "publique"},
+    {"id": "CRA", "nom": "Crampon", "annee": 1904,
+     "licence": "domaine-public", "origine": "publique"},
+
+    # Sous droits : l'église doit posséder le fichier. VersePro ne le fournit
+    # pas et ne le rediffuse pas.
+    {"id": "SEM", "nom": "Bible du Semeur", "annee": 2015,
+     "licence": "sous-droits", "editeur": "Biblica", "origine": "tierce"},
+    {"id": "NBS", "nom": "Nouvelle Bible Segond", "annee": 2002,
+     "licence": "sous-droits", "editeur": "Société biblique française", "origine": "tierce"},
+    {"id": "TOB", "nom": "Traduction œcuménique", "annee": 2010,
+     "licence": "sous-droits", "editeur": "Cerf / SBF", "origine": "tierce"},
+    {"id": "FC", "nom": "Français courant", "annee": 1997,
+     "licence": "sous-droits", "editeur": "Société biblique française", "origine": "tierce"},
+    {"id": "S21", "nom": "Segond 21", "annee": 2007,
+     "licence": "sous-droits", "editeur": "Société biblique de Genève", "origine": "tierce"},
+    {"id": "PDV", "nom": "Parole de Vie", "annee": 2000,
+     "licence": "sous-droits", "editeur": "Société biblique française", "origine": "tierce"},
+]
+
+
+def catalogue(installees: List[str]) -> Dict[str, Any]:
+    """État réel de chaque traduction : présente, ou absente et pourquoi.
+
+    `installees` vient du moteur de lecture — la seule source qui fasse foi.
+    Une version listée ici mais absente de cet ensemble n'est PAS utilisable,
+    et l'interface doit le montrer plutôt que d'offrir un bouton mort.
+    """
+    presentes = {str(v).upper() for v in installees}
+    fiches = {f["id"]: f for f in lister()}
+
+    entrees = []
+    for fiche in CATALOGUE:
+        sigle = fiche["id"]
+        importee = sigle in fiches
+        entrees.append({
+            **fiche,
+            "installee": sigle in presentes,
+            "importee": importee,
+            "amovible": importee,          # seul un import se retire
+            "versets": fiches.get(sigle, {}).get("verses"),
+        })
+
+    # Une église peut installer une traduction absente du catalogue (un sigle
+    # à elle). Elle doit apparaître, sinon elle serait invisible et impossible
+    # à retirer depuis l'interface.
+    connus = {f["id"] for f in CATALOGUE}
+    for sigle, fiche in fiches.items():
+        if sigle not in connus:
+            entrees.append({
+                "id": sigle, "nom": f"Traduction « {sigle} »", "annee": None,
+                "licence": "inconnue", "origine": "tierce",
+                "installee": sigle in presentes, "importee": True,
+                "amovible": True, "versets": fiche.get("verses"),
+            })
+
+    return {
+        "versions": entrees,
+        "dossier": str(IMPORT_DIR),
+        "installees": sorted(presentes),
+    }
+
+
 def importer(contenu: str, sigle_propose: str = "") -> Dict[str, Any]:
     """Valide puis installe une traduction. Écriture atomique."""
     if len(contenu.encode("utf-8")) > MAX_BIBLE_BYTES:

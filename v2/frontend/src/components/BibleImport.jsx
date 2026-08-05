@@ -1,31 +1,60 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { BACKEND_BASE } from '../env.js'
 import { useStore } from '../store.js'
 
 /**
- * Ajout d'une traduction fournie par l'église.
+ * Catalogue des traductions.
  *
- * VersePro ne distribue que le domaine public. Une église qui possède les
- * droits d'une autre traduction l'ajoute ici : le fichier reste sur son poste.
- * Le message le rappelle, comme CONDITIONS.md.
+ * Il remplace un champ « Ajouter une traduction » isolé, qui ne disait rien de
+ * ce qui était déjà là. La console proposait six pastilles de version alors que
+ * l'application installée n'en embarque que deux : sur le poste de
+ * développement les six fichiers existent, donc tout paraissait fonctionner ;
+ * chez l'église, le pasteur demandait la Semeur et le clic ne faisait rien.
+ *
+ * Ce tableau dit la vérité. Il classe en trois familles — livrées, domaine
+ * public, sous droits — parce que ce qui décide de la présence d'une
+ * traduction, ce n'est pas le goût de l'église : c'est sa licence.
+ *
+ * VersePro ne distribue que le domaine public. Une traduction sous droits reste
+ * à la charge de qui l'ajoute (voir CONDITIONS.md).
  */
+
+const FAMILLES = [
+  {
+    cle: 'livree',
+    titre: 'Livrées avec VersePro',
+    note: 'Domaine public. Présentes dès l’installation, rien à faire.'
+  },
+  {
+    cle: 'publique',
+    titre: 'Domaine public',
+    note: 'Libres de droits, non embarquées : sept Mo chacune, pour des traductions peu employées au culte. Ajoutez le fichier si votre église les utilise.'
+  },
+  {
+    cle: 'tierce',
+    titre: 'Sous droits',
+    note: 'VersePro ne les fournit pas et ne les rediffuse pas. Si votre église en possède l’usage, ajoutez son fichier : il reste sur ce poste.'
+  }
+]
+
 export default function BibleImport() {
   const { addToast, fetchBibles } = useStore()
-  const [versions, setVersions] = useState([])
+  const [catalogue, setCatalogue] = useState({ versions: [], dossier: '' })
   const [sigle, setSigle] = useState('')
   const [occupe, setOccupe] = useState(false)
   const [aRedemarrer, setARedemarrer] = useState(false)
+  const [filtre, setFiltre] = useState('')
 
   const charger = useCallback(async () => {
     try {
-      const r = await fetch(`${BACKEND_BASE}/api/v1/bibles/imported`)
-      setVersions((await r.json()).versions || [])
+      const r = await fetch(`${BACKEND_BASE}/api/v1/bibles/catalogue`)
+      if (r.ok) setCatalogue(await r.json())
     } catch { /* la section reste vide, le reste des réglages fonctionne */ }
   }, [])
 
   useEffect(() => { charger() }, [charger])
 
-  const importer = async (fichier) => {
+  const importer = async (fichier, sigleCible) => {
     if (!fichier) return
     setOccupe(true)
     try {
@@ -33,12 +62,12 @@ export default function BibleImport() {
       const r = await fetch(`${BACKEND_BASE}/api/v1/bibles/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: contenu, version_id: sigle.trim().toUpperCase() })
+        body: JSON.stringify({ content: contenu, version_id: (sigleCible || sigle).trim().toUpperCase() })
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
       addToast({
-        message: `« ${d.id} » importée : ${d.books} livres, ${d.verses} versets`,
+        message: `« ${d.id} » ajoutée : ${d.books} livres, ${d.verses?.toLocaleString('fr-FR')} versets`,
         kind: 'success', duration: 6000
       })
       setSigle('')
@@ -48,7 +77,7 @@ export default function BibleImport() {
     } catch (err) {
       // Le message vient de la validation du serveur : il dit CE qui cloche
       // (« Genèse n'a aucun chapitre »), pas un « fichier invalide » inutile.
-      addToast({ message: `Import refusé : ${err.message}`, kind: 'error', duration: 9000 })
+      addToast({ message: `Ajout refusé : ${err.message}`, kind: 'error', duration: 9000 })
     } finally { setOccupe(false) }
   }
 
@@ -58,47 +87,115 @@ export default function BibleImport() {
       const r = await fetch(`${BACKEND_BASE}/api/v1/bibles/imported/${id}`, { method: 'DELETE' })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
-      setVersions(d.versions || [])
       setARedemarrer(true)
+      charger()
+      fetchBibles()
     } catch (err) {
-      addToast({ message: `Suppression impossible : ${err.message}`, kind: 'error' })
+      addToast({ message: `Retrait impossible : ${err.message}`, kind: 'error' })
     } finally { setOccupe(false) }
   }
 
-  return (
-    <label>
-      <small>Ajouter une traduction</small>
-      <div className="bible-import-ligne">
-        <input
-          value={sigle}
-          placeholder="Sigle (ex. SEM)"
-          maxLength={8}
-          onChange={(e) => setSigle(e.target.value.toUpperCase())}
-        />
-        <label className="vp-btn vp-btn--sm">
-          {occupe ? 'Import…' : 'Fichier JSON'}
-          <input type="file" accept="application/json,.json" hidden disabled={occupe}
-            onChange={(e) => { importer(e.target.files?.[0]); e.target.value = '' }} />
-        </label>
-      </div>
-      <span className="settings-muted-note">
-        Format attendu : celui du corpus VersePro — <span className="mono">{'{version, language, books:[{name, abbreviation, chapters:[{chapter, verses:[{verse, text}]}]}]}'}</span>.
-        Le fichier reste sur ce poste ; les droits de la traduction ajoutée relèvent de votre église.
-      </span>
+  const versions = catalogue.versions || []
+  const nbInstallees = versions.filter((v) => v.installee).length
 
-      {versions.length > 0 && (
-        <ul className="overlay-presets">
-          {versions.map((v) => (
-            <li key={v.id}>
-              <span className="overlay-preset-nom">
-                <strong>{v.id}</strong>
-                <small>{v.books} livres · {v.verses?.toLocaleString('fr-FR')} versets · {Math.round(v.bytes / 1024 / 1024 * 10) / 10} Mo</small>
-              </span>
-              <button type="button" className="vp-btn vp-btn--sm vp-btn--danger"
-                onClick={() => supprimer(v.id)} disabled={occupe}>Retirer</button>
-            </li>
-          ))}
-        </ul>
+  const parFamille = useMemo(() => {
+    const terme = filtre.trim().toLowerCase()
+    const retenues = terme
+      ? versions.filter((v) =>
+          v.id.toLowerCase().includes(terme) || (v.nom || '').toLowerCase().includes(terme))
+      : versions
+    return FAMILLES.map((f) => ({
+      ...f,
+      entrees: retenues.filter((v) => v.origine === f.cle)
+    })).filter((f) => f.entrees.length > 0)
+  }, [versions, filtre])
+
+  return (
+    <div className="bible-catalogue">
+      <div className="bible-catalogue-head">
+        <div>
+          <strong>{nbInstallees} traduction{nbInstallees > 1 ? 's' : ''} utilisable{nbInstallees > 1 ? 's' : ''}</strong>
+          <small>Seules celles-ci apparaissent dans les pastilles de version, en direct.</small>
+        </div>
+        <input
+          className="vp-input bible-catalogue-filtre"
+          value={filtre}
+          placeholder="Filtrer…"
+          onChange={(e) => setFiltre(e.target.value)}
+        />
+      </div>
+
+      {parFamille.map((famille) => (
+        <section key={famille.cle} className="bible-catalogue-famille">
+          <span className="vp-label">{famille.titre}</span>
+          <p className="settings-muted-note">{famille.note}</p>
+
+          <ul className="bible-catalogue-liste">
+            {famille.entrees.map((v) => (
+              <li key={v.id} className={v.installee ? 'is-installee' : ''}>
+                <span className="bible-catalogue-sigle">{v.id}</span>
+                <span className="bible-catalogue-nom">
+                  <strong>{v.nom}</strong>
+                  <small>
+                    {v.annee ? `${v.annee}` : 'année inconnue'}
+                    {v.editeur ? ` · ${v.editeur}` : ''}
+                    {v.versets ? ` · ${v.versets.toLocaleString('fr-FR')} versets` : ''}
+                  </small>
+                </span>
+
+                {v.installee ? (
+                  <span className="bible-catalogue-etat is-ok">Installée</span>
+                ) : (
+                  <span className="bible-catalogue-etat">Absente</span>
+                )}
+
+                {/* Une version livrée ne se retire pas : la détection s'appuie
+                    sur le corpus de référence. */}
+                {v.amovible ? (
+                  <button type="button" className="vp-btn vp-btn--sm vp-btn--danger"
+                    onClick={() => supprimer(v.id)} disabled={occupe}>Retirer</button>
+                ) : v.origine === 'livree' ? (
+                  <span className="bible-catalogue-verrou" title="Livrée avec VersePro">—</span>
+                ) : (
+                  <label className="vp-btn vp-btn--sm" aria-disabled={occupe}>
+                    {occupe ? '…' : 'Ajouter'}
+                    <input type="file" accept="application/json,.json" hidden disabled={occupe}
+                      onChange={(e) => { importer(e.target.files?.[0], v.id); e.target.value = '' }} />
+                  </label>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+
+      {/* Une église peut employer une traduction absente du catalogue. */}
+      <section className="bible-catalogue-famille">
+        <span className="vp-label">Autre traduction</span>
+        <div className="bible-import-ligne">
+          <input
+            className="vp-input"
+            value={sigle}
+            placeholder="Sigle (ex. NEG79)"
+            maxLength={8}
+            onChange={(e) => setSigle(e.target.value.toUpperCase())}
+          />
+          <label className="vp-btn vp-btn--sm">
+            {occupe ? 'Ajout…' : 'Fichier JSON'}
+            <input type="file" accept="application/json,.json" hidden disabled={occupe || !sigle.trim()}
+              onChange={(e) => { importer(e.target.files?.[0]); e.target.value = '' }} />
+          </label>
+        </div>
+        <span className="settings-muted-note">
+          Format attendu : celui du corpus VersePro — <span className="mono">{'{version, language, books:[{name, abbreviation, chapters:[{chapter, verses:[{verse, text}]}]}]}'}</span>.
+        </span>
+      </section>
+
+      {catalogue.dossier && (
+        <span className="settings-muted-note bible-catalogue-dossier">
+          Dossier des traductions sur ce poste :<br />
+          <span className="mono">{catalogue.dossier}</span>
+        </span>
       )}
 
       {aRedemarrer && (
@@ -107,6 +204,6 @@ export default function BibleImport() {
           index sont chargés une seule fois, au démarrage.
         </span>
       )}
-    </label>
+    </div>
   )
 }

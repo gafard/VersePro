@@ -704,6 +704,143 @@ body {
   min-height: 0;
 }
 
+/* Panneau PRÉPARATION (preview)
+   ─────────────────────────────
+   Il doit se lire d'un coup d'œil comme « pas encore à l'antenne ». D'où
+   l'ambre — jamais le rouge du direct — et le liseré latéral : dans une régie
+   sombre, à deux mètres, c'est la couleur qui dit lequel des deux panneaux est
+   vu par l'assemblée. */
+.live-preview {
+  position: relative;
+  background: var(--color-paper-deep);
+  border: 1px solid var(--vp-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--vp-radius-lg);
+  padding: 12px 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-left-color 180ms ease;
+}
+.live-preview:has(.live-preview-badge.is-armed) {
+  border-left-color: var(--warning, #f59e0b);
+}
+.live-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.live-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--vp-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--vp-text-faint);
+  text-transform: uppercase;
+}
+.live-preview-badge.is-armed { color: var(--warning, #f59e0b); }
+.live-preview-badge .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--vp-text-faint);
+}
+.live-preview-badge.is-armed .dot { background: var(--warning, #f59e0b); }
+
+.live-preview-ref {
+  font-family: var(--font-display);
+  font-size: 17px;
+  color: var(--color-ink-inverse);
+  line-height: 1.15;
+}
+.live-preview-text {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--vp-text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.live-preview-verses { margin-top: 6px; }
+.live-preview-verse {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vp-text-dim);
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.live-preview-suite {
+  max-height: 110px;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding: 6px 8px 2px;
+  border-left: 2px solid var(--vp-border);
+}
+/* La suite n'ira pas à l'écran maintenant : elle s'efface derrière le verset
+   qui part. */
+.live-preview-suite .live-preview-verse { opacity: 0.6; }
+.live-preview-verse-n {
+  font-family: var(--vp-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--warning, #f59e0b);
+  margin-right: 5px;
+  vertical-align: 2px;
+}
+.live-preview-count {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--vp-mono);
+  font-size: 9.5px;
+  color: var(--vp-text-faint);
+  cursor: pointer;
+  text-align: left;
+}
+.live-preview-count:hover { color: var(--warning, #f59e0b); }
+
+.live-preview-take {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--warning, #f59e0b);
+  border-radius: var(--vp-radius-md, 10px);
+  background: color-mix(in srgb, var(--warning, #f59e0b) 16%, transparent);
+  color: var(--warning, #f59e0b);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.live-preview-take:hover:not(:disabled) {
+  background: var(--warning, #f59e0b);
+  color: #0b0e14;
+}
+.live-preview-take:disabled { opacity: 0.5; cursor: default; }
+
+.live-preview-empty {
+  padding: 10px 0 2px;
+  color: var(--vp-text-faint);
+}
+.live-preview-empty strong {
+  display: block;
+  font-size: 12px;
+  color: var(--vp-text-dim);
+  margin-bottom: 3px;
+}
+.live-preview-empty p { font-size: 11px; line-height: 1.5; }
+
 /* Panneau ON AIR */
 .live-onair {
   position: relative;
@@ -1742,6 +1879,71 @@ body {
   background: var(--accent, #f0a868); cursor: nwse-resize; border-radius: 3px 0 0 0;
 }
 .overlay-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Catalogue des traductions
+   ─────────────────────────
+   Une ligne par traduction, avec son état RÉEL. Le sigle est en tête et en
+   chasse fixe : c'est ce que l'opérateur cherche, parce que c'est ce qui est
+   écrit sur les pastilles de version en direct. */
+.bible-catalogue { display: flex; flex-direction: column; gap: 18px; }
+.bible-catalogue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bible-catalogue-head strong { display: block; font-size: 13px; }
+.bible-catalogue-head small {
+  display: block;
+  font-size: 11px;
+  color: var(--vp-text-faint);
+  margin-top: 2px;
+}
+.bible-catalogue-filtre { max-width: 180px; padding: 5px 9px; font-size: 12px; }
+
+.bible-catalogue-famille { display: flex; flex-direction: column; gap: 6px; }
+.bible-catalogue-liste { list-style: none; margin: 4px 0 0; padding: 0; }
+.bible-catalogue-liste li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--vp-border);
+  border-radius: var(--vp-radius-md, 10px);
+  margin-bottom: 6px;
+  background: var(--color-paper-deep);
+}
+/* Le liseré vert n'est pas décoratif : c'est le seul repère qui distingue,
+   d'un balayage, ce qui marchera dimanche de ce qui ne marchera pas. */
+.bible-catalogue-liste li.is-installee {
+  border-left: 3px solid var(--vp-ok, #22c55e);
+}
+.bible-catalogue-sigle {
+  font-family: var(--vp-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-ink-inverse);
+  min-width: 46px;
+}
+.bible-catalogue-nom { flex: 1; min-width: 0; }
+.bible-catalogue-nom strong { display: block; font-size: 12.5px; font-weight: 600; }
+.bible-catalogue-nom small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--vp-text-faint);
+  margin-top: 1px;
+}
+.bible-catalogue-etat {
+  font-family: var(--vp-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--vp-text-faint);
+  white-space: nowrap;
+}
+.bible-catalogue-etat.is-ok { color: var(--vp-ok, #22c55e); }
+.bible-catalogue-verrou { color: var(--vp-text-faint); width: 54px; text-align: center; }
+.bible-catalogue-dossier { word-break: break-all; }
+
 .bible-import-ligne { display: flex; gap: 8px; align-items: center; }
 .bible-import-ligne input[type="text"], .bible-import-ligne > input { flex: 1; min-width: 0; }
 .bible-import-ligne .vp-btn { white-space: nowrap; }
@@ -2663,14 +2865,20 @@ select:focus-visible,
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: hidden;
+  /* `hidden` COUPAIT le bas de la colonne au lieu de le rendre atteignable.
+     Sur un petit écran, la préparation ajoutée poussait la fin du journal hors
+     du cadre, définitivement. Un opérateur ne doit jamais perdre du contenu
+     sans même savoir qu'il existe. */
+  overflow-y: auto;
 }
 
 .live-onair {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  min-height: clamp(330px, 50vh, 540px);
+  /* Hauteur calculée quand la colonne n'avait que deux panneaux ; à 50vh, elle
+     réservait 540 px sur 1080 et faisait déborder la préparation. */
+  min-height: clamp(300px, 38vh, 430px);
 }
 
 .live-onair-text {
@@ -2742,8 +2950,15 @@ select:focus-visible,
 .vumeter-led.is-on.red { background: #ef4444; box-shadow: 0 0 5px rgba(239, 68, 68, 0.6); }
 
 /* Ruban temporel du culte (Timeline en bas) */
+/* Déroulé du culte
+   ────────────────
+   Il occupait toute la largeur sous les trois colonnes — une bande horizontale
+   pour une liste de références, pendant que la file de détection manquait de
+   hauteur. Il vit maintenant dans la colonne de gauche, en liste verticale, et
+   prend la place laissée libre. */
 .cult-timeline-panel {
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -2791,10 +3006,64 @@ select:focus-visible,
 
 .cult-timeline-scroll {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-bottom: 4px;
+}
+/* En liste verticale, une référence tronquée par `nowrap` devient illisible :
+   « 1 Corinthi… » ne dit plus quel passage attend. */
+.cult-timeline-scroll .cult-timeline-item { white-space: normal; }
+.cult-timeline-scroll .cult-timeline-item:not(.is-prepared) { justify-content: flex-start; }
+.cult-timeline-scroll .cult-timeline-project { flex: 1; min-width: 0; }
+.cult-timeline-scroll .cult-timeline-ref { flex: 1; min-width: 0; text-align: left; }
+.cult-timeline-scroll .cult-timeline-state { flex-shrink: 0; }
+
+/* Outils d'avant-culte, repliés */
+.live-outils {
+  background: var(--vp-panel-bg);
+  border: 1px solid var(--vp-border);
+  border-radius: var(--vp-radius-lg);
+  padding: 8px 12px;
+}
+.live-outils > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+/* La colonne est étroite : sans cela, « Avant le culte » passait à la ligne et
+   la pastille d'état se retrouvait à côté d'un titre coupé en deux. */
+.live-outils > summary > .vp-label { white-space: nowrap; }
+.live-outils > summary > .vp-chip {
+  font-size: 9px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.live-outils > summary::-webkit-details-marker { display: none; }
+.live-outils > summary::after {
+  content: '▾';
+  font-size: 10px;
+  color: var(--vp-text-faint);
+  transition: transform 140ms ease;
+}
+.live-outils[open] > summary::after { transform: rotate(180deg); }
+.live-outils-corps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--vp-border);
 }
 
 .cult-timeline-scroll::-webkit-scrollbar {
@@ -2916,13 +3185,19 @@ select:focus-visible,
   font-weight: 500;
 }
 
-/* Journal de transcription */
+/* Journal de transcription
+   ────────────────────────
+   Il était figé à 112 px de haut. C'est le panneau que l'opérateur regarde en
+   continu — c'est là qu'il voit VENIR le verset, avant même la détection — et
+   quatre lignes ne suffisent pas à suivre un prédicateur.
+   Il est désormais le panneau ÉLASTIQUE de la colonne : préparation et antenne
+   prennent la hauteur qu'il leur faut, le journal absorbe le reste. C'est aussi
+   ce qui empêche la colonne de déborder quand une préparation est montée. */
 .live-transcript-panel {
   display: flex;
   flex-direction: column;
-  flex: 0 0 clamp(88px, 12vh, 112px);
-  min-height: 88px;
-  max-height: 112px;
+  flex: 1 1 auto;
+  min-height: 112px;
   overflow: hidden;
 }
 

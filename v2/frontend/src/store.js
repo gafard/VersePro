@@ -832,6 +832,112 @@ export const useStore = create((set, get) => ({
     return sent
   },
 
+  // ── Régie : préparer, voir, envoyer ────────────────────────────────────────
+  //
+  // Le geste fondamental d'une régie. Sans lui, valider une détection
+  // l'envoyait DIRECTEMENT devant l'assemblée : l'opérateur découvrait le
+  // rendu en même temps qu'elle, et ne pouvait plus rattraper un verset mal
+  // coupé. La mécanique existait côté serveur ; il manquait les deux gestes.
+
+  previewSlide: null,
+  previewBusy: false,
+
+  previewReference: async (reference, version = null) => {
+    const ref = String(reference || '').trim()
+    if (!ref) return false
+    set({ previewBusy: true })
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(version ? { reference: ref, version } : { reference: ref })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        get().addToast({ message: data?.detail || `Préparation impossible : ${ref}`, kind: 'error' })
+        return false
+      }
+      set({
+        previewSlide: {
+          reference: data.reference,
+          text: data.text || '',
+          verses: data.verses || [],
+          version: version || get().activeBible || 'LSG',
+          at: new Date().toISOString()
+        }
+      })
+      return true
+    } catch (error) {
+      console.error('Erreur de préparation:', error)
+      get().addToast({ message: 'Serveur injoignable — préparation impossible', kind: 'error' })
+      return false
+    } finally {
+      set({ previewBusy: false })
+    }
+  },
+
+  takePreview: async () => {
+    const monte = get().previewSlide
+    if (!monte?.reference) return false
+    set({ previewBusy: true })
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/take`, { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        get().addToast({ message: data?.detail || 'Envoi refusé', kind: 'error' })
+        return false
+      }
+      // L'envoi ne passe pas par sendReference : sans cette ligne, la console
+      // afficherait « écran noir » alors que l'assemblée lit le verset.
+      const currentOnAir = get().onAir
+      set((state) => ({
+        onAir: {
+          reference: data.reference || monte.reference,
+          text: monte.text,
+          at: new Date().toISOString(),
+          version: monte.version
+        },
+        activeBible: monte.version || state.activeBible,
+        undoHistory: currentOnAir
+          ? [...state.undoHistory.slice(-19), { ...currentOnAir, version: state.activeBible }]
+          : state.undoHistory
+      }))
+      get().addToast({ message: `À l'antenne : ${data.reference || monte.reference}`, kind: 'success' })
+      return true
+    } catch (error) {
+      console.error('Erreur d\'envoi à l\'antenne:', error)
+      get().addToast({ message: 'Serveur injoignable — envoi impossible', kind: 'error' })
+      return false
+    } finally {
+      set({ previewBusy: false })
+    }
+  },
+
+  // Au démarrage : si la console est rouverte en plein culte, elle retrouve ce
+  // qui était monté au lieu d'afficher une préparation vide.
+  fetchPreview: async () => {
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/preview`)
+      if (!response.ok) return
+      const data = await response.json().catch(() => ({}))
+      if (data?.reference) {
+        set({
+          previewSlide: {
+            reference: data.reference,
+            text: data.text || '',
+            verses: data.verses || [],
+            version: data.active_version || get().activeBible || 'LSG',
+            at: new Date().toISOString()
+          }
+        })
+      }
+    } catch {
+      // Console ouverte avant le backend : sans préparation, ce n'est pas une erreur.
+    }
+  },
+
+  clearPreview: () => set({ previewSlide: null }),
+
   sendReference: async (reference, version = null, isUndo = false) => {
     try {
       const activeVersion = version || get().activeBible || 'LSG'

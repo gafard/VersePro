@@ -634,6 +634,20 @@ async def remove_overlay_image():
     return overlay_store.status()
 
 
+@router.get("/bibles/catalogue")
+async def bible_catalogue():
+    """Ce qui est réellement utilisable, et ce qui ne l'est pas.
+
+    L'état vient du moteur de lecture, pas d'une liste écrite en dur : c'est ce
+    qui empêche l'interface de proposer une version que le paquet n'embarque
+    pas — le pasteur demandait la Semeur et le clic ne faisait rien.
+    """
+    from ..main import verse_parser
+    from ..services import bible_import
+    chargees = list(verse_parser.bible_loader.versions.keys()) if verse_parser else []
+    return bible_import.catalogue(chargees)
+
+
 @router.get("/bibles/imported")
 async def list_imported_bibles():
     """Traductions ajoutées par l'église, distinctes de celles livrées."""
