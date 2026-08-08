@@ -716,9 +716,10 @@ export default function LiveDetection({ setActiveTab }) {
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {prevRef && (
               <button
+                type="button"
                 className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white flex-shrink-0"
-                onClick={(e) => { e.stopPropagation(); prepareReference(prevRef) }}
-                title={`Préparer ${prevRef}`}
+                onClick={(e) => { e.stopPropagation(); sendReference(prevRef) }}
+                title={`Afficher ${prevRef} à l'antenne`}
               >
                 ◄ {prevRef.split(' ').pop()}
               </button>
@@ -757,9 +758,10 @@ export default function LiveDetection({ setActiveTab }) {
             })()}
             {nextRef && (
               <button
+                type="button"
                 className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white flex-shrink-0"
-                onClick={(e) => { e.stopPropagation(); prepareReference(nextRef) }}
-                title={`Préparer ${nextRef}`}
+                onClick={(e) => { e.stopPropagation(); sendReference(nextRef) }}
+                title={`Afficher ${nextRef} à l'antenne`}
               >
                 {nextRef.split(' ').pop()} ►
               </button>
