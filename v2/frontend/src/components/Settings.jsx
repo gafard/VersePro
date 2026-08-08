@@ -1369,6 +1369,7 @@ export default function Settings() {
 
             <Accordion title="Mode répétition" icon={<IconFlask color="#0ea5e9" />} description="Testez la détection de versets avant le culte.">
               <textarea
+                className="settings-rehearsal-input"
                 value={rehearseText}
                 onChange={(e) => setRehearseText(e.target.value)}
                 placeholder="Ex : ce matin nous lisons dans jean chapitre trois verset seize car dieu a tant aimé le monde…"

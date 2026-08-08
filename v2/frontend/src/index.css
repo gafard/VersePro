@@ -2001,7 +2001,21 @@ body {
 .overlay-corner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 8px; }
 .overlay-corner { display: flex; flex-direction: column; gap: 3px; }
 .overlay-corner small { font-size: 10.5px; color: var(--vp-text-dim); }
-.overlay-corner select { font-size: 12px; padding: 3px 6px; }
+.overlay-corner select {
+  color-scheme: dark;
+  background: var(--vp-bg-elevated) !important;
+  border: 1px solid var(--vp-border-strong) !important;
+  border-radius: var(--vp-radius);
+  color: var(--vp-text) !important;
+  font-family: var(--vp-font);
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.overlay-corner select option,
+.overlay-corner select optgroup {
+  background: var(--vp-bg-elevated);
+  color: var(--vp-text);
+}
 .overlay-box--shape.is-selected { outline: 2px solid var(--accent, #f0a868); }
 .overlay-box--shape .overlay-box-tag,
 .overlay-box--shape .overlay-handle { opacity: 0; transition: opacity 120ms; }
@@ -2313,6 +2327,31 @@ body {
   outline: none;
   min-width: 120px;
 }
+
+/* Les contrôles natifs ajoutés dans les accordéons (répétition et atelier
+   d'habillage) ne passent pas par .settings-row-control. Sans ce socle, Safari
+   leur applique son fond blanc par défaut dans le thème sombre. */
+.settings-accordion-body select,
+.settings-accordion-body textarea {
+  color-scheme: dark;
+}
+
+.settings-rehearsal-input {
+  width: 100%;
+  margin-bottom: 12px;
+  background: var(--vp-bg-elevated) !important;
+  border: 1px solid var(--vp-border-strong) !important;
+  border-radius: var(--vp-radius);
+  color: var(--vp-text) !important;
+  font-family: var(--vp-font);
+  font-size: 13px;
+  padding: 9px 12px;
+  outline: none;
+  resize: vertical;
+}
+
+.settings-rehearsal-input::placeholder { color: var(--vp-text-faint); }
+.settings-rehearsal-input:focus { border-color: var(--vp-accent) !important; }
 
 .settings-row-control input:focus,
 .settings-accordion input:focus,
