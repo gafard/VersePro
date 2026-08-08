@@ -84,6 +84,21 @@ def test_le_texte_marque_le_panneau():
     assert sombres_avec > sombres_sans
 
 
+def test_les_annotations_operateur_sont_rendues_sur_la_trame_ndi():
+    """Le surlignage, le soulignement et le cercle ne doivent pas rester
+    limités à la sortie HTML/OBS : NDI reçoit la même scène annotée."""
+    from PIL import ImageChops
+
+    sans = _rendu()
+    for annotation in (
+        {"type": "highlight", "color": "yellow", "text": "Israël était le plus fort"},
+        {"type": "underline", "color": "red", "text": "Israël était le plus fort"},
+        {"type": "circle", "color": "#38bdf8", "text": "Israël était le plus fort"},
+    ):
+        avec = _rendu(annotations=[annotation])
+        assert ImageChops.difference(sans, avec).getbbox() is not None
+
+
 def test_le_rendu_suit_la_resolution():
     petit, grand = _rendu(largeur=640, hauteur=360), _rendu(largeur=1920, hauteur=1080)
     assert petit.size == (640, 360) and grand.size == (1920, 1080)

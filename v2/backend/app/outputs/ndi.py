@@ -171,7 +171,7 @@ class NDIOutput(BaseOutput):
 
     # ── API de sortie ────────────────────────────────────────────────────────
 
-    def _composer(self, reference: str, texte: str, numero: Any) -> np.ndarray:
+    def _composer(self, reference: str, texte: str, numero: Any, annotations: Optional[list] = None) -> np.ndarray:
         from ..core.config import settings
         from ..services import overlay_store
         info = overlay_store.resolve_overlay_info(
@@ -188,6 +188,7 @@ class NDIOutput(BaseOutput):
             info.get("shapes") or [],
             reference, texte, numero,
             str(image) if image else None,
+            annotations=annotations,
         )
         return vers_bgra(rendu)
 
@@ -203,7 +204,7 @@ class NDIOutput(BaseOutput):
             # Le dessin d'une trame 1920×1080 prend quelques dizaines de
             # millisecondes : hors de la boucle d'événements, qui sert le direct.
             trame = await asyncio.to_thread(
-                self._composer, reference, texte, scene.get("verse_start")
+                self._composer, reference, texte, scene.get("verse_start"), scene.get("annotations")
             )
             with self._frame_lock:
                 self._frame = trame

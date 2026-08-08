@@ -88,11 +88,18 @@ projector_connections = set()
 reading_tracker = ReadingTracker()
 
 async def broadcast_output_event(payload: dict):
-    """Événement léger vers les écrans (progression de lecture, traduction live)"""
+    """Diffuse un événement léger, ou redessine une scène annotée sur NDI."""
     if output_manager:
         browser = output_manager.outputs.get("browser")
         if browser:
             await browser.broadcast_event(payload)
+        # Les annotations modifient aussi les sorties qui rendent une image
+        # (NDI). On les rattache à la scène courante puis on la reprojette : le
+        # navigateur reçoit son événement léger et NDI redessine la même zone
+        # sur la trame BGRA.
+        if payload.get("type") == "annotation":
+            current_projection_slide["annotations"] = list(payload.get("annotations") or [])
+            await output_manager.project_scene(dict(current_projection_slide))
 current_projection_slide = {
     "text": "En attente d'affichage...",
     "reference": "",

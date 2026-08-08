@@ -9,6 +9,8 @@ changement de réglage.
 
 import os
 import sys
+import re
+import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -82,6 +84,14 @@ def _police(famille: str, taille: int, gras: bool):
 
 def _rgba(couleur: str, opacite: float = 1.0) -> Tuple[int, int, int, int]:
     """« #rrggbb » ou « #rgb » vers un quadruplet, alpha compris."""
+    couleurs = {
+        "yellow": "#facc15",
+        "red": "#ef4444",
+        "blue": "#38bdf8",
+        "sky": "#38bdf8",
+        "white": "#ffffff",
+    }
+    couleur = couleurs.get(str(couleur or "").lower(), couleur)
     c = (couleur or "#ffffff").lstrip("#")
     if len(c) == 3:
         c = "".join(ch * 2 for ch in c)
@@ -122,6 +132,7 @@ def rendre_habillage(
     texte: str,
     numero_verset: Optional[Any] = None,
     image_fond: Optional[str] = None,
+    annotations: Optional[List[Dict[str, Any]]] = None,
 ) -> Image.Image:
     """Compose une image RGBA transparente : image, puis formes, puis textes."""
     cadre = Image.new("RGBA", (largeur, hauteur), (0, 0, 0, 0))
@@ -155,6 +166,11 @@ def rendre_habillage(
         cadre.alpha_composite(calque)
 
     crayon = ImageDraw.Draw(cadre)
+    # Coordonnées des mots réellement dessinés : les annotations opérateur
+    # utilisent le même découpage que le texte NDI, y compris les passages
+    # longs. Cela évite de tenter de deviner une position depuis la longueur
+    # brute de la chaîne.
+    boites_mots: List[Tuple[str, Tuple[float, float, float, float]]] = []
     for nom, contenu in (("reference", reference), ("text", texte)):
         zone = (zones or {}).get(nom)
         if not zone or not contenu:
@@ -191,9 +207,83 @@ def rendre_habillage(
                 # Exposant : calé sur le haut de la ligne, comme le « super » CSS.
                 crayon.text((x, y - taille * 0.06), str(numero_verset), font=police_num, fill=couleur)
             crayon.text((x + depart, y), ligne, font=police, fill=couleur)
+            if nom == "text":
+                curseur = x + depart
+                for mot in ligne.split():
+                    largeur_mot = crayon.textlength(mot, font=police)
+                    bbox = crayon.textbbox((curseur, y), mot, font=police)
+                    boites_mots.append((_normaliser_mot(mot), bbox))
+                    curseur += largeur_mot + crayon.textlength(" ", font=police)
             y += interligne
 
+    # Les sorties navigateur/OBS et NDI reçoivent les mêmes annotations. Un
+    # texte absent (par exemple une référence envoyée par une ancienne régie)
+    # signifie « annoter le verset actuellement à l'antenne ».
+    for annotation in annotations or []:
+        if not isinstance(annotation, dict):
+            continue
+        cible = [mot for mot in _normaliser_mots(annotation.get("text", "")) if mot]
+        debut = -1
+        if cible:
+            mots = [mot for mot, _ in boites_mots]
+            for index in range(0, len(mots) - len(cible) + 1):
+                if mots[index:index + len(cible)] == cible:
+                    debut = index
+                    break
+        selection = boites_mots[debut:debut + len(cible)] if debut >= 0 else boites_mots
+        if not selection:
+            continue
+        calque = Image.new("RGBA", cadre.size, (0, 0, 0, 0))
+        annotation_draw = ImageDraw.Draw(calque)
+        couleur = _rgba(annotation.get("color", "yellow"), 1.0)
+        boxes = [box for _, box in selection]
+        if annotation.get("type") == "highlight":
+            for left, top, right, bottom in boxes:
+                annotation_draw.rounded_rectangle(
+                    (left - 2, top - 1, right + 2, bottom + 1),
+                    radius=max(2, int((bottom - top) * 0.12)),
+                    fill=(*couleur[:3], 105),
+                )
+        elif annotation.get("type") == "underline":
+            for left, _top, right, bottom in boxes:
+                annotation_draw.line(
+                    (left, bottom + 2, right, bottom + 2),
+                    fill=(*couleur[:3], 255),
+                    width= max(2, int((bottom - _top) * 0.07)),
+                )
+        elif annotation.get("type") == "circle":
+            # Une ellipse par ligne rend un groupe multi-ligne lisible sans
+            # encercler tout le cadre NDI.
+            lignes: List[List[Tuple[float, float, float, float]]] = []
+            for box in boxes:
+                if not lignes or abs(box[1] - lignes[-1][0][1]) > max(8, (box[3] - box[1]) * 0.6):
+                    lignes.append([box])
+                else:
+                    lignes[-1].append(box)
+            for ligne in lignes:
+                left = min(box[0] for box in ligne) - 8
+                top = min(box[1] for box in ligne) - 6
+                right = max(box[2] for box in ligne) + 8
+                bottom = max(box[3] for box in ligne) + 6
+                annotation_draw.rounded_rectangle(
+                    (left, top, right, bottom),
+                    radius=max(8, int((bottom - top) * 0.45)),
+                    outline=(*couleur[:3], 255),
+                    width=max(2, int((bottom - top) * 0.08)),
+                )
+        cadre.alpha_composite(calque)
+
     return cadre
+
+
+def _normaliser_mot(mot: Any) -> str:
+    texte = unicodedata.normalize("NFD", str(mot or "").lower())
+    texte = "".join(car for car in texte if unicodedata.category(car) != "Mn")
+    return re.sub(r"[^\wÀ-ÿ]+", "", texte, flags=re.UNICODE)
+
+
+def _normaliser_mots(texte: Any) -> List[str]:
+    return [_normaliser_mot(mot) for mot in str(texte or "").split()]
 
 
 def vers_bgra(image: Image.Image) -> np.ndarray:

@@ -190,7 +190,7 @@ export default function FirstRunWizard({ onDone }) {
   const stepLabel = ['UTILISATION', 'INSTALLATION', 'MICRO', 'PRÊT'][step]
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-3xl transition-opacity duration-300">
+    <div className="vp-onboarding fixed inset-0 z-[100] flex items-center justify-center p-4 transition-opacity duration-300">
       
       {/* Rayons lumineux 3D d'ambiance (Originkit style) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">

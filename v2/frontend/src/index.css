@@ -4086,6 +4086,41 @@ select:focus-visible,
 .fw-keycard { background: var(--color-paper-3); border: 1px solid var(--color-rule); border-radius: var(--radius-card); padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-md); }
 .fw-keycard strong { display: block; color: var(--color-ink); font-size: var(--text-sm); margin-bottom: 2px; }
 
+/* ── Onboarding actif (FirstRunWizard) ────────────────────────────────────
+   L'assistant historique utilisait des couleurs Tailwind bleues/indigo
+   indépendantes du thème Lumen. Ces règles le branchent sur les mêmes tokens
+   que le reste de la régie, sans réécrire chaque état animé du wizard. */
+.vp-onboarding {
+  background: var(--color-backdrop) !important;
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+.vp-onboarding > .relative {
+  background: var(--surface-1) !important;
+  border-color: var(--border-strong) !important;
+  box-shadow: var(--elev-4) !important;
+}
+.vp-onboarding [class*="bg-slate-"] { background-color: var(--surface-1) !important; }
+.vp-onboarding [class*="bg-sky-"],
+.vp-onboarding [class*="bg-indigo-"] { background-color: var(--accent-soft) !important; }
+.vp-onboarding [class*="bg-emerald-"] { background-color: var(--success-soft) !important; }
+.vp-onboarding [class*="border-white"] { border-color: var(--border-weak) !important; }
+.vp-onboarding [class*="border-sky-"],
+.vp-onboarding [class*="border-indigo-"] { border-color: var(--border-focus) !important; }
+.vp-onboarding [class*="border-emerald-"] { border-color: color-mix(in oklch, var(--success) 45%, var(--border-weak)) !important; }
+.vp-onboarding [class*="text-white"] { color: var(--text-main) !important; }
+.vp-onboarding [class*="text-slate-"] { color: var(--text-dim) !important; }
+.vp-onboarding [class*="text-slate-950"] { color: var(--color-accent-ink) !important; }
+.vp-onboarding [class*="text-sky-"],
+.vp-onboarding [class*="text-indigo-"] { color: var(--accent) !important; }
+.vp-onboarding [class*="text-emerald-"] { color: var(--color-ok-ink) !important; }
+.vp-onboarding [class*="from-sky-"] { --tw-gradient-from: var(--accent) !important; --tw-gradient-to: color-mix(in oklch, var(--accent) 0%, transparent) !important; }
+.vp-onboarding [class*="via-indigo-"] { --tw-gradient-via: var(--accent-hover) !important; }
+.vp-onboarding [class*="to-emerald-"] { --tw-gradient-to: var(--success) !important; }
+.vp-onboarding .font-mono { font-family: var(--font-mono) !important; }
+.vp-onboarding input { font-family: var(--font-body); color: var(--text-main) !important; }
+.vp-onboarding input::placeholder { color: var(--text-faint) !important; }
+
 .fw-foot { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) var(--space-lg) var(--space-md); border-top: 1px solid var(--color-rule); }
 .fw-foot-right { display: flex; gap: var(--space-2xs); }
 
