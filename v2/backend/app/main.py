@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import threading
 import time
 
@@ -36,9 +37,9 @@ from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager, suppress
 
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from loguru import logger
@@ -121,9 +122,22 @@ async def _lookup_next_verse(reference: str) -> tuple[str, str]:
         return "", ""
 
 
-async def broadcast_projection(text: str, reference: str, background: str | None = None, translations: dict | None = None, theme: str | None = None):
+async def broadcast_projection(
+    text: str,
+    reference: str,
+    background: str | None = None,
+    translations: dict | None = None,
+    theme: str | None = None,
+    version: str | None = None,
+):
     """Diffuse le slide à tous les projecteurs et suiveurs connectés via OutputManager"""
     global current_projection_slide
+
+    cur_version = (
+        (version or "").strip().upper()
+        or (verse_parser.bible_loader.active_version if verse_parser and verse_parser.bible_loader else None)
+        or settings.BIBLE_VERSION
+    )
 
     next_ref, next_text = await _lookup_next_verse(reference)
     
@@ -153,7 +167,7 @@ async def broadcast_projection(text: str, reference: str, background: str | None
             and verse_end > verse_start):
         loader = verse_parser.bible_loader
         for numero in range(int(verse_start), int(verse_end) + 1):
-            morceau = loader.get_verse_text(parsed.get("book_abbr"), chapter, numero, None)
+            morceau = loader.get_verse_text(parsed.get("book_abbr"), chapter, numero, None, version_id=cur_version)
             if (morceau or "").strip():
                 versets_pages.append({"n": numero, "text": morceau.strip()})
         # Un seul verset retrouvé : autant garder le texte d'origine.
@@ -175,9 +189,9 @@ async def broadcast_projection(text: str, reference: str, background: str | None
         "translations": translations or {},
         "next_reference": next_ref,
         "next_text": next_text,
-        "active_version": settings.BIBLE_VERSION,
-        "active_version_label": version_label(settings.BIBLE_VERSION),
-        "active_version_short": version_label(settings.BIBLE_VERSION, short=True),
+        "active_version": cur_version,
+        "active_version_label": version_label(cur_version),
+        "active_version_short": version_label(cur_version, short=True),
         "show_version": settings.SHOW_BIBLE_VERSION,
         "style": settings.PROJECTION_STYLE,
         "dual_translations": settings.DUAL_TRANSLATIONS,
@@ -336,8 +350,8 @@ async def lifespan(app: FastAPI):
     # chargé en arrière-plan; les installations restent des actions explicites.
     if os.environ.get("VERSEPRO_TESTING") != "1":
         if nemotron_service.is_ready:
-            logger.info("🎙️ Initialisation de Nemotron 3.5-ASR (moteur local principal)...")
-            threading.Thread(target=nemotron_service.prepare, daemon=True).start()
+            logger.info("🎙️ Pré-chargement de Nemotron 3.5-ASR en arrière-plan...")
+            threading.Thread(target=nemotron_service.prewarm, daemon=True).start()
         elif Path(vosk_service.model_dir).exists():
             logger.info("🎙️ Nemotron indisponible, initialisation du moteur de secours Vosk...")
             threading.Thread(target=vosk_service.initialize, daemon=True).start()
@@ -474,6 +488,17 @@ async def get_overlay_image():
     )
 
 
+def _get_template_path(name: str) -> Path:
+    if hasattr(sys, '_MEIPASS'):
+        p = Path(sys._MEIPASS) / "app" / "templates" / name
+        if p.exists():
+            return p
+    p2 = Path(__file__).parent / "templates" / name
+    if p2.exists():
+        return p2
+    return Path(__file__).parent / "templates" / name
+
+
 # Endpoints de Rendu d'Affichage Web Autonome (Outputs)
 @app.get("/output", response_class=HTMLResponse)
 async def get_output_page():
@@ -484,1397 +509,7 @@ async def get_output_page():
     simultanée IA s'affiche en sous-titre live. Thèmes : presentation (défaut),
     broadcast (lower-third), confidence, dual. Params : ?theme= ?bg= ?scale= ?subtitle=off
     """
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="utf-8">
-        <title>Rendu d'Affichage - VersePro</title>
-        <style>
-            /* Polices du produit, servies par le backend (/fonts) : une source
-               navigateur OBS doit fonctionner hors ligne, donc rien de distant. */
-            @font-face { font-family:"Space Grotesk"; font-weight:600; font-display:block;
-                         src:url("/fonts/space-grotesk-latin-600-normal.woff2") format("woff2"); }
-            @font-face { font-family:"Space Grotesk"; font-weight:700; font-display:block;
-                         src:url("/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); }
-            @font-face { font-family:"Geist Sans"; font-weight:400; font-display:block;
-                         src:url("/fonts/geist-sans-latin-400-normal.woff2") format("woff2"); }
-            @font-face { font-family:"Geist Sans"; font-weight:500; font-display:block;
-                         src:url("/fonts/geist-sans-latin-500-normal.woff2") format("woff2"); }
-            @font-face { font-family:"JetBrains Mono"; font-weight:500; font-display:block;
-                         src:url("/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2"); }
-            @font-face { font-family:"JetBrains Mono"; font-weight:600; font-display:block;
-                         src:url("/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
-
-            :root { --accent: oklch(76% 0.17 50); --accent-2: oklch(68% 0.16 18); --read: #ffffff; --unread: rgba(255,255,255,0.34);
-                    --ink: oklch(97% 0.005 262); --accent-ink: oklch(18% 0.05 50);
-                    --font-display: "Space Grotesk", system-ui, sans-serif;
-                    --font-body: "Geist Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-                    --font-mono: "JetBrains Mono", ui-monospace, monospace; }
-            html { font-size: 16px; }
-            body {
-                margin: 0; padding: 0;
-                background-color: #000; color: #fff;
-                font-family: var(--font-body);
-                overflow: hidden;
-                display: flex; align-items: center; justify-content: center;
-                height: 100vh; text-align: center;
-                transition: background 0.3s ease, background-color 0.3s ease;
-            }
-            .bg-transparent { background: transparent !important; background-color: transparent !important; }
-            .chroma-green { background: #00ff00 !important; background-color: #00ff00 !important; }
-            .chroma-blue { background: #0000ff !important; background-color: #0000ff !important; }
-
-            /* ── Fonds animés ────────────────────────────────────────────────
-               OPTIONNELS et désactivés par défaut, et ce choix est mesuré :
-               sans eux, cet écran ne déclare AUCUNE animation infinie, ce qui
-               le rend tenable sur la machine modeste d'une petite église. Les
-               activer est un arbitrage que l'utilisateur pose sciemment.
-
-               Tout se joue sur `background-position` d'un dégradé surdimensionné
-               — une propriété que le compositeur traite sans redessiner le
-               texte. Pas de filtre, pas de flou, pas d'opacité animée sur le
-               verset lui-même : le texte doit rester net et stable pendant que
-               le fond respire.
-
-               Le fond vit sur ::before, sous le texte (z-index) : une animation
-               posée sur <body> aurait fait recalculer la mise en page du verset
-               à chaque image. */
-            body[class*="fond-"]::before {
-                content: ""; position: fixed; inset: 0; z-index: -1;
-                background-size: 400% 400%;
-                animation: derive-fond 38s ease-in-out infinite;
-            }
-            body.fond-aurore::before {
-                background-image: linear-gradient(130deg,
-                    #05070c 0%, #0b1b2e 28%, #12324a 52%, #0a1526 76%, #05070c 100%);
-            }
-            body.fond-braise::before {
-                background-image: linear-gradient(130deg,
-                    #0a0705 0%, #241408 30%, #3a1f0b 55%, #1a0f06 78%, #0a0705 100%);
-            }
-            body.fond-nuit::before {
-                background-image: linear-gradient(130deg,
-                    #04050a 0%, #0a0f24 30%, #131a3a 55%, #080c1c 78%, #04050a 100%);
-            }
-            body.fond-sable::before {
-                background-image: linear-gradient(130deg,
-                    #0c0a07 0%, #211b12 30%, #33291b 55%, #181309 78%, #0c0a07 100%);
-            }
-            @keyframes derive-fond {
-                0%, 100% { background-position: 0% 50%; }
-                50%      { background-position: 100% 50%; }
-            }
-            /* Un fond qui bouge peut gêner, et la demande système existe pour
-               ça. On garde le dégradé, on arrête le mouvement. */
-            @media (prefers-reduced-motion: reduce) {
-                body[class*="fond-"]::before { animation: none; }
-            }
-
-            @keyframes fadeInUp {
-                from { opacity: 0; transform: translateY(8px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-
-            #container { width: 88%; max-width: 1200px; }
-            #text {
-                font-size: 3.5rem; line-height: 1.45; font-weight: 500;
-                margin-bottom: 2rem;
-                text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
-                opacity: 0;
-            }
-            #reference {
-                font-size: 2.2rem; font-weight: 700;
-                color: var(--accent);
-                text-transform: uppercase; letter-spacing: 2px;
-                text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9);
-                opacity: 0;
-            }
-            #container.visible #text { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-            #container.visible #reference { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards; }
-
-            /* ── Lecture vivante : chaque mot s'illumine quand il est prononcé ── */
-            #text.karaoke .w { color: var(--unread); transition: color 0.35s ease, text-shadow 0.35s ease; }
-            #text.karaoke .w.read { color: var(--read); }
-            #text.karaoke .w.cur { text-shadow: 0 0 18px rgba(255, 255, 255, 0.55); }
-
-            /* ── Sous-titre : traduction simultanée IA ── */
-            #subtitle {
-                position: fixed; left: 50%; bottom: 4vh; transform: translateX(-50%);
-                max-width: 82%;
-                background: rgba(8, 9, 12, 0.82);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 10px;
-                padding: 12px 26px;
-                font-size: 1.5rem; line-height: 1.4; font-weight: 500;
-                opacity: 0; transition: opacity 0.3s ease;
-                pointer-events: none;
-            }
-            #subtitle.on { opacity: 1; }
-            #subtitle .lang {
-                display: block; font-size: 0.7rem; font-weight: 700;
-                letter-spacing: 0.14em; text-transform: uppercase;
-                color: var(--accent); margin-bottom: 4px;
-            }
-
-            /* Témoin de signal (backend injoignable) */
-            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px;
-                      border-radius: 50%; background: #d93025; opacity: 0; transition: opacity 0.4s; }
-            #signal.lost { opacity: 0.85; }
-
-            /* --- THEME: PRESENTATION --- */
-            body.theme-presentation {
-                background: radial-gradient(circle, #101114 0%, #030304 100%);
-                font-family: Georgia, "Times New Roman", serif;
-            }
-            body.theme-presentation #text { font-weight: 400; font-style: italic; letter-spacing: 0.5px; }
-            body.theme-presentation #reference { color: var(--accent); font-weight: 600; font-size: 1.8rem; }
-
-            /* --- THEME: BROADCAST (lower third) --- */
-            body.theme-broadcast { justify-content: center; align-items: flex-end; }
-            body.theme-broadcast #container {
-                width: 90%; max-width: 1400px;
-                background: rgba(10, 11, 15, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-left: 6px solid var(--accent);
-                border-radius: 8px; padding: 24px 40px; margin-bottom: 5vh;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-                display: flex; justify-content: space-between; align-items: center;
-                gap: 40px; text-align: left; box-sizing: border-box;
-            }
-            body.theme-broadcast #text { font-size: 1.8rem; line-height: 1.4; margin-bottom: 0; font-weight: 450; text-shadow: none; flex: 1; }
-            body.theme-broadcast #reference {
-                font-size: 1.4rem; font-weight: 800; letter-spacing: 1px; text-shadow: none; flex-shrink: 0;
-                background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.2);
-                padding: 6px 16px; border-radius: 6px;
-            }
-            body.theme-broadcast #subtitle { display: none; }
-
-            /* --- STYLE: FILET (défaut recommandé) ---------------------------
-               Pas de cadre : le texte pose sur un voile dégradé et une seule
-               règle laiton le tient. Un lower third encadré fait « carte web » ;
-               la diffusion demande des arêtes franches et peu de chrome.
-               Conforme à design.md : accents laiton uniquement, Geist pour le
-               verset, mono pour la ligne de service.                          */
-            body.theme-broadcast.style-filet { align-items: flex-end; justify-content: flex-start; }
-            body.theme-broadcast.style-filet #container {
-                width: 100%; max-width: none; background: none; border: none; border-radius: 0;
-                box-shadow: none; margin: 0; padding: 8rem 5.5rem 3.6rem;
-                display: block; text-align: left;
-                background: linear-gradient(to top,
-                    oklch(8% 0.01 265 / 0.92) 0%, oklch(8% 0.01 265 / 0.72) 45%, transparent 100%);
-            }
-            body.theme-broadcast.style-filet #container::before {
-                content: ""; display: block; width: 44px; height: 3px;
-                background: var(--accent); margin-bottom: 1.1rem;
-            }
-            body.theme-broadcast.style-filet #text {
-                font-family: var(--font-body); font-size: 2.4rem; line-height: 1.32; font-weight: 400;
-                color: var(--ink); margin: 0; text-shadow: none; max-width: 62ch;
-            }
-            body.theme-broadcast.style-filet #text.karaoke .w { color: rgba(255,255,255,0.34); }
-            body.theme-broadcast.style-filet #text.karaoke .w.read { color: var(--ink); }
-            body.theme-broadcast.style-filet #reference {
-                display: inline-block; margin-top: 1rem; padding: 0; background: none; border: none;
-                font-family: var(--font-mono); font-size: 0.88rem; font-weight: 600;
-                letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
-            }
-            body.theme-broadcast.style-filet #edition {
-                display: inline-block; margin-left: 0.9rem;
-                font-family: var(--font-mono); font-size: 0.88rem; font-weight: 500;
-                letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.6);
-            }
-
-            /* --- STYLE: CARTOUCHE -------------------------------------------
-               Bloc laiton plein à gauche, verset sur voile sombre à droite.
-               Arêtes franches, aucun rayon : registre télévision. La grille
-               place trois frères (#reference, #edition, #text) sans conteneur
-               supplémentaire — le balisage est partagé par tous les styles.   */
-            body.theme-broadcast.style-cartouche { align-items: flex-end; justify-content: flex-start; }
-            body.theme-broadcast.style-cartouche #container {
-                width: auto; max-width: 92%; background: none; border: none; border-radius: 0;
-                box-shadow: none; padding: 0; margin: 0 0 4.6rem 0;
-                display: grid; grid-template-columns: auto minmax(0, 1fr);
-                grid-template-areas: "ref text" "ed text"; text-align: left; gap: 0;
-                /* Le conteneur broadcast de base centre ses enfants ; en grille
-                   cela empêche les deux moitiés du cartouche de s'étirer sur
-                   leur rangée et ouvre une couture sombre entre elles. */
-                align-items: stretch;
-            }
-            body.theme-broadcast.style-cartouche #reference {
-                grid-area: ref; margin: 0; border: none; border-radius: 0;
-                background: var(--accent); color: var(--accent-ink);
-                font-family: var(--font-display); font-weight: 700; font-size: 1.75rem;
-                letter-spacing: -0.01em; white-space: nowrap;
-                padding: 1.1rem 1.7rem 0.15rem; display: flex; align-items: flex-end;
-            }
-            body.theme-broadcast.style-cartouche #edition {
-                grid-area: ed; margin: 0; background: var(--accent); color: var(--accent-ink);
-                font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600;
-                letter-spacing: 0.14em; text-transform: uppercase;
-                /* Alpha sur la COULEUR seulement : une opacité d'élément
-                   ternissait aussi le fond laiton et coupait le bloc en deux
-                   teintes. */
-                color: oklch(18% 0.05 50 / 0.72);
-                padding: 0 1.7rem 1.15rem; white-space: nowrap;
-            }
-            body.theme-broadcast.style-cartouche #text {
-                grid-area: text; margin: 0; font-family: var(--font-body); font-weight: 400;
-                font-size: 1.9rem; line-height: 1.34; color: var(--ink); text-shadow: none;
-                background: oklch(10% 0.012 265 / 0.93); padding: 1.2rem 2.2rem;
-                display: flex; align-items: center;
-            }
-            body.theme-broadcast.style-cartouche #text.karaoke .w { color: rgba(255,255,255,0.34); }
-            body.theme-broadcast.style-cartouche #text.karaoke .w.read { color: var(--ink); }
-
-            /* --- HABILLAGE PERSONNALISÉ -------------------------------------
-               L'église fournit son graphique ; VersePro n'y pose que le texte.
-               L'image occupe tout le cadre et les zones sont positionnées en
-               pourcentages, si bien que le réglage fait sur un portable reste
-               juste sur le vidéoprojecteur. Aucun style de VersePro ne s'y
-               applique : le design appartient entièrement au fichier fourni.  */
-            #overlay-layer { position: fixed; inset: 0; display: none; z-index: 5; }
-            body.has-overlay #overlay-layer { display: block; }
-            /* Le graphique remplace toute mise en scène : on masque le bloc
-               habituel plutôt que de le superposer à l'image. */
-            body.has-overlay #container { display: none !important; }
-            #overlay-image {
-                position: absolute; inset: 0;
-                width: 100%; height: 100%; object-fit: fill;
-            }
-            .overlay-zone {
-                position: absolute; display: flex; box-sizing: border-box;
-                overflow: hidden; text-shadow: none; white-space: pre-wrap;
-                font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-            }
-            .overlay-zone.font-display { font-family: var(--font-display); }
-            .overlay-zone.font-serif { font-family: Georgia, "Times New Roman", serif; }
-            .overlay-zone.font-mono { font-family: var(--font-mono); }
-            #overlay-shapes { position: absolute; inset: 0; }
-            /* Formes vectorielles : nettes à toute résolution, là où une image
-               exportée pour du 1080p se dégrade sur un vidéoprojecteur 4K. */
-            .overlay-shape { position: absolute; }
-            .overlay-zone .overlay-inner { display: block; width: 100%; }
-            .overlay-zone .vnum {
-                display: inline; font-size: 0.55em; vertical-align: super;
-                line-height: 0; margin-right: 0.06em;
-            }
-
-            /* --- STYLE: BANDEAU ---------------------------------------------
-               Reproduction fidèle du bandeau demandé : panneau blanc quasi
-               pleine largeur, étiquette turquoise posée dessus à droite, verset
-               en marine gras précédé de son numéro en exposant.
-
-               Tout est dimensionné en unités de viewport, à rebours des autres
-               styles : ceux-ci héritent d'un rem figé à 16 px, si bien qu'ils
-               changent d'allure entre un 720p et un 4K. Un bandeau qu'on veut
-               identique trait pour trait doit garder ses proportions partout.
-
-               Mesures relevées sur la référence (2027 × 1148) : panneau à 90 %
-               de large et 15 % de haut, verset à 5 vh sur deux lignes serrées,
-               marges intérieures étroites, étiquette de 5,4 vh largement
-               respirée à l'horizontale et alignée sur le bord droit.          */
-            body.style-bandeau, body.style-agoe, body.style-agoe-logope { align-items: flex-end; justify-content: center; }
-            body.style-bandeau #container, body.style-agoe #container, body.style-agoe-logope #container {
-                width: 90%; max-width: none; background: none; border: none;
-                border-radius: 0; box-shadow: none; padding: 0; margin: 0 0 4.2vh 0;
-                display: flex; flex-direction: column; align-items: flex-end;
-                text-align: left; gap: 0; position: relative;
-            }
-            body.style-bandeau #reference, body.style-agoe #reference, body.style-agoe-logope #reference {
-                order: -1;
-                margin: 0 0 -1.4vh 0; z-index: 10; border: none; text-transform: none;
-                background: linear-gradient(90deg, #1fb98f 0%, #2ed7b0 100%); color: #ffffff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-                font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-                font-size: 2.7vh; font-weight: 700; letter-spacing: 0;
-                white-space: nowrap; padding: 0 4.8vw; text-align: center;
-                height: 5.2vh; line-height: 5.2vh;
-                border-radius: 1.3vh 1.3vh 0 1.3vh;
-                box-shadow: 0 4px 15px rgba(31, 185, 143, 0.35);
-            }
-            body.style-bandeau #text, body.style-agoe #text, body.style-agoe-logope #text {
-                width: 100%; margin: 0; box-sizing: border-box;
-                background: #ffffff; color: #0b1d45;
-                font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-                font-size: 4.8vh; font-weight: 700; line-height: 1.25;
-                text-shadow: none; padding: 2.2vh 2.5vw 2.2vh 1.8vw;
-                border-radius: 2.2vh 0 5vh 2.2vh;
-                box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4);
-            }
-            body.style-bandeau #text .vnum, body.style-agoe #text .vnum, body.style-agoe-logope #text .vnum {
-                display: inline; font-size: 0.6em; font-weight: 800; color: #0b1d45;
-                vertical-align: super; line-height: 0; margin-right: 0.08em;
-            }
-            body.style-bandeau #edition, body.style-agoe #edition, body.style-agoe-logope #edition { display: none; }
-            body.style-bandeau #text.karaoke .w, body.style-agoe #text.karaoke .w, body.style-agoe-logope #text.karaoke .w { color: rgba(11, 29, 69, 0.32); }
-            body.style-bandeau #text.karaoke .w.read, body.style-agoe #text.karaoke .w.read, body.style-agoe-logope #text.karaoke .w.read { color: #0b1d45; }
-
-            /* Le numéro de verset s'affiche sur les styles bandeau et agoe */
-            body:not(.style-bandeau):not(.style-agoe):not(.style-agoe-logope) #text .vnum { display: none; }
-
-            /* --- STYLE: LIGNE DE BASE ---------------------------------------
-               Filet pleine largeur sous le verset, référence à gauche et
-               édition à droite. Le filet naît des bordures hautes des deux
-               cellules : une seule ligne continue, sans élément décoratif.    */
-            body.theme-broadcast.style-ligne { align-items: flex-end; justify-content: flex-start; }
-            body.theme-broadcast.style-ligne #container {
-                width: 100%; max-width: none; background: none; border: none; border-radius: 0;
-                box-shadow: none; margin: 0; padding: 8rem 6rem 3.4rem; text-align: left;
-                /* Aucun écart entre les colonnes : le filet naît des bordures
-                   hautes des deux cellules, et le moindre column-gap le coupe
-                   en deux tronçons. L'air se fait au rembourrage de l'édition. */
-                display: grid; grid-template-columns: 1fr auto; column-gap: 0;
-                background: linear-gradient(to top, oklch(8% 0.01 265 / 0.9), transparent 78%);
-            }
-            body.theme-broadcast.style-ligne #text {
-                grid-column: 1 / -1; margin: 0 0 1.3rem; font-family: var(--font-body);
-                font-weight: 400; font-size: 2.5rem; line-height: 1.28; color: var(--ink);
-                text-shadow: none; max-width: 60ch;
-            }
-            body.theme-broadcast.style-ligne #text.karaoke .w { color: rgba(255,255,255,0.34); }
-            body.theme-broadcast.style-ligne #text.karaoke .w.read { color: var(--ink); }
-            body.theme-broadcast.style-ligne #reference {
-                grid-column: 1; margin: 0; padding: 0.85rem 0 0; background: none; border: none;
-                border-top: 1px solid var(--accent); border-radius: 0;
-                font-family: var(--font-mono); font-size: 0.84rem; font-weight: 600;
-                letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent);
-            }
-            body.theme-broadcast.style-ligne #edition {
-                grid-column: 2; margin: 0; padding: 0.85rem 0 0 2.5rem;
-                border-top: 1px solid oklch(90% 0.01 262 / 0.22);
-                font-family: var(--font-mono); font-size: 0.84rem; font-weight: 500;
-                letter-spacing: 0.15em; text-transform: uppercase;
-                color: rgba(255,255,255,0.55); text-align: right; align-self: end;
-            }
-
-            /* --- THEME: SOUFFLE (adoration) ---------------------------------
-               Aucun décor : le verset seul, centré, sur un halo bas. Pour les
-               moments où le graphisme doit s'effacer devant le texte.         */
-            body.theme-souffle { justify-content: center; align-items: flex-end; }
-            body.theme-souffle #container {
-                width: 100%; max-width: none; background: none; border: none; box-shadow: none;
-                padding: 0 8rem 5rem; text-align: center;
-                background: radial-gradient(60% 42% at 50% 100%, oklch(8% 0.01 265 / 0.86) 0%, transparent 72%);
-            }
-            body.theme-souffle #text {
-                font-family: var(--font-body); font-size: 2.9rem; line-height: 1.34; font-weight: 400;
-                color: var(--ink); margin: 0 auto; max-width: 26ch;
-                text-shadow: 0 2px 24px oklch(6% 0.01 265 / 0.7);
-            }
-            body.theme-souffle #text.karaoke .w { color: rgba(255,255,255,0.3); }
-            body.theme-souffle #text.karaoke .w.read { color: var(--ink); }
-            body.theme-souffle #reference {
-                display: inline-block; margin-top: 1.6rem; padding: 0; background: none; border: none;
-                font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;
-                letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
-            }
-            body.theme-souffle #edition {
-                display: inline-block; margin-left: 0.85rem;
-                font-family: var(--font-mono); font-size: 0.85rem; font-weight: 500;
-                letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.68);
-            }
-            body.theme-souffle #edition::before { content: "•"; margin-right: 0.85rem; color: var(--accent); }
-            body.theme-souffle #subtitle { display: none; }
-
-            /* --- THEME: CONFIDENCE (moniteur simple) --- */
-            body.theme-confidence { background: #000 !important; justify-content: flex-start; align-items: flex-start; text-align: left; }
-            body.theme-confidence #container { width: 95%; margin: 40px; }
-            body.theme-confidence #text { font-size: 4rem; font-weight: bold; margin-bottom: 30px; text-shadow: none; }
-            body.theme-confidence #reference { font-size: 3rem; color: #ff0; text-shadow: none; }
-
-            /* --- THEME: ELEGANT (cérémonie, serif doré) --- */
-            body.theme-elegant {
-                background: radial-gradient(ellipse 90% 80% at 50% 30%, #14100a 0%, #050403 70%);
-                font-family: Georgia, "Times New Roman", serif;
-            }
-            body.theme-elegant #text {
-                font-size: 3.8rem; font-weight: 400; line-height: 1.5;
-                color: #f5efe2; letter-spacing: 0.3px; text-shadow: none;
-            }
-            body.theme-elegant #text.karaoke .w { color: rgba(245, 239, 226, 0.3); }
-            body.theme-elegant #text.karaoke .w.read { color: #f5efe2; }
-            body.theme-elegant #text.karaoke .w.cur { text-shadow: 0 0 22px rgba(226, 184, 101, 0.6); }
-            body.theme-elegant #reference {
-                color: #e2b865; font-size: 1.6rem; font-weight: 600;
-                letter-spacing: 0.35em; text-shadow: none;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            }
-            body.theme-elegant #reference::before,
-            body.theme-elegant #reference::after { content: "—"; margin: 0 18px; color: rgba(226, 184, 101, 0.4); }
-
-            /* --- THEME: MINIMAL (typographie géante) --- */
-            body.theme-minimal { background: #000; }
-            body.theme-minimal #container { width: 92%; max-width: 1500px; text-align: left; }
-            body.theme-minimal #text {
-                font-size: 4.6rem; font-weight: 750; line-height: 1.22;
-                letter-spacing: -0.015em; text-shadow: none; margin-bottom: 2.5rem;
-            }
-            body.theme-minimal #text.karaoke .w { color: rgba(255, 255, 255, 0.22); }
-            body.theme-minimal #text.karaoke .w.read { color: #ffffff; }
-            body.theme-minimal #reference {
-                font-size: 1.3rem; font-weight: 600; color: #8e8e93;
-                letter-spacing: 0.2em; text-shadow: none;
-            }
-
-            /* --- THEME: DUAL (multi-versions) --- */
-             body.theme-dual #container { width: 90%; max-width: 1300px; text-align: left; }
-            body.theme-dual .split-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; }
-            body.theme-dual .split-col { border-left: 3px solid rgba(255,255,255,0.15); padding-left: 20px; }
-            body.theme-dual .split-ver { font-size: 1.8rem; line-height: 1.5; color: #f3f4f6; margin-bottom: 12px; opacity: 0; }
-            body.theme-dual .split-label { font-size: 11px; font-weight: bold; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; opacity: 0; }
-            body.theme-dual #container.visible .split-ver { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-            body.theme-dual #container.visible .split-label { animation: fadeInUp 180ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards; }
-
-            /* --- NOUVEAUX STYLES DE BROADCAST --- */
-
-            /* Style: glass (Frosted Glassmorphism - Moderne) */
-            body.theme-broadcast.style-glass #container {
-                background: rgba(15, 17, 24, 0.65);
-                backdrop-filter: blur(12px) saturate(160%);
-                -webkit-backdrop-filter: blur(12px) saturate(160%);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 16px;
-                padding: 22px 36px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 28px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            }
-            body.theme-broadcast.style-glass #text {
-                font-size: 1.6rem;
-                color: rgba(255, 255, 255, 0.95);
-                text-shadow: none;
-                margin-bottom: 0;
-                flex: 1;
-                font-weight: 400;
-            }
-            body.theme-broadcast.style-glass #text.karaoke .w { color: rgba(255, 255, 255, 0.32); }
-            body.theme-broadcast.style-glass #text.karaoke .w.read { color: #ffffff; }
-            body.theme-broadcast.style-glass #reference {
-                background: linear-gradient(135deg, oklch(70% 0.16 265) 0%, oklch(60% 0.15 285) 100%);
-                color: #ffffff;
-                border: none;
-                font-size: 1.1rem;
-                font-weight: 700;
-                border-radius: 8px;
-                padding: 8px 20px;
-                text-shadow: 0 1px 2px rgba(0,0,0,0.25);
-                box-shadow: 0 4px 12px rgba(123, 131, 235, 0.25);
-                flex-shrink: 0;
-            }
-
-            /* Style: neon-glow (Cyberpunk Minimalist) */
-            body.theme-broadcast.style-neon-glow #container {
-                background: transparent;
-                border: none;
-                border-radius: 0;
-                padding: 16px 20px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 32px;
-                box-shadow: none;
-            }
-            body.theme-broadcast.style-neon-glow #text {
-                font-size: 1.7rem;
-                color: #ffffff;
-                font-weight: 600;
-                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
-                margin-bottom: 0;
-                flex: 1;
-            }
-            body.theme-broadcast.style-neon-glow #text.karaoke .w { color: rgba(255, 255, 255, 0.35); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85); }
-            body.theme-broadcast.style-neon-glow #text.karaoke .w.read { color: #ffffff; text-shadow: 0 0 12px rgba(255,255,255,0.4); }
-            body.theme-broadcast.style-neon-glow #reference {
-                background: #000000;
-                color: oklch(76% 0.17 50);
-                border: 2px solid oklch(76% 0.17 50);
-                font-size: 1.15rem;
-                font-weight: 800;
-                border-radius: 4px;
-                padding: 6px 18px;
-                text-shadow: none;
-                box-shadow: 0 0 15px rgba(253, 186, 116, 0.25);
-                flex-shrink: 0;
-            }
-
-            /* Style: elegant-serif (Georgia Dorée - Vantage) */
-            body.theme-broadcast.style-elegant-serif #container {
-                background: rgba(20, 16, 10, 0.94);
-                border: none;
-                border-left: 4px solid #e2b865;
-                border-radius: 4px;
-                padding: 20px 36px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 28px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-                font-family: Georgia, "Times New Roman", serif;
-            }
-            body.theme-broadcast.style-elegant-serif #text {
-                font-size: 1.6rem;
-                font-style: italic;
-                color: #f5efe2;
-                text-shadow: none;
-                margin-bottom: 0;
-                flex: 1;
-            }
-            body.theme-broadcast.style-elegant-serif #text.karaoke .w { color: rgba(245, 239, 226, 0.35); }
-            body.theme-broadcast.style-elegant-serif #text.karaoke .w.read { color: #f5efe2; }
-            body.theme-broadcast.style-elegant-serif #reference {
-                color: #e2b865;
-                font-size: 1.1rem;
-                font-weight: 600;
-                border: none;
-                padding: 0;
-                margin: 0;
-                text-shadow: none;
-                flex-shrink: 0;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-            }
-
-            /* Style: pill (Capsule Moderne - Image 1) */
-            body.theme-broadcast.style-pill #container {
-                background: rgba(18, 20, 26, 0.88);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 9999px;
-                padding: 16px 36px 16px 48px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 24px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-            }
-            body.theme-broadcast.style-pill #text {
-                font-size: 1.55rem;
-                color: #f3f4f6;
-                margin-bottom: 0;
-                text-shadow: none;
-                flex: 1;
-            }
-            body.theme-broadcast.style-pill #reference {
-                background: oklch(0.85 0.18 112); /* Jaune/Vert néon */
-                color: #0c1c0c;
-                border: none;
-                font-size: 1.1rem;
-                font-weight: 800;
-                border-radius: 9999px;
-                padding: 6px 20px;
-                text-shadow: none;
-                flex-shrink: 0;
-            }
-
-            /* Style: sage (Sauge & Terracotta - Image 2) */
-            body.theme-broadcast.style-sage #container {
-                background: rgba(148, 166, 149, 0.94); /* Vert sauge */
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 24px;
-                padding: 24px 44px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 32px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            }
-            body.theme-broadcast.style-sage #text {
-                font-size: 1.6rem;
-                color: #121813;
-                font-weight: 600;
-                text-shadow: none;
-                margin-bottom: 0;
-                flex: 1;
-            }
-            body.theme-broadcast.style-sage #text.karaoke .w { color: rgba(18, 24, 19, 0.35); }
-            body.theme-broadcast.style-sage #text.karaoke .w.read { color: #121813; }
-            body.theme-broadcast.style-sage #reference {
-                background: oklch(0.55 0.14 32); /* Terracotta */
-                color: #ffffff;
-                border: none;
-                font-size: 1.15rem;
-                border-radius: 9999px;
-                padding: 8px 24px;
-                text-shadow: none;
-                flex-shrink: 0;
-            }
-
-            /* Style: split (Barre Complète Divisée - Image 4) */
-            body.theme-broadcast.style-split {
-                align-items: flex-end;
-            }
-            body.theme-broadcast.style-split #container {
-                width: 100%;
-                max-width: 100%;
-                margin-bottom: 0;
-                background: #0d0e12;
-                border: none;
-                border-top: 2px solid oklch(0.62 0.17 29); /* Ligne rouge */
-                border-radius: 0;
-                padding: 0;
-                display: grid;
-                grid-template-columns: 320px 1fr;
-                align-items: stretch;
-                box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
-            }
-            body.theme-broadcast.style-split #reference {
-                background: #090a0d;
-                color: #ffffff;
-                border: none;
-                border-radius: 0;
-                padding: 24px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                font-size: 1.3rem;
-                font-weight: 700;
-                border-right: 1px solid rgba(255, 255, 255, 0.05);
-            }
-            body.theme-broadcast.style-split #text {
-                padding: 24px 48px;
-                font-size: 1.65rem;
-                color: #f3f4f6;
-                margin: 0;
-                text-shadow: none;
-                display: flex;
-                align-items: center;
-                text-align: left;
-                flex: 1;
-            }
-
-            /* --- NOUVEAUX THÈMES PLEIN ÉCRAN / SOCIAL --- */
-
-            /* Thème: poster (Cadre Vertical Sacré - Image 3) */
-            body.theme-poster {
-                background: radial-gradient(circle, #3d080c 0%, #120204 100%);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            body.theme-poster #container {
-                width: 580px;
-                height: 720px;
-                background: #ffffff;
-                border-radius: 40px;
-                box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
-                padding: 60px 48px;
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-                align-items: center;
-                box-sizing: border-box;
-                position: relative;
-            }
-            /* Badge Logo fictif en haut */
-            body.theme-poster #container::before {
-                content: "VP";
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 60px;
-                height: 60px;
-                border-radius: 50%;
-                background: #0d0d0d;
-                color: #ffffff;
-                font-weight: 800;
-                font-size: 1.2rem;
-                border: 4px solid #ffffff;
-                position: absolute;
-                top: -30px;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-            }
-            body.theme-poster #text {
-                font-size: 2.1rem;
-                line-height: 1.6;
-                color: #1a1a1a;
-                font-weight: 500;
-                margin: auto 0;
-                text-shadow: none;
-            }
-            body.theme-poster #text.karaoke .w { color: rgba(26, 26, 26, 0.3); }
-            body.theme-poster #text.karaoke .w.read { color: #1a1a1a; }
-            body.theme-poster #reference {
-                width: 100%;
-                text-align: center;
-                color: #990000;
-                font-size: 1.4rem;
-                font-weight: 800;
-                border-top: 2px solid #e6e6e6;
-                padding-top: 20px;
-                text-shadow: none;
-            }
-
-            /* Thème: story (Carte Rétro avec Filigrane - Image 5) */
-            body.theme-story {
-                background: linear-gradient(135deg, #0e1e24 0%, #18333c 100%);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                position: relative;
-                overflow: hidden;
-            }
-            /* Grand filigrane en arrière-plan */
-            body.theme-story::before {
-                content: "VP";
-                position: absolute;
-                font-size: 32rem;
-                font-weight: 900;
-                color: rgba(255, 255, 255, 0.035);
-                line-height: 1;
-                z-index: 0;
-                left: -40px;
-                bottom: -60px;
-                pointer-events: none;
-            }
-            body.theme-story #container {
-                z-index: 1;
-                width: 620px;
-                background: oklch(0.38 0.12 165); /* Vert émeraude/forêt profond */
-                border-radius: 32px;
-                box-shadow: 0 35px 80px rgba(0, 0, 0, 0.5);
-                padding: 48px;
-                display: flex;
-                flex-direction: column;
-                gap: 24px;
-                position: relative;
-                box-sizing: border-box;
-            }
-            /* Ruban "étiquette" en bas à droite */
-            body.theme-story #container::after {
-                content: "VERSEPRO";
-                position: absolute;
-                right: 24px;
-                bottom: -12px;
-                background: #ffffff;
-                color: #121813;
-                font-size: 10px;
-                font-weight: 800;
-                padding: 6px 16px;
-                border-radius: 4px;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-                letter-spacing: 0.1em;
-            }
-            body.theme-story #reference {
-                color: #ffffff;
-                font-family: "Impact", "Arial Black", sans-serif;
-                font-size: 2.8rem;
-                text-transform: uppercase;
-                text-align: left;
-                border: none;
-                padding: 0;
-                margin: 0;
-                letter-spacing: 1px;
-                text-shadow: none;
-            }
-            body.theme-story #text {
-                font-size: 1.8rem;
-                line-height: 1.5;
-                color: #e6f2ec;
-                font-weight: 450;
-                text-align: left;
-                text-shadow: none;
-                margin-bottom: 20px;
-            }
-            body.theme-story #text.karaoke .w { color: rgba(230, 242, 236, 0.35); }
-            body.theme-story #text.karaoke .w.read { color: #ffffff; }
-        </style>
-    </head>
-    <body>
-        <!-- Habillage fourni par l'église : image plein cadre et zones de
-             texte. Reste vide et masqué tant qu'aucun PNG n'est installé. -->
-        <div id="overlay-layer">
-            <img id="overlay-image" alt="">
-            <!-- Formes construites dans VersePro, entre l'image et les textes :
-                 une église sans graphiste compose son bandeau ici. -->
-            <div id="overlay-shapes"></div>
-            <!-- Le texte vit dans un enfant : la zone est en flex pour son
-                 alignement vertical, et un flex y ferait de l'exposant un
-                 élément de rangée au lieu de le laisser couler dans la phrase. -->
-            <div class="overlay-zone" id="overlay-text"><span class="overlay-inner"></span></div>
-            <div class="overlay-zone" id="overlay-reference"><span class="overlay-inner"></span></div>
-        </div>
-        <div id="container">
-            <div id="text">En attente d'affichage...</div>
-            <div id="reference"></div>
-            <!-- Édition en toutes lettres, à côté de la référence. Masquée par
-                 défaut : seuls les styles qui la mettent en scène l'affichent,
-                 les autres gardent le sigle entre parenthèses. -->
-            <div id="edition" style="display: none;"></div>
-            <!-- Compteur de pages d'un passage long. Discret : il informe
-                 l'assemblée qu'une suite vient, sans jamais concurrencer le
-                 texte. Masqué dès qu'il n'y a qu'une page. -->
-            <div id="page-compteur" style="display: none;"></div>
-            <div id="split-container" style="display: none;">
-                <div class="split-columns" id="split-cols"></div>
-            </div>
-        </div>
-        <div id="subtitle"><span class="lang"></span><span class="txt"></span></div>
-        <div id="signal"></div>
-
-        <script>
-            const container = document.getElementById('container');
-            const textEl = document.getElementById('text');
-            const refEl = document.getElementById('reference');
-            const splitContainer = document.getElementById('split-container');
-            const splitCols = document.getElementById('split-cols');
-            const subtitleEl = document.getElementById('subtitle');
-            const signalEl = document.getElementById('signal');
-
-            const params = new URLSearchParams(window.location.search);
-            const forcedBg = params.get('bg');
-            const forcedTheme = params.get('theme');
-            const scale = parseFloat(params.get('scale') || '1');
-            const subtitlesEnabled = params.get('subtitle') !== 'off';
-            // Mode démonstration : sert les aperçus de réglages. Tant qu'aucun
-            // verset n'est projeté, la page reste noire — un opérateur qui
-            // compare des styles avant le culte ne verrait donc rien. Le verset
-            // d'exemple ne s'affiche JAMAIS sur un écran de projection : il faut
-            // le demander explicitement par l'URL.
-            const modeDemo = params.get('demo') === '1';
-            const SCENE_DEMO = {
-                type: 'scripture',
-                text: "Lorsque Moïse élevait sa main, Israël était le plus fort; et lorsqu'il baissait sa main, Amalek était le plus fort.",
-                reference: 'Exode 17:11',
-                book: 'Exode', chapter: 17, verse_start: 11,
-                active_version: 'LSG', active_version_label: 'Louis Segond 1910',
-                show_version: true, background: 'black',
-                translations: {
-                    LSG: "Lorsque Moïse élevait sa main, Israël était le plus fort; et lorsqu'il baissait sa main, Amalek était le plus fort.",
-                    SEM: "Tant que Moïse tenait ses mains levées, Israël était le plus fort, mais dès qu'il les laissait retomber, Amalek l'emportait."
-                }
-            };
-            // Le zoom s'applique à TOUS les thèmes (tout est dimensionné en rem)
-            if (scale && scale !== 1) document.documentElement.style.fontSize = (16 * scale) + 'px';
-
-            let currentKey = null;
-            let subtitleTimer = null;
-
-            // Rendu du texte en mots individuels (Lecture vivante) — DOM sûr, pas d'innerHTML
-            function renderWords(text, verseNum) {
-                textEl.textContent = '';
-                // La lecture vivante éteint les mots non encore prononcés (34 %
-                // d'opacité). Poser « karaoke » dès le rendu affichait TOUT le
-                // verset en gris tant qu'aucune voix ne le suivait : projection
-                // manuelle, micro coupé, simple silence. Le verset attendait une
-                // lecture qui ne venait pas. On n'arme le suivi qu'au premier
-                // événement de progression — voir applyProgress.
-                textEl.classList.remove('karaoke');
-                // Numéro de verset en exposant, à la manière d'une bible
-                // imprimée. Hors du flux des mots (.w) pour ne pas fausser le
-                // suivi karaoké, et masqué tant qu'un style ne l'appelle pas.
-                if (verseNum !== undefined && verseNum !== null && verseNum !== '') {
-                    const sup = document.createElement('sup');
-                    sup.className = 'vnum';
-                    sup.textContent = verseNum;
-                    textEl.appendChild(sup);
-                }
-        (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
-                    const span = document.createElement('span');
-                    span.className = 'w';
-                    span.textContent = word;
-                    textEl.appendChild(span);
-                    textEl.appendChild(document.createTextNode(' '));
-                });
-            }
-
-            // ── Passages longs : paginer plutôt que rapetisser ──────────────
-            //
-            // Un « Romains 8:28-39 » fait 900 caractères. Tout afficher d'un
-            // coup obligeait à réduire la police jusqu'à l'illisible — et sur
-            // un lower-third, dont le bandeau fait quelques centaines de
-            // pixels de haut, c'était sans espoir. On découpe donc le passage
-            // en pages qui tiennent à la taille NORMALE du thème.
-            //
-            // La coupe tombe sur une fin de phrase : couper « toutes choses |
-            // concourent au bien » laisserait une demi-proposition à l'écran,
-            // ce qu'aucun régisseur n'accepterait.
-            // Une page = un verset quand le backend les a séparés, sinon un
-            // découpage sur les fins de phrase. AUCUNE minuterie : une page ne
-            // part jamais d'elle-même. Elle avance quand la lecture atteint sa
-            // fin, ou sur commande de la régie. C'est le prédicateur qui mène.
-            let pages = [], pageCourante = 0, numVersetPage = null, numerosPages = [];
-            // Mots des pages DÉJÀ passées : le suiveur de lecture compte
-            // depuis le début du passage, la page ne connaît que les siens.
-            let motsAvantPage = 0;
-
-            function decouperEnPhrases(texte) {
-                // Le point d'une abréviation ne termine pas une phrase : on
-                // exige une majuscule ou un guillemet derrière.
-                return (texte || '').split(/(?<=[.!?\\u2026])\\s+(?=[\\u00AB"A-Z\\u00C0-\\u00DE])/)
-                                    .map((s) => s.trim()).filter(Boolean);
-            }
-
-            function construirePages(texte, verseNum) {
-                const phrases = decouperEnPhrases(texte);
-                if (phrases.length <= 1) return [texte || ''];
-
-                document.documentElement.style.fontSize = '16px';
-                const zone = document.getElementById('container');
-                const tient = () => {
-                    const r = zone.getBoundingClientRect();
-                    return r.top >= -1 && r.bottom <= window.innerHeight + 1;
-                };
-
-                const resultat = [];
-                let accumule = '';
-                for (const phrase of phrases) {
-                    const essai = accumule ? accumule + ' ' + phrase : phrase;
-                    renderWords(essai, resultat.length === 0 ? verseNum : null);
-                    // `!accumule` : une phrase seule qui déborde reste sur sa
-                    // page — c'est l'ajustement de police qui la rattrapera.
-                    if (tient() || !accumule) {
-                        accumule = essai;
-                    } else {
-                        resultat.push(accumule);
-                        accumule = phrase;
-                    }
-                }
-                if (accumule) resultat.push(accumule);
-                return resultat;
-            }
-
-            function montrerPage(index) {
-                if (index < 0 || index >= pages.length) return;
-                pageCourante = index;
-                motsAvantPage = pages.slice(0, index)
-                    .reduce((n, p) => n + p.split(/\\s+/).filter(Boolean).length, 0);
-                // Chaque page porte SON numéro de verset quand le passage a été
-                // découpé verset par verset — sinon l'assemblée ne saurait plus
-                // où elle en est au troisième écran.
-                renderWords(pages[index], numerosPages[index] ?? (index === 0 ? numVersetPage : null));
-                const compteur = document.getElementById('page-compteur');
-                if (compteur) {
-                    compteur.textContent = pages.length > 1
-                        ? (index + 1) + ' / ' + pages.length : '';
-                    compteur.style.display = pages.length > 1 ? '' : 'none';
-                }
-                ajusterAuCadre();
-            }
-
-            function pageSuivante() {
-                if (pageCourante + 1 < pages.length) montrerPage(pageCourante + 1);
-            }
-            function pagePrecedente() {
-                if (pageCourante > 0) montrerPage(pageCourante - 1);
-            }
-
-            function afficherParPages(texte, verseNum, versets) {
-                numVersetPage = verseNum;
-                if (Array.isArray(versets) && versets.length > 1) {
-                    // Le backend a séparé les versets : un verset par page.
-                    pages = versets.map((v) => v.text);
-                    numerosPages = versets.map((v) => v.n);
-                } else {
-                    pages = construirePages(texte, verseNum);
-                    numerosPages = [];
-                }
-                montrerPage(0);
-            }
-
-            // La régie peut avancer à la main — indispensable quand le
-            // prédicateur commente au lieu de lire, ou quand le micro est coupé.
-            window.addEventListener('keydown', (e) => {
-                if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); pageSuivante(); }
-                if (e.key === 'ArrowLeft') { e.preventDefault(); pagePrecedente(); }
-            });
-
-            function applyProgress(matched) {
-                const spans = textEl.querySelectorAll('.w');
-                if (!spans.length) return;
-                // La lecture atteint le bas de la page : on passe à la suivante.
-                // Le prédicateur mène, l'écran suit.
-                //
-                // `matched` compte les mots depuis le début du PASSAGE, alors
-                // que `spans` ne contient que ceux de la page courante. Sans
-                // retrancher ce que les pages précédentes ont déjà consommé, la
-                // condition était vraie DÈS l'apparition de la page 2 : les
-                // versets 29 à 32 auraient défilé en un clin d'œil devant
-                // l'assemblée.
-                const restant = matched - motsAvantPage;
-                if (pages.length > 1 && restant >= spans.length - 2
-                    && pageCourante + 1 < pages.length) {
-                    montrerPage(pageCourante + 1);
-                    return;
-                }
-                // Une voix suit réellement le texte : on peut armer l'extinction
-                // des mots à venir. Sans cette garde, un verset projeté sans
-                // lecture restait gris de bout en bout devant l'assemblée.
-                if (matched > 0) textEl.classList.add('karaoke');
-                spans.forEach((span, i) => {
-                    span.classList.toggle('read', i < matched);
-                    span.classList.toggle('cur', i === matched - 1);
-                });
-            }
-
-             function getFullReference(data) {
-                if (!data) return '';
-                if (!data.book) return data.reference || '';
-                let ref = data.book + ' ' + data.chapter;
-                if (data.verse_start !== undefined && data.verse_start !== null) {
-                    ref += ':' + data.verse_start;
-                    if (data.verse_end) {
-                        ref += '-' + data.verse_end;
-                    }
-                }
-                if (data.active_version && data.show_version !== false) {
-                    ref += ' (' + data.active_version + ')';
-                }
-                return ref;
-            }
-
-            // ── Habillage personnalisé ───────────────────────────────────────
-            const overlayLayer = document.getElementById('overlay-layer');
-            const overlayImage = document.getElementById('overlay-image');
-            const overlayZones = {
-                text: document.getElementById('overlay-text'),
-                reference: document.getElementById('overlay-reference')
-            };
-            let overlayVersion = null;
-
-            function applyZone(el, zone) {
-                if (!el || !zone) return;
-                el.style.left = zone.x + '%';
-                el.style.top = zone.y + '%';
-                el.style.width = zone.w + '%';
-                el.style.height = zone.h + '%';
-                // La taille suit la HAUTEUR du cadre : c'est ce qui garde les
-                // proportions identiques d'un 720p à un 4K.
-                el.style.fontSize = zone.size + 'vh';
-                el.style.lineHeight = zone.line;
-                el.style.color = zone.color;
-                el.style.fontWeight = zone.weight;
-                el.style.textAlign = zone.align;
-                el.style.justifyContent =
-                    zone.align === 'center' ? 'center' : zone.align === 'right' ? 'flex-end' : 'flex-start';
-                el.style.alignItems =
-                    zone.valign === 'middle' ? 'center' : zone.valign === 'bottom' ? 'flex-end' : 'flex-start';
-                el.className = 'overlay-zone font-' + zone.font;
-            }
-
-            // Contour d'une forme, coin par coin. Doit rester le jumeau exact de
-            // shape_geometry.py, qui sert la sortie NDI : mêmes angles, même
-            // ordre, même nombre de segments.
-            const SEGMENTS_ARC = 10;
-            function contourForme(L, H, coins) {
-                const limite = Math.max(0, Math.min(L, H) / 2);
-                const r = [], m = [];
-                for (let i = 0; i < 4; i++) {
-                    const c = (coins && coins[i]) || {};
-                    r.push(Math.max(0, Math.min(limite, Number(c.r) || 0)));
-                    m.push(['out', 'in', 'cut'].includes(c.mode) ? c.mode : 'out');
-                }
-                const P = Math.PI;
-                const sommets = [[0, 0], [L, 0], [L, H], [0, H]];
-                const entrees = [[0, r[0]], [L - r[1], 0], [L, H - r[2]], [r[3], H]];
-                const sorties = [[r[0], 0], [L, r[1]], [L - r[2], H], [0, H - r[3]]];
-                const centres = [[r[0], r[0]], [L - r[1], r[1]], [L - r[2], H - r[2]], [r[3], H - r[3]]];
-                const angles = [[P, 1.5 * P], [1.5 * P, 2 * P], [0, 0.5 * P], [0.5 * P, P]];
-                const rentrants = [[0.5 * P, 0], [P, 0.5 * P], [1.5 * P, P], [0, -0.5 * P]];
-                const pts = [];
-                const arc = (centre, rayon, a, b) => {
-                    for (let i = 0; i <= SEGMENTS_ARC; i++) {
-                        const t = a + (b - a) * i / SEGMENTS_ARC;
-                        pts.push([centre[0] + rayon * Math.cos(t), centre[1] + rayon * Math.sin(t)]);
-                    }
-                };
-                for (let i = 0; i < 4; i++) {
-                    if (r[i] <= 0) { pts.push(sommets[i]); continue; }
-                    pts.push(entrees[i]);
-                    if (m[i] === 'in') arc(sommets[i], r[i], rentrants[i][0], rentrants[i][1]);
-                    else if (m[i] !== 'cut') arc(centres[i], r[i], angles[i][0], angles[i][1]);
-                    pts.push(sorties[i]);
-                }
-                return pts;
-            }
-
-            function renderShapes(formes) {
-                const hote = document.getElementById('overlay-shapes');
-                hote.textContent = '';
-                // Les coins peuvent être creusés ou biseautés : border-radius ne
-                // sait faire que l'arrondi sortant, on trace donc le contour.
-                const cadreL = window.innerWidth, cadreH = window.innerHeight;
-                (formes || []).forEach((f) => {
-                    const L = f.w * cadreL / 100, H = f.h * cadreH / 100;
-                    const coins = (f.corners && f.corners.length)
-                        ? f.corners.map((c) => ({ r: (c.r || 0) * cadreH / 100, mode: c.mode }))
-                        : Array.from({ length: 4 }, () => ({ r: (f.radius || 0) * cadreH / 100, mode: 'out' }));
-                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                    svg.setAttribute('class', 'overlay-shape');
-                    svg.setAttribute('viewBox', `0 0 ${L} ${H}`);
-                    svg.setAttribute('preserveAspectRatio', 'none');
-                    svg.style.left = f.x + '%';
-                    svg.style.top = f.y + '%';
-                    svg.style.width = f.w + '%';
-                    svg.style.height = f.h + '%';
-                    svg.style.opacity = f.opacity;
-                    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                    poly.setAttribute('points', contourForme(L, H, coins).map((p) => p.join(',')).join(' '));
-                    poly.setAttribute('fill', f.fill);
-                    svg.appendChild(poly);
-                    hote.appendChild(svg);
-                });
-            }
-
-            // Les contours sont calculés en pixels : un changement de taille de
-            // fenêtre doit les refaire, sinon les coins se déforment.
-            let dernieresFormes = null;
-            window.addEventListener('resize', () => {
-                if (dernieresFormes) renderShapes(dernieresFormes);
-            });
-
-            function renderOverlay(data) {
-                const info = data.overlay;
-                const formes = (info && info.shapes) || [];
-                const forcedStyle = params.get('style') || data.style || '';
-                const estHabillageStyle = forcedStyle.startsWith('habillage:');
-                // En mode aperçu des thèmes (boîte d'aperçu des paramètres), on laisse
-                // l'opérateur prévisualiser librement tous les thèmes standards (presentation,
-                // agoe-logope, glass, dual, etc.). L'habillage ne s'affiche dans l'aperçu
-                // que si un habillage spécifique est sélectionné dans le menu.
-                if ((modeDemo && !estHabillageStyle) || !info || (!info.image_url && !formes.length)) {
-                    document.body.classList.remove('has-overlay');
-                    return false;
-                }
-                // L'URL vient du serveur : elle désigne l'habillage courant ou
-                // celui d'un préréglage, et porte sa version pour le cache.
-                const urlImage = info.image_url || '';
-                overlayImage.style.display = urlImage ? '' : 'none';
-                if (urlImage && overlayVersion !== urlImage) {
-                    overlayVersion = urlImage;
-                    overlayImage.src = urlImage;
-                }
-                dernieresFormes = formes;
-                renderShapes(formes);
-                const zones = info.zones || {};
-                applyZone(overlayZones.text, zones.text);
-                applyZone(overlayZones.reference, zones.reference);
-                const dedansRef = overlayZones.reference.querySelector('.overlay-inner');
-                const dedansTexte = overlayZones.text.querySelector('.overlay-inner');
-                dedansRef.textContent = getFullReference(data);
-                dedansTexte.textContent = '';
-                if (data.verse_start !== undefined && data.verse_start !== null) {
-                    const sup = document.createElement('sup');
-                    sup.className = 'vnum';
-                    sup.textContent = data.verse_start;
-                    dedansTexte.appendChild(sup);
-                }
-                dedansTexte.appendChild(document.createTextNode(data.text || ''));
-                document.body.classList.add('has-overlay');
-                return true;
-            }
-
-            function renderScene(data) {
-                const bg = forcedBg || data.background;
-                document.body.className = '';
-                if (bg === 'transparent') document.body.classList.add('bg-transparent');
-                else if (bg === 'green') document.body.classList.add('chroma-green');
-                else if (bg === 'blue') document.body.classList.add('chroma-blue');
-                // Fonds animés, sur demande explicite seulement. La liste est
-                // FERMÉE : `bg` vient d'un paramètre d'URL, et concaténer une
-                // valeur libre dans un nom de classe laisserait n'importe qui
-                // styler l'écran de projection depuis un lien.
-                else if (['aurore', 'braise', 'nuit', 'sable'].includes(bg)) {
-                    document.body.classList.add('fond-' + bg);
-                }
-
-                const theme = forcedTheme || data.theme || 'presentation';
-                document.body.classList.add('theme-' + theme);
-
-                const forcedStyle = params.get('style') || data.style;
-                if (forcedStyle) {
-                    document.body.classList.add('style-' + forcedStyle);
-                }
-
-                // Après les classes : renderScene remet className à zéro, et
-                // « has-overlay » serait effacé s'il était posé plus tôt.
-                const overlayActif = renderOverlay(data);
-
-                // Même verset (changement de thème/fond seulement) : pas de re-animation
-                const fullRef = getFullReference(data);
-                const key = fullRef + '|' + (data.text || '') + '|' + theme + '|' + (forcedStyle || '')
-                    + '|' + (overlayActif ? (data.overlay.updated_at
-                        + JSON.stringify(data.overlay.zones) + JSON.stringify(data.overlay.shapes)) : '');
-                if (key === currentKey) return;
-                currentKey = key;
-
-                container.classList.remove('visible');
-                setTimeout(() => {
-                    splitContainer.style.display = 'none';
-                    textEl.style.display = 'block';
-                    // Style inline volontairement vidé plutôt que forcé à
-                    // « block » : les styles qui posent la référence et l'édition
-                    // sur une même ligne les déclarent inline-block en CSS, et un
-                    // style inline l'emporterait sur eux.
-                    refEl.style.display = '';
-
-                    const translations = data.translations || {};
-                    if (theme === 'dual' && Object.keys(translations).length > 1) {
-                        textEl.style.display = 'none';
-                        refEl.style.display = 'none';
-                        splitContainer.style.display = 'block';
-                        splitCols.textContent = '';
-                        
-                        let versionsToShow = [];
-                        const versionsParam = params.get('versions');
-                        if (versionsParam) {
-                            versionsToShow = versionsParam.split(',').map(v => v.trim().toUpperCase());
-                        } else if (data.dual_translations) {
-                            versionsToShow = data.dual_translations.split(',').map(v => v.trim().toUpperCase());
-                        } else {
-                            const active = data.active_version || 'LSG';
-                            versionsToShow = [active];
-                            Object.keys(translations).forEach(v => {
-                                if (v !== active && versionsToShow.length < 2) {
-                                    versionsToShow.push(v);
-                                }
-                            });
-                        }
-
-                        versionsToShow.forEach((version) => {
-                            const txt = translations[version];
-                            if (!txt) return;
-                            const col = document.createElement('div');
-                            col.className = 'split-col';
-                            const ver = document.createElement('div');
-                            ver.className = 'split-ver';
-                            ver.textContent = txt;
-                            const label = document.createElement('div');
-                            label.className = 'split-label';
-                            const showVer = data.show_version !== false;
-                            label.textContent = (showVer ? version + ' — ' : '') + getFullReference({...data, show_version: false});
-                            col.appendChild(ver);
-                            col.appendChild(label);
-                            splitCols.appendChild(col);
-                        });
-                    } else {
-                        afficherParPages(data.text, data.verse_start, data.verses);
-                        // Les styles « filet » et « souffle » portent l'édition dans
-                        // un élément propre, en toutes lettres : « Louis Segond 1910 »
-                        // plutôt qu'un « (LSG) » que personne dans l'assemblée ne sait
-                        // lire. Les autres gardent le sigle collé à la référence.
-                        const editionEl = document.getElementById('edition');
-                        const spelled = ['style-filet', 'style-cartouche', 'style-ligne', 'theme-souffle']
-                            .some((c) => document.body.classList.contains(c));
-                        if (spelled && data.show_version !== false && data.active_version_label) {
-                            refEl.textContent = getFullReference({...data, show_version: false});
-                            editionEl.textContent = data.active_version_label;
-                            editionEl.style.display = '';
-                        } else {
-                            refEl.textContent = fullRef;
-                            editionEl.style.display = 'none';
-                        }
-                    }
-
-                    if (data.text || data.reference) container.classList.add('visible');
-                    ajusterAuCadre();
-                }, 150);
-            }
-
-            // ── Ajustement du texte au cadre ────────────────────────────────
-            //
-            // La taille de police était FIXE, quelle que soit la longueur du
-            // passage. Mesuré : sur une lecture de dix versets (1 290
-            // caractères), le panneau atteignait 1 010 px dans une fenêtre de
-            // 720 — 320 pixels sortaient par le haut, et la référence
-            // disparaissait complètement de l'écran. L'assemblée ne voyait pas
-            // le début du verset.
-            //
-            // On réduit donc la police jusqu'à ce que tout tienne. Recherche
-            // dichotomique : une dizaine de mesures suffisent là où une
-            // décroissance pas à pas en demanderait des centaines, et le
-            // rendu doit être instantané entre deux versets.
-            // On agit sur la taille de police de la RACINE : toutes les tailles
-            // des thèmes sont en `rem`, donc tout suit d'un coup — et surtout
-            // le texte se REMET EN PAGE au lieu d'être déformé, ce que ferait
-            // un transform: scale().
-            const RACINE_PX = 16;      // la valeur du thème, jamais modifiée
-            const FACTEUR_MIN = 0.42;  // en deçà, le fond de salle ne lit plus
-            let ajustementEnCours = false;
-
-            function ajusterAuCadre() {
-                if (ajustementEnCours) return;
-                const zone = document.getElementById('container');
-                const texte = document.getElementById('text');
-                if (!zone || !texte) return;
-                ajustementEnCours = true;
-
-                const appliquer = (f) => {
-                    document.documentElement.style.fontSize = (RACINE_PX * f).toFixed(2) + 'px';
-                };
-                const tient = () => {
-                    const r = zone.getBoundingClientRect();
-                    // Marge d'un pixel : les arrondis de rendu ne doivent pas
-                    // déclencher une réduction inutile.
-                    return r.top >= -1 && r.bottom <= window.innerHeight + 1;
-                };
-
-                // On repart TOUJOURS de la taille du thème, sinon un passage
-                // long rapetisserait définitivement tous les versets suivants.
-                appliquer(1);
-                if (!texte.textContent.trim() || tient()) {
-                    ajustementEnCours = false;
-                    return;
-                }
-
-                // Recherche dichotomique : dix mesures suffisent là où une
-                // décroissance pas à pas en demanderait des centaines, et le
-                // passage d'un verset à l'autre doit rester instantané.
-                let bas = FACTEUR_MIN, haut = 1;
-                for (let i = 0; i < 10; i++) {
-                    const milieu = (bas + haut) / 2;
-                    appliquer(milieu);
-                    if (tient()) bas = milieu; else haut = milieu;
-                }
-                appliquer(bas);
-                ajustementEnCours = false;
-            }
-
-            // Un vidéoprojecteur branché en cours de culte change la
-            // résolution : on réajuste plutôt que de laisser un texte coupé.
-            let minuterieRedim;
-            window.addEventListener('resize', () => {
-                clearTimeout(minuterieRedim);
-                minuterieRedim = setTimeout(ajusterAuCadre, 120);
-            });
-
-            function showSubtitle(data) {
-                if (!subtitlesEnabled) return;
-                subtitleEl.querySelector('.lang').textContent = (data.lang || '').toUpperCase();
-                subtitleEl.querySelector('.txt').textContent = data.text || '';
-                subtitleEl.classList.add('on');
-                clearTimeout(subtitleTimer);
-                subtitleTimer = setTimeout(() => subtitleEl.classList.remove('on'), 7000);
-            }
-
-            let ws;
-            function connect() {
-                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : ''));
-                ws.onopen = () => { signalEl.classList.remove('lost'); container.classList.add('visible'); };
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'reading_progress') { applyProgress(data.matched); return; }
-                    if (data.type === 'live_translation') { showSubtitle(data); return; }
-                    if (data.type && data.type !== 'scripture') return;
-                    // En aperçu, tant qu'aucun verset n'est projeté on montre
-                    // l'exemple ; l'habillage et les réglages restent ceux du
-                    // serveur. La RÉFÉRENCE est le signal fiable : la scène au
-                    // repos porte déjà le texte « En attente d'affichage… ».
-                    if (modeDemo && !data.reference) {
-                        renderScene({ ...data, ...SCENE_DEMO });
-                        return;
-                    }
-                    renderScene(data);
-                };
-                ws.onclose = () => { signalEl.classList.add('lost'); setTimeout(connect, 2000); };
-            }
-            connect();
-        </script>
-    </body>
-    </html>
-    """
+    html_content = _get_template_path("output.html").read_text(encoding="utf-8")
     return HTMLResponse(content=html_content)
 
 
@@ -1885,146 +520,7 @@ async def get_stage_display():
     vivante, horloge, et verset SUIVANT pré-affiché. Ce que ProPresenter vend
     en option, en mieux : l'écran sait où en est la lecture.
     """
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>VersePro — Moniteur prédicateur</title>
-        <style>
-            :root { color-scheme: dark; }
-            * { box-sizing: border-box; }
-            body {
-                margin: 0; height: 100vh; overflow: hidden;
-                background: #000; color: #fff;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-                display: flex; flex-direction: column;
-                padding: 3.5vh 4vw;
-            }
-            header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3vh; }
-            #reference { font-size: 3.2vw; font-weight: 800; color: oklch(76% 0.17 50); letter-spacing: 0.04em; text-transform: uppercase; }
-            #clock { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 3.2vw; font-weight: 700; color: #fff; }
-            main { flex: 1; display: flex; align-items: center; }
-            #text { font-size: 4.2vw; line-height: 1.4; font-weight: 600; }
-            #text .w { color: rgba(255, 255, 255, 0.36); transition: color 0.3s ease; }
-            #text .w.read { color: #fff; }
-            #text .w.cur { color: oklch(76% 0.17 50); }
-            footer { border-top: 2px solid rgba(255, 255, 255, 0.14); padding-top: 2.2vh; min-height: 16vh; }
-            footer .label { font-size: 1.2vw; font-weight: 800; letter-spacing: 0.16em; color: #30d158; text-transform: uppercase; }
-            #next-text {
-                margin-top: 0.8vh; font-size: 2.1vw; line-height: 1.4; color: rgba(255, 255, 255, 0.6);
-                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-            }
-            .waiting { color: rgba(255,255,255,0.35); }
-            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px;
-                      border-radius: 50%; background: #d93025; opacity: 0; transition: opacity 0.4s; }
-            #signal.lost { opacity: 0.85; }
-        </style>
-    </head>
-    <body>
-        <header>
-            <div id="reference">—</div>
-            <div id="clock">--:--:--</div>
-        </header>
-        <main><div id="text" class="waiting">En attente du prochain verset…</div></main>
-        <footer>
-            <span class="label" id="next-label">Suivant</span>
-            <div id="next-text">—</div>
-        </footer>
-        <div id="signal"></div>
-        <script>
-            const refEl = document.getElementById('reference');
-            const textEl = document.getElementById('text');
-            const clockEl = document.getElementById('clock');
-            const nextLabel = document.getElementById('next-label');
-            const nextText = document.getElementById('next-text');
-
-            setInterval(() => {
-                clockEl.textContent = new Date().toLocaleTimeString('fr-FR');
-            }, 1000);
-
-            function renderWords(text) {
-                textEl.textContent = '';
-                textEl.classList.remove('waiting');
-        (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
-                    const span = document.createElement('span');
-                    span.className = 'w';
-                    span.textContent = word;
-                    textEl.appendChild(span);
-                    textEl.appendChild(document.createTextNode(' '));
-                });
-            }
-
-            function applyProgress(matched) {
-                const spans = textEl.querySelectorAll('.w');
-                spans.forEach((span, i) => {
-                    span.classList.toggle('read', i < matched);
-                    span.classList.toggle('cur', i === matched - 1);
-                });
-            }
-
-            function getFullReference(data) {
-                if (!data) return '';
-                if (!data.book) return data.reference || '';
-                let ref = data.book + ' ' + data.chapter;
-                if (data.verse_start !== undefined && data.verse_start !== null) {
-                    ref += ':' + data.verse_start;
-                    if (data.verse_end) {
-                        ref += '-' + data.verse_end;
-                    }
-                }
-                if (data.active_version && data.show_version !== false) {
-                    ref += ' (' + data.active_version + ')';
-                }
-                return ref;
-            }
-
-            function renderScene(data) {
-                const fullRef = getFullReference(data);
-                refEl.textContent = fullRef || '—';
-                if (data.text) {
-                    renderWords(data.text);
-                } else {
-                    textEl.classList.add('waiting');
-                    textEl.textContent = 'En attente du prochain verset…';
-                }
-                nextLabel.textContent = data.next_reference ? ('Suivant · ' + data.next_reference) : 'Suivant';
-                nextText.textContent = data.next_text || '—';
-            }
-
-            const signalEl = document.getElementById('signal');
-            let ws;
-            function connect() {
-                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const url = `${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : '');
-                console.log('⏳ [Moniteur] Tentative de connexion WebSocket sur', url);
-                ws = new WebSocket(url);
-                ws.onopen = () => {
-                    console.log('✅ [Moniteur] WebSocket connecté !');
-                    signalEl.classList.remove('lost');
-                };
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    console.log('📥 [Moniteur] Message reçu :', data);
-                    if (data.type === 'reading_progress') { 
-                        applyProgress(data.matched); 
-                        return; 
-                    }
-                    if (data.type && data.type !== 'scripture') return;
-                    renderScene(data);
-                };
-                ws.onclose = () => {
-                    console.warn('❌ [Moniteur] WebSocket déconnecté. Reconnexion dans 2s...');
-                    signalEl.classList.add('lost');
-                    setTimeout(connect, 2000);
-                };
-            }
-            connect();
-        </script>
-    </body>
-    </html>
-    """
+    html_content = _get_template_path("stage.html").read_text(encoding="utf-8")
     return HTMLResponse(content=html_content)
 
 
@@ -2051,140 +547,7 @@ async def get_follow_page():
         versions = list(verse_parser.bible_loader.versions.keys())
     options = "".join(f'<option value="{v}">{v}</option>' for v in versions) or '<option value="">Par défaut</option>'
 
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta name="theme-color" content="#0a0b0d">
-        <title>VersePro — Suivre le culte</title>
-        <style>
-            :root { color-scheme: dark; }
-            * { box-sizing: border-box; }
-            body {
-                margin: 0;
-                min-height: 100vh;
-                background: #0a0b0d;
-                color: #f0f1f3;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                display: flex;
-                flex-direction: column;
-            }
-            header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 12px;
-                padding: 14px 18px;
-                border-bottom: 1px solid #25262b;
-            }
-            header .brand { font-size: 14px; font-weight: 700; }
-            header .brand span { color: oklch(76% 0.17 50); }
-            select {
-                background: #16171b;
-                color: #f0f1f3;
-                border: 1px solid #35363d;
-                border-radius: 8px;
-                padding: 7px 10px;
-                font-size: 14px;
-            }
-            main {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                padding: 28px 22px 40px;
-                max-width: 640px;
-                margin: 0 auto;
-                width: 100%;
-            }
-            #reference {
-                font-size: 15px;
-                font-weight: 700;
-                letter-spacing: 0.06em;
-                text-transform: uppercase;
-                color: oklch(76% 0.17 50);
-                margin-bottom: 14px;
-            }
-            #text {
-                font-size: 26px;
-                line-height: 1.5;
-                font-weight: 450;
-                transition: opacity 0.25s ease;
-            }
-            #status {
-                font-size: 12px;
-                color: #63666d;
-                padding: 12px 18px;
-                border-top: 1px solid #25262b;
-                display: flex;
-                justify-content: space-between;
-            }
-            .waiting { color: #63666d; font-size: 18px; }
-        </style>
-    </head>
-    <body>
-        <header>
-            <div class="brand">Verse<span>Pro</span> · Suivre le culte</div>
-            <select id="version" aria-label="Choisir la traduction">__OPTIONS__</select>
-        </header>
-        <main>
-            <div id="reference"></div>
-            <div id="text" class="waiting">En attente du prochain verset projeté…</div>
-        </main>
-        <div id="status"><span id="conn">Connexion…</span><span id="count"></span></div>
-        <script>
-            const refEl = document.getElementById('reference');
-            const textEl = document.getElementById('text');
-            const connEl = document.getElementById('conn');
-            const versionEl = document.getElementById('version');
-
-            const saved = localStorage.getItem('versepro_follow_version');
-            if (saved) versionEl.value = saved;
-            versionEl.addEventListener('change', () => {
-                localStorage.setItem('versepro_follow_version', versionEl.value);
-                render(lastSlide);
-            });
-
-            let lastSlide = null;
-            function render(data) {
-                if (!data) return;
-                lastSlide = data;
-                const wanted = versionEl.value;
-                const translations = data.translations || {};
-                const text = (wanted && translations[wanted]) || data.text || '';
-                refEl.textContent = data.reference || '';
-                if (data.reference || text) {
-                    textEl.classList.remove('waiting');
-                    textEl.textContent = text;
-                } else {
-                    textEl.classList.add('waiting');
-                    textEl.textContent = 'En attente du prochain verset projeté…';
-                }
-            }
-
-            let ws;
-            function connect() {
-                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : ''));
-                ws.onopen = () => { connEl.textContent = 'En direct'; };
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    // Les événements de progression/traduction ne remplacent pas le verset
-                    if (data.type && data.type !== 'scripture') return;
-                    render(data);
-                };
-                ws.onclose = () => {
-                    connEl.textContent = 'Reconnexion…';
-                    setTimeout(connect, 2500);
-                };
-            }
-            connect();
-        </script>
-    </body>
-    </html>
-    """.replace("__OPTIONS__", options)
+    html_content = _get_template_path("follow.html").read_text(encoding="utf-8").replace("__OPTIONS__", options)
     return HTMLResponse(content=html_content)
 
 
@@ -2275,8 +638,9 @@ async def project_slide(slide: dict):
     bg = slide.get("background", "black")
     translations = slide.get("translations") if isinstance(slide.get("translations"), dict) else None
     theme = slide.get("theme", current_projection_slide.get("theme", "presentation"))
+    version = slide.get("version") or slide.get("active_version")
     
-    await broadcast_projection(text, ref, bg, translations=translations, theme=theme)
+    await broadcast_projection(text, ref, bg, translations=translations, theme=theme, version=version)
     
     # Si send_to_propresenter est activé, on demande spécifiquement au driver propresenter
     if slide.get("send_to_propresenter", False) and output_manager and "propresenter" in output_manager.outputs:
@@ -2299,6 +663,53 @@ async def get_bibles():
         "active": loader.active_version,
         "versions": list(loader.versions.keys())
     }
+
+
+@app.get("/api/v1/ai/pull-local-model")
+async def pull_local_model():
+    """Télécharge le modèle Ollama en streaming SSE avec progression en temps réel."""
+    import httpx
+
+    model_name = "llama3.1:8b"
+    ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+
+    async def stream_progress():
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as client:
+                async with client.stream(
+                    "POST",
+                    f"{ollama_url}/api/pull",
+                    json={"name": model_name, "stream": True},
+                ) as response:
+                    if response.status_code != 200:
+                        yield f'data: {json.dumps({"error": "Ollama non disponible", "status": response.status_code})}\n\n'
+                        return
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        status = chunk.get("status", "")
+                        total = chunk.get("total", 0)
+                        completed = chunk.get("completed", 0)
+                        pct = round((completed / total) * 100, 1) if total else 0
+                        payload = {
+                            "status": status,
+                            "total": total,
+                            "completed": completed,
+                            "percent": pct,
+                        }
+                        yield f"data: {json.dumps(payload)}\n\n"
+                # Fin du stream — succès
+                yield f'data: {json.dumps({"status": "done", "percent": 100})}\n\n'
+        except httpx.ConnectError:
+            yield f'data: {json.dumps({"error": "Impossible de se connecter à Ollama. Vérifiez qu\'il est lancé."})}\n\n'
+        except Exception as exc:
+            yield f'data: {json.dumps({"error": str(exc)})}\n\n'
+
+    return StreamingResponse(stream_progress(), media_type="text/event-stream")
 
 
 @app.post("/api/v1/bibles/select")
@@ -2542,7 +953,7 @@ async def websocket_audio(websocket: WebSocket):
             
     async def receive_audio_task():
         """Reçoit l'audio client et l'envoie au moteur de transcription actif"""
-        nonlocal use_vosk, use_nemotron, recognizer, transcription_session
+        nonlocal use_vosk, use_nemotron, recognizer, transcription_session, dernier_partiel_nemotron
         
         # Pour le mécanisme de reconnexion automatique de Deepgram
         reconnecting_deepgram = False
@@ -2558,6 +969,14 @@ async def websocket_audio(websocket: WebSocket):
                 if voice_gate is not None:
                     is_speech = await asyncio.to_thread(voice_gate.accept, data)
                     if not is_speech:
+                        if use_nemotron and nemotron_service:
+                            echantillons_silence = np.zeros(len(data) // 2, dtype=np.int16)
+                            await asyncio.to_thread(nemotron_service.accept_waveform, echantillons_silence)
+                            nemotron_service.tick_pause()
+                            enonce = nemotron_service.prendre_enonce_fini()
+                            if enonce:
+                                await queue_transcript(enonce, True)
+                                dernier_partiel_nemotron = ""
                         continue
 
                 # Si on utilise en théorie Deepgram mais que la session est inactive (déconnexion 1011 ou erreur)
@@ -2680,8 +1099,8 @@ async def websocket_audio(websocket: WebSocket):
             method = ref.get("detection_method")
             confidence = float(ref.get("confidence") or 0)
             return (
-                method == "explicit"
-                and confidence >= 0.95
+                method in ("explicit", "chapter_contextual_text", "relative_jump")
+                and confidence >= 0.75
                 and ref.get("verse_start") is not None
                 and not ref.get("requires_review")
             )

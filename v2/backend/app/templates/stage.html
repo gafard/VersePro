@@ -1,0 +1,139 @@
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>VersePro — Moniteur prédicateur</title>
+        <style>
+            :root { color-scheme: dark; }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0; height: 100vh; overflow: hidden;
+                background: #000; color: #fff;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+                display: flex; flex-direction: column;
+                padding: 3.5vh 4vw;
+            }
+            header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3vh; }
+            #reference { font-size: 3.2vw; font-weight: 800; color: oklch(76% 0.17 50); letter-spacing: 0.04em; text-transform: uppercase; }
+            #clock { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 3.2vw; font-weight: 700; color: #fff; }
+            main { flex: 1; display: flex; align-items: center; }
+            #text { font-size: 4.2vw; line-height: 1.4; font-weight: 600; }
+            #text .w { color: rgba(255, 255, 255, 0.36); transition: color 0.3s ease; }
+            #text .w.read { color: #fff; }
+            #text .w.cur { color: oklch(76% 0.17 50); }
+            footer { border-top: 2px solid rgba(255, 255, 255, 0.14); padding-top: 2.2vh; min-height: 16vh; }
+            footer .label { font-size: 1.2vw; font-weight: 800; letter-spacing: 0.16em; color: #30d158; text-transform: uppercase; }
+            #next-text {
+                margin-top: 0.8vh; font-size: 2.1vw; line-height: 1.4; color: rgba(255, 255, 255, 0.6);
+                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+            }
+            .waiting { color: rgba(255,255,255,0.35); }
+            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px;
+                      border-radius: 50%; background: #d93025; opacity: 0; transition: opacity 0.4s; }
+            #signal.lost { opacity: 0.85; }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div id="reference">—</div>
+            <div id="clock">--:--:--</div>
+        </header>
+        <main><div id="text" class="waiting">En attente du prochain verset…</div></main>
+        <footer>
+            <span class="label" id="next-label">Suivant</span>
+            <div id="next-text">—</div>
+        </footer>
+        <div id="signal"></div>
+        <script>
+            const refEl = document.getElementById('reference');
+            const textEl = document.getElementById('text');
+            const clockEl = document.getElementById('clock');
+            const nextLabel = document.getElementById('next-label');
+            const nextText = document.getElementById('next-text');
+
+            setInterval(() => {
+                clockEl.textContent = new Date().toLocaleTimeString('fr-FR');
+            }, 1000);
+
+            function renderWords(text) {
+                textEl.textContent = '';
+                textEl.classList.remove('waiting');
+        (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
+                    const span = document.createElement('span');
+                    span.className = 'w';
+                    span.textContent = word;
+                    textEl.appendChild(span);
+                    textEl.appendChild(document.createTextNode(' '));
+                });
+            }
+
+            function applyProgress(matched) {
+                const spans = textEl.querySelectorAll('.w');
+                spans.forEach((span, i) => {
+                    span.classList.toggle('read', i < matched);
+                    span.classList.toggle('cur', i === matched - 1);
+                });
+            }
+
+            function getFullReference(data) {
+                if (!data) return '';
+                if (!data.book) return data.reference || '';
+                let ref = data.book + ' ' + data.chapter;
+                if (data.verse_start !== undefined && data.verse_start !== null) {
+                    ref += ':' + data.verse_start;
+                    if (data.verse_end) {
+                        ref += '-' + data.verse_end;
+                    }
+                }
+                const ver = data.active_version || data.version;
+                if (ver && data.show_version !== false) {
+                    ref += ' (' + ver + ')';
+                }
+                return ref;
+            }
+
+            function renderScene(data) {
+                const fullRef = getFullReference(data);
+                refEl.textContent = fullRef || '—';
+                if (data.text) {
+                    renderWords(data.text);
+                } else {
+                    textEl.classList.add('waiting');
+                    textEl.textContent = 'En attente du prochain verset…';
+                }
+                nextLabel.textContent = data.next_reference ? ('Suivant · ' + data.next_reference) : 'Suivant';
+                nextText.textContent = data.next_text || '—';
+            }
+
+            const signalEl = document.getElementById('signal');
+            let ws;
+            function connect() {
+                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const url = `${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : '');
+                console.log('⏳ [Moniteur] Tentative de connexion WebSocket sur', url);
+                ws = new WebSocket(url);
+                ws.onopen = () => {
+                    console.log('✅ [Moniteur] WebSocket connecté !');
+                    signalEl.classList.remove('lost');
+                };
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    console.log('📥 [Moniteur] Message reçu :', data);
+                    if (data.type === 'reading_progress') {
+                        applyProgress(data.matched);
+                        return;
+                    }
+                    if (data.type && data.type !== 'scripture') return;
+                    renderScene(data);
+                };
+                ws.onclose = () => {
+                    console.warn('❌ [Moniteur] WebSocket déconnecté. Reconnexion dans 2s...');
+                    signalEl.classList.add('lost');
+                    setTimeout(connect, 2000);
+                };
+            }
+            connect();
+        </script>
+    </body>
+    </html>

@@ -19,11 +19,17 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas, binaries, hiddenimports = [], [], []
 
-# Ressources bibliques EMBARQUÉES — domaine public uniquement (LSG + KJF).
-# Les versions sous copyright (Semeur, TOB, NBS, Français courant) ne sont PAS
-# distribuées. Elles atterrissent dans _internal/data/… côté figé.
+# Templates HTML indispensables pour les écrans de diffusion (/output, /stage, /follow)
+templates_dir = os.path.join(SPECPATH, "app", "templates")
+if os.path.isdir(templates_dir):
+    for tpl in os.listdir(templates_dir):
+        if tpl.endswith(".html"):
+            datas.append((os.path.join(templates_dir, tpl), os.path.join("app", "templates")))
+
+# Ressources bibliques et VAD embarquées
 for src, dst in (
     (os.path.join(SPECPATH, "data", "bible.json"), "data"),
+    (os.path.join(SPECPATH, "data", "silero_vad.onnx"), "data"),
     (os.path.join(SPECPATH, "data", "bibles_cache", "kjf.json"), os.path.join("data", "bibles_cache")),
 ):
     if os.path.exists(src):

@@ -38,7 +38,8 @@ const FAMILLES = [
 ]
 
 export default function BibleImport() {
-  const { addToast, fetchBibles } = useStore()
+  const addToast = useStore(s => s.addToast)
+  const fetchBibles = useStore(s => s.fetchBibles)
   const [catalogue, setCatalogue] = useState({ versions: [], dossier: '' })
   const [sigle, setSigle] = useState('')
   const [occupe, setOccupe] = useState(false)
@@ -78,6 +79,26 @@ export default function BibleImport() {
       // Le message vient de la validation du serveur : il dit CE qui cloche
       // (« Genèse n'a aucun chapitre »), pas un « fichier invalide » inutile.
       addToast({ message: `Ajout refusé : ${err.message}`, kind: 'error', duration: 9000 })
+    } finally { setOccupe(false) }
+  }
+
+  const telechargerEtInstaller = async (versionId) => {
+    setOccupe(true)
+    try {
+      const r = await fetch(`${BACKEND_BASE}/api/v1/bibles/download_public/${versionId}`, {
+        method: 'POST'
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
+      addToast({
+        message: `« ${d.id} » téléchargée et installée ! (${d.verses?.toLocaleString('fr-FR')} versets)`,
+        kind: 'success', duration: 6000
+      })
+      setARedemarrer(true)
+      charger()
+      fetchBibles()
+    } catch (err) {
+      addToast({ message: `Échec du téléchargement : ${err.message}`, kind: 'error', duration: 9000 })
     } finally { setOccupe(false) }
   }
 
@@ -157,11 +178,41 @@ export default function BibleImport() {
                 ) : v.origine === 'livree' ? (
                   <span className="bible-catalogue-verrou" title="Livrée avec VersePro">—</span>
                 ) : (
-                  <label className="vp-btn vp-btn--sm" aria-disabled={occupe}>
-                    {occupe ? '…' : 'Ajouter'}
-                    <input type="file" accept="application/json,.json" hidden disabled={occupe}
-                      onChange={(e) => { importer(e.target.files?.[0], v.id); e.target.value = '' }} />
-                  </label>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    {v.download_url && (
+                      <>
+                        <button
+                          type="button"
+                          className="vp-btn vp-btn--sm vp-btn--primary"
+                          onClick={() => telechargerEtInstaller(v.id)}
+                          disabled={occupe}
+                          style={{
+                            background: 'var(--vp-accent, #0ea5e9)',
+                            color: '#fff',
+                            fontWeight: 600,
+                            padding: '6px 12px'
+                          }}
+                        >
+                          {occupe ? '…' : '📥 Installer (1-Clic)'}
+                        </button>
+                        <a
+                          href={v.download_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="vp-btn vp-btn--sm vp-btn--ghost"
+                          title="Lien direct pour télécharger le fichier JSON"
+                          style={{ textDecoration: 'none', padding: '6px 10px', fontSize: '11px' }}
+                        >
+                          🔗 Lien JSON
+                        </a>
+                      </>
+                    )}
+                    <label className="vp-btn vp-btn--sm vp-btn--ghost" aria-disabled={occupe} style={{ padding: '6px 10px', fontSize: '11px' }}>
+                      {occupe ? '…' : '📁 Fichier local'}
+                      <input type="file" accept="application/json,.json" hidden disabled={occupe}
+                        onChange={(e) => { importer(e.target.files?.[0], v.id); e.target.value = '' }} />
+                    </label>
+                  </div>
                 )}
               </li>
             ))}

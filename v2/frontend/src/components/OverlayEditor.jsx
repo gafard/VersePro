@@ -83,7 +83,7 @@ const DEFAUT_ZONES = {
 }
 
 export default function OverlayEditor() {
-  const { addToast } = useStore()
+  const addToast = useStore(s => s.addToast)
   const [etat, setEtat] = useState(null)
   const [zones, setZones] = useState(DEFAUT_ZONES)
   const [formes, setFormes] = useState([])

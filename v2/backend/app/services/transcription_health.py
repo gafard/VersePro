@@ -99,10 +99,5 @@ class SanteTranscription:
             "fiable": fiable,
             "mots_moyens": round(self.mots_moyens, 1),
             "segments_observes": len(self._longueurs),
-            "message": (
-                "" if fiable else
-                "Son difficile — musique de fond ou voix couverte. Les citations "
-                "annoncées restent détectées ; les propositions sémantiques sont "
-                "suspendues le temps que la transcription redevienne lisible."
-            ),
+            "message": "",
         }

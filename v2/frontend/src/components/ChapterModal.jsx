@@ -3,7 +3,9 @@ import { BACKEND_BASE } from '../env.js'
 import { useStore } from '../store.js'
 
 export default function ChapterModal({ reference, onClose }) {
-  const { sendReference, activeBible, availableBibles } = useStore()
+  const sendReference = useStore(s => s.sendReference)
+  const activeBible = useStore(s => s.activeBible)
+  const availableBibles = useStore(s => s.availableBibles)
   const [loading, setLoading] = useState(true)
   const [chapterData, setChapterData] = useState(null)
   const [error, setError] = useState(null)

@@ -16,7 +16,7 @@ import { BACKEND_BASE, openExternal } from '../env.js'
 const STEPS = ['mode', 'installation', 'micro', 'pret']
 
 export default function FirstRunWizard({ onDone }) {
-  const { updateSettings } = useStore()
+  const updateSettings = useStore(s => s.updateSettings)
   const [step, setStep] = useState(0)
   const [entered, setEntered] = useState(false)
 
@@ -40,10 +40,11 @@ export default function FirstRunWizard({ onDone }) {
     const timeout = setTimeout(() => controller.abort(), 6000)
     try {
       const [nr, sr] = await Promise.all([
-        fetch(`${BACKEND_BASE}/api/v1/nemotron/status`, { signal: controller.signal }),
+        fetch(`${BACKEND_BASE}/api/v1/asr/status`, { signal: controller.signal }),
         fetch(`${BACKEND_BASE}/api/v1/semantic/status`, { signal: controller.signal })
       ])
-      setNemo(await nr.json())
+      const nrData = await nr.json()
+      setNemo(nrData.nemotron || nrData)
       setSem(await sr.json())
       setBackendDown(false)
     } catch {
@@ -74,7 +75,7 @@ export default function FirstRunWizard({ onDone }) {
     if (usageMode !== 'cloud' && !nemoReady && !downloadStarted) {
       setDownloadStarted(true)
       try {
-        await fetch(`${BACKEND_BASE}/api/v1/nemotron/download`, { method: 'POST' })
+        await fetch(`${BACKEND_BASE}/api/v1/asr/prepare`, { method: 'POST' })
         await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' })
       } catch {
         setBackendDown(true)

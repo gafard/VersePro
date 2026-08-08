@@ -66,7 +66,8 @@ export function EmptyState({ icon = 'inbox', title, children, action }) {
 
 /* ── Toasts : hôte global, alimenté par le store ── */
 export function ToastHost() {
-  const { toasts, dismissToast } = useStore()
+  const toasts = useStore(s => s.toasts)
+  const dismissToast = useStore(s => s.dismissToast)
   if (!toasts.length) return null
   return (
     <div className="fixed bottom-6 right-6 z-toast flex flex-col gap-2.5 max-w-sm pointer-events-none" role="status" aria-live="polite">

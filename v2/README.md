@@ -18,10 +18,10 @@ VersePro est une régie biblique de bureau. Elle transcrit la prédication, dét
 | Moteur | Usage | Latence typique |
 | --- | --- | --- |
 | Deepgram | Cloud rapide, recommandé avec Internet stable | sous-seconde selon réseau |
-| Whisper local | Accents, multilingue, débit rapide, bruit | fenêtres de 2,4 s par défaut |
+| Nemotron 3.5-ASR | Moteur principal local rapide & précis | streaming neuronal temps réel |
 | Vosk local large | Secours français hors ligne | flux continu, CPU modéré |
 
-`Whisper` est un vrai chemin `faster-whisper`, plus un alias de Vosk. Le modèle est choisi selon la mémoire de la machine (`tiny`, `base` ou `small`) et n'est téléchargé qu'après une action explicite dans Paramètres. Le modèle Vosk français large est également préparé explicitement. En mode `auto`, VersePro tente Deepgram, puis un modèle local déjà prêt.
+`Nemotron 3.5-ASR` (transcribe.cpp) est le moteur principal local de VersePro V2. Le modèle est préparé explicitement dans Paramètres. En mode `auto`, VersePro tente Deepgram, puis Nemotron ou un modèle local prêt.
 
 Le navigateur envoie du PCM mono 16 kHz. Le filtre est désactivé par défaut; deux profils conservateurs sont proposés dans Paramètres. L'onde de la régie est dessinée depuis 64 crêtes du buffer PCM réel.
 
@@ -54,7 +54,7 @@ La source OBS écoute le même flux de projection que l'écran autonome et ne d�
 
 ## Paramètres et secrets
 
-La page Paramètres contient l'entrée micro, le prétraitement audio, les moteurs ASR, les modèles locaux, les versions bibliques, le rendu, les sorties et les fournisseurs IA. Ces éléments n'encombrent pas la régie live.
+La page Paramètres s'organise en accordéons dépliables par catégorie (Général, Audio, Moteurs, Projection, Sorties, Avancé). Elle rassemble la configuration d'entrée micro, la barrière vocale anti-musique, les moteurs ASR, l'extraction automatique des notes du sermon (onglet Avancé), les modèles locaux, l'atelier d'habillage, la gestion des Bibles et les sorties (NDI, ProPresenter).
 
 Les clés Deepgram, OpenRouter et Gemini sont stockées dans le gestionnaire de secrets de l'OS via `keyring` (Trousseau macOS). Les anciennes clés SQLite ne sont supprimées qu'après confirmation du transfert. Si le trousseau est indisponible, elles restent dans la base locale plutôt que d'être perdues au lancement suivant. L'API ne renvoie que des indicateurs masqués. Gemini reçoit sa clé dans l'en-tête `x-goog-api-key`, jamais dans l'URL.
 

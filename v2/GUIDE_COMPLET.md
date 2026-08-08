@@ -40,8 +40,8 @@ L'assistant vérifie les composants locaux et permet de préparer les modèles
 sans ligne de commande :
 
 - choix et test de l'entrée microphone ;
-- préparation de Whisper local pour les accents, le multilingue et le bruit ;
-- préparation de Vosk français large comme moteur continu de secours ;
+- préparation de Nemotron 3.5-ASR pour la transcription neuronale locale haute précision ;
+- préparation de Vosk français comme moteur continu de secours ;
 - préparation de l'index sémantique e5 ONNX des 31 102 versets ;
 - saisie facultative d'une clé Deepgram pour la transcription cloud ;
 - choix du mode de projection initial.
@@ -95,15 +95,11 @@ retrouvés localement.
 
 ### À l'antenne
 
-Cette zone montre exactement la scène de projection, avec navigation dans un
-passage long. Elle peut défiler pour garder tous les versets lisibles.
-**Effacer** rend immédiatement les sorties noires.
+Cette zone montre exactement la scène de projection, avec navigation dans un passage long. Des outils de surlignage live (🟡 Jaune, 🔴 Rouge, 🧹 Effacer) permettent de mettre en valeur les mots importants à l'écran pendant la prédication. **Effacer** rend immédiatement les sorties noires.
 
 ### Déroulé préparé
 
-Dans la barre de recherche, saisir une référence puis appuyer sur `Entrée`
-ajoute le passage au **Déroulé du culte** sans le projeter. Les passages restent
-dans l'ordre de préparation et sont conservés entre deux lancements.
+Dans la barre de recherche, saisir une référence puis appuyer sur `Entrée` ajoute le passage au **Déroulé du culte** sans le projeter. Pour importer l'intégralité d'un sermon, collez le texte dans **Paramètres > Avancé** pour en extraire et ajouter automatiquement tous les versets.
 
 Cliquer sur un passage préparé le projette ; le bouton **Projeter** placé près
 du champ garde l'envoi immédiat pour les besoins du direct. Un passage peut être

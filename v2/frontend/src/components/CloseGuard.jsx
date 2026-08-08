@@ -14,7 +14,7 @@ import { useStore } from '../store.js'
  * « oui » sans lire, et le garde-fou ne protège plus rien.
  */
 export default function CloseGuard() {
-  const { isListening } = useStore()
+  const isListening = useStore(s => s.isListening)
   const [demandee, setDemandee] = useState(false)
 
   // Le processus Rust ne peut pas deviner l'état du direct : on le lui dit.

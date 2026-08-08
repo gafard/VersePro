@@ -19,7 +19,9 @@ const METHOD_LABELS = {
  * aperçu du verset et projection immédiate à Entrée.
  */
 export default function CommandPalette({ open, onClose }) {
-  const { sendReference, onAir, activeBible } = useStore()
+  const sendReference = useStore(s => s.sendReference)
+  const onAir = useStore(s => s.onAir)
+  const activeBible = useStore(s => s.activeBible)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [activeIndex, setActiveIndex] = useState(0)

@@ -1,8 +1,194 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.js'
+import { shallow } from 'zustand/shallow'
 import { BACKEND_BASE } from '../env.js'
 import OverlayEditor from './OverlayEditor.jsx'
 import BibleImport from './BibleImport.jsx'
+
+// --- Modern Vector SVG Icons ---
+const IconActivity = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+  </svg>
+)
+
+const IconMic = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+    <line x1="12" y1="19" x2="12" y2="22" />
+  </svg>
+)
+
+const IconCpu = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+    <rect x="9" y="9" width="6" height="6" />
+    <line x1="9" y1="1" x2="9" y2="4" />
+    <line x1="15" y1="1" x2="15" y2="4" />
+    <line x1="9" y1="20" x2="9" y2="23" />
+    <line x1="15" y1="20" x2="15" y2="23" />
+    <line x1="20" y1="9" x2="23" y2="9" />
+    <line x1="20" y1="15" x2="23" y2="15" />
+    <line x1="1" y1="9" x2="4" y2="9" />
+    <line x1="1" y1="15" x2="4" y2="15" />
+  </svg>
+)
+
+const IconMonitor = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+    <line x1="8" y1="21" x2="16" y2="21" />
+    <line x1="12" y1="17" x2="12" y2="21" />
+  </svg>
+)
+
+const IconRadio = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="2" />
+    <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.83a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14" />
+  </svg>
+)
+
+const IconSliders = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="4" y1="21" x2="4" y2="14" />
+    <line x1="4" y1="10" x2="4" y2="3" />
+    <line x1="12" y1="21" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12" y2="3" />
+    <line x1="20" y1="21" x2="20" y2="16" />
+    <line x1="20" y1="12" x2="20" y2="3" />
+    <line x1="1" y1="14" x2="7" y2="14" />
+    <line x1="9" y1="8" x2="15" y2="8" />
+    <line x1="17" y1="16" x2="23" y2="16" />
+  </svg>
+)
+
+const IconShield = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+)
+
+const IconCloud = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+  </svg>
+)
+
+const IconSparkles = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+  </svg>
+)
+
+const IconPalette = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="13.5" cy="6.5" r=".5" fill={color} />
+    <circle cx="17.5" cy="10.5" r=".5" fill={color} />
+    <circle cx="8.5" cy="7.5" r=".5" fill={color} />
+    <circle cx="6.5" cy="12.5" r=".5" fill={color} />
+    <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.92 0 1.7-.72 1.7-1.61 0-.43-.17-.83-.44-1.14-.24-.28-.39-.64-.39-1.05 0-.88.72-1.6 1.6-1.6H16c3.3 0 6-2.7 6-6 0-5.5-4.5-10-10-10z" />
+  </svg>
+)
+
+const IconBook = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+  </svg>
+)
+
+const IconFlask = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55A2 2 0 0 0 6.508 23h10.984a2 2 0 0 0 1.788-2.45l-5.069-10.127A2 2 0 0 1 14 9.527V2" />
+    <line x1="8.5" y1="2" x2="15.5" y2="2" />
+    <line x1="7" y1="16" x2="17" y2="16" />
+  </svg>
+)
+
+const IconInfo = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+)
+
+const IconClipboard = ({ size = 18, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+  </svg>
+)
+
+const IconSave = ({ size = 16, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+    <polyline points="17 21 17 13 7 13 7 21" />
+    <polyline points="7 3 7 8 15 8" />
+  </svg>
+)
+
+const IconChevron = ({ size = 16, color = 'currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+)
+
+/** Accordion section — click header to expand/collapse */
+function Accordion({ title, icon, description, badge, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={`settings-accordion${open ? ' is-open' : ''}`}>
+      <button type="button" className="settings-accordion-header" onClick={() => setOpen(!open)}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {icon && <span className="accordion-icon">{icon}</span>}
+          {title}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {badge}
+          <span className="accordion-chevron"><IconChevron /></span>
+        </span>
+      </button>
+      <div className="settings-accordion-body">
+        {description && <p className="settings-accordion-desc">{description}</p>}
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** Row — label+desc left, control right */
+function Row({ label, desc, tooltip, children }) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row-info">
+        <span className="settings-row-label">
+          {label}
+          {tooltip && <span className="settings-info-icon" title={tooltip}>i</span>}
+        </span>
+        {desc && <span className="settings-row-desc">{desc}</span>}
+      </div>
+      <div className="settings-row-control">{children}</div>
+    </div>
+  )
+}
+
+/** Reusable progress bar */
+function ProgressBar({ percent, status }) {
+  return (
+    <div className="settings-progress-wrapper">
+      <div className="settings-progress-info">
+        <span>{status}</span>
+        <span>{Math.round(percent)}%</span>
+      </div>
+      <div className="settings-progress-track">
+        <div className="settings-progress-fill" style={{ width: `${Math.max(2, percent)}%` }} />
+      </div>
+    </div>
+  )
+}
 
 // Regroupement des réglages. L'ordre suit celui d'une mise en route : on
 // branche le micro, on choisit les moteurs, on règle ce qui s'affiche, on
@@ -60,16 +246,15 @@ const BIBLE_NAMES = {
   TOB: 'Traduction Oecumenique'
 }
 
-
 function getIconForTab(cle) {
   switch (cle) {
-    case 'general': return '📊'
-    case 'audio': return '🎤'
-    case 'moteurs': return '🧠'
-    case 'projection': return '🖥️'
-    case 'sorties': return '📡'
-    case 'avance': return '⚙️'
-    default: return '🔹'
+    case 'general': return <IconActivity size={16} />
+    case 'audio': return <IconMic size={16} />
+    case 'moteurs': return <IconSparkles size={16} />
+    case 'projection': return <IconMonitor size={16} />
+    case 'sorties': return <IconRadio size={16} />
+    case 'avance': return <IconSliders size={16} />
+    default: return <IconInfo size={16} />
   }
 }
 
@@ -98,7 +283,68 @@ export default function Settings() {
     audioFilterMode,
     setAudioFilterMode,
     setSelectedEngine
-  } = useStore()
+  } = useStore(s => ({
+    settings: s.settings,
+    fetchSettings: s.fetchSettings,
+    updateSettings: s.updateSettings,
+    availableBibles: s.availableBibles,
+    fetchBibles: s.fetchBibles,
+    activeBible: s.activeBible,
+    aiActive: s.aiActive,
+    propresenterConnected: s.propresenterConnected,
+    addToast: s.addToast,
+    asrStatus: s.asrStatus,
+    semanticStatus: s.semanticStatus,
+    fetchIntelligenceStatus: s.fetchIntelligenceStatus,
+    prepareSemanticIndex: s.prepareSemanticIndex,
+    prepareLocalAsr: s.prepareLocalAsr,
+    connected: s.connected,
+    connectionStatus: s.connectionStatus,
+    audioDevices: s.audioDevices,
+    selectedAudioDeviceId: s.selectedAudioDeviceId,
+    setSelectedAudioDeviceId: s.setSelectedAudioDeviceId,
+    refreshAudioDevices: s.refreshAudioDevices,
+    audioFilterMode: s.audioFilterMode,
+    setAudioFilterMode: s.setAudioFilterMode,
+    setSelectedEngine: s.setSelectedEngine
+  }), shallow)
+
+  const prepareReference = useStore(s => s.prepareReference)
+  const [sermonText, setSermonText] = useState('')
+  const [extractingNotes, setExtractingNotes] = useState(false)
+  const [sermonExtracted, setSermonExtracted] = useState([])
+
+  const handleExtractSermonNotes = async () => {
+    if (!sermonText.trim()) return
+    setExtractingNotes(true)
+    try {
+      const res = await fetch(`${BACKEND_BASE}/api/v1/bibles/extract_references`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: sermonText }),
+      })
+      const data = await res.json()
+      if (data.references && data.references.length > 0) {
+        setSermonExtracted(data.references)
+        addToast?.({ message: `✅ ${data.count} verset(s) extrait(s) des notes !`, kind: 'success' })
+      } else {
+        setSermonExtracted([])
+        addToast?.({ message: "⚠️ Aucun verset biblique explicite n'a été trouvé.", kind: 'warn' })
+      }
+    } catch (err) {
+      console.error('Erreur extraction notes:', err)
+      addToast?.({ message: "❌ Erreur lors de l'extraction des versets.", kind: 'error' })
+    } finally {
+      setExtractingNotes(false)
+    }
+  }
+
+  const handleAddAllSermonVerses = () => {
+    sermonExtracted.forEach((item) => {
+      if (prepareReference) prepareReference(item.reference)
+    })
+    addToast?.({ message: `📥 ${sermonExtracted.length} verset(s) ajoutés au déroulé !`, kind: 'success' })
+  }
 
   const [form, setForm] = useState({
     auto_send: false,
@@ -132,6 +378,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [helpModal, setHelpModal] = useState(null)
+  const [aiTab, setAiTab] = useState('cloud')
 
   // Version installée et, si un manifeste est configuré, disponibilité d'une
   // mise à jour. L'appel échoue en silence : hors ligne, la section affiche
@@ -149,6 +396,8 @@ export default function Settings() {
   const [rehearseResults, setRehearseResults] = useState(null)
   const [rehearsing, setRehearsing] = useState(false)
   const [preparingLocal, setPreparingLocal] = useState('')
+  // Suivi du téléchargement du modèle local (Ollama pull)
+  const [pullProgress, setPullProgress] = useState(null) // null | { status, percent, error, done }
   // Onglets de la console : onze cartes d'affilée obligeaient à faire défiler
   // longtemps pour trouver un réglage. L'onglet est mémorisé — un bénévole qui
   // revient tombe là où il s'était arrêté.
@@ -352,425 +601,480 @@ export default function Settings() {
 
       {/* Contenu principal */}
       <main className="vp-settings-main">
-        <div className="vp-settings-main-header">
-          <h1>{ONGLETS.find(o => o.cle === onglet)?.nom || 'Réglages'}</h1>
-          <p className="vp-settings-main-subtitle">{ONGLETS.find(o => o.cle === onglet)?.note}</p>
+        <div className="vp-settings-main-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div>
+            <h1>{ONGLETS.find(o => o.cle === onglet)?.nom || 'Réglages'}</h1>
+            <p className="vp-settings-main-subtitle">{ONGLETS.find(o => o.cle === onglet)?.note}</p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {savedAt && (
+              <span style={{ fontSize: '12px', color: 'var(--vp-ok, #22c55e)', fontWeight: 600 }}>
+                ✓ Enregistré à {savedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{
+                background: 'var(--vp-accent, #0ea5e9)',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: '13px',
+                padding: '10px 20px',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: saving ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 2px 8px rgba(14, 165, 233, 0.3)'
+              }}
+            >
+              <IconSave size={16} />
+              {saving ? 'Sauvegarde...' : 'Sauvegarder'}
+            </button>
+          </div>
         </div>
 
         <section className="settings-grid" data-active={onglet}>
 
-        <div data-cat="general" className="settings-card is-wide">
-          <div className="settings-card-head">
-            <div>
-              <span>Général</span>
-              <h2>État du système</h2>
-            </div>
-          </div>
-          <section className="settings-hero-inner">
-        <div>
-          <span>Paramètres</span>
-          <h1>Console de configuration</h1>
-          <p>
-            Les réglages critiques restent lisibles, calmes et modifiables sans toucher aux fichiers système.
-          </p>
-        </div>
-
-        <div className="settings-status-grid">
-          {statusCards.map((card) => (
-            <div key={card.label} className={`settings-status-card is-${card.tone}`}>
-              <span>{card.label}</span>
-              <strong>{card.value}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-        </div>
-
-        <div data-cat="audio" className="settings-card is-wide is-primary">
-          <div className="settings-card-head">
-            <div>
-              <span>Audio</span>
-              <h2>Entrée micro</h2>
-            </div>
-            <button type="button" className="vp-btn vp-btn--ghost vp-btn--sm" onClick={refreshAudioDevices}>
-              Actualiser
-            </button>
-          </div>
-          <p>
-            Choisissez ici le micro ou l'interface audio de la régie. Le live garde seulement
-            le démarrage, l'arrêt et le niveau du signal.
-          </p>
-          <label>
-            <small>Source audio par défaut</small>
-            <select value={selectedAudioDeviceId} onChange={(e) => updateAudioDevice(e.target.value)}>
-              {audioDevices.length === 0 ? (
-                <option value="">Micro par défaut du navigateur</option>
-              ) : (
-                audioDevices.map((device, index) => (
-                  <option key={device.deviceId || index} value={device.deviceId}>
-                    {device.label || `Micro ${index + 1}`}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          <label>
-            <small>Prétraitement audio</small>
-            <select value={audioFilterMode} onChange={(e) => setAudioFilterMode(e.target.value)}>
-              <option value="off">Signal brut (recommandé)</option>
-              <option value="speech">Parole: 80 Hz à 8 kHz</option>
-              <option value="church">Église avec musique: 120 Hz à 7 kHz</option>
-            </select>
-          </label>
-          <span className="settings-secret-hint">
-            Le filtre Église atténue les graves continus sans couper les consonnes. Le signal brut reste le choix le plus fidèle avec une sortie console propre.
-          </span>
-        </div>
-
-        <div data-cat="audio" className="settings-card">
-          <div className="settings-card-head">
-            <div>
-              <span>Audio</span>
-              <h2>Barrière vocale (anti-musique)</h2>
-            </div>
-            <label className="settings-switch">
-              <input
-                type="checkbox"
-                aria-label="Activer la barrière vocale anti-musique"
-                checked={form.voice_gate_enabled}
-                disabled={!settings?.voice_gate_available}
-                onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <p>
-            Filtre local (Silero VAD) qui ignore la musique, les chants et les silences avant
-            transcription : moins de fausses détections pendant la louange, moins de quota consommé.
-            {!settings?.voice_gate_available && ' — Modèle silero_vad.onnx absent du dossier data/.'}
-          </p>
-        </div>
-
-        <div data-cat="moteurs" className="settings-card is-wide">
-          <div className="settings-card-head">
-            <div>
-              <span>Intelligence locale</span>
-              <h2>Transcription et recherche hors ligne</h2>
-            </div>
-            <span className={`vp-chip ${semanticStatus?.installed ? 'is-accent' : ''}`}>
-              {semanticStatus?.installed && asrStatus?.nemotron?.ready
-                ? 'Prêt'
-                : semanticStatus?.installed
-                  ? 'Recherche prête'
-                  : asrStatus?.nemotron?.ready
-                    ? 'Voix prête'
-                    : 'À préparer'}
-            </span>
-          </div>
-          <p>
-            Le mode automatique privilégie Deepgram quand Internet est disponible,
-            puis bascule sur un moteur local si la connexion tombe. Nemotron est
-            le moteur local recommandé ; Vosk reste le secours, plus léger.
-          </p>
-          <div className="settings-form-grid">
-            <label>
-              <small>Moteur par défaut</small>
-              <select value={form.asr_default_engine} onChange={(e) => {
-                const val = e.target.value
-                updateField('asr_default_engine', val)
-                setSelectedEngine(val)
-              }}>
-                <option value="auto">Auto (Deepgram Cloud puis Nemotron local)</option>
-                <option value="deepgram">Deepgram Cloud (Rapide &lt; 0.5 s)</option>
-                <option value="nemotron">Nemotron 3.5-ASR 0.6B (Recommandé Local, 716 Mo)</option>
-                <option value="vosk">Vosk local (Secours)</option>
-              </select>
-            </label>
-          </div>
-          <div className="settings-divider">
-            <div className="settings-card-head">
-              <div>
-                <small>Nemotron 3.5-ASR local</small>
-                <p>
-                  {asrStatus?.nemotron?.ready
-                    ? 'Prêt · décodage en flux, hors ligne'
-                    : asrStatus?.nemotron?.downloading
-                      ? `Téléchargement en cours · ${Math.round((asrStatus.nemotron.download_progress || 0) * 100)} %`
-                      : `Non préparé · ${asrStatus?.nemotron?.model_size_mb || 716} Mo à télécharger`}
-                </p>
-              </div>
-              <span className={`vp-chip ${asrStatus?.nemotron?.ready ? 'is-ok' : ''}`}>
-                {asrStatus?.nemotron?.ready ? 'Prêt' : 'Optionnel'}
-              </span>
-            </div>
-            {asrStatus?.nemotron?.last_error && !asrStatus?.nemotron?.ready && (
-              <span className="settings-error-note" role="alert">
-                Échec : {asrStatus.nemotron.last_error}
-              </span>
-            )}
-            <button
-              type="button"
-              className="vp-btn vp-btn--sm"
-              onClick={() => prepareLocalEngine('nemotron')}
-              disabled={preparingLocal === 'nemotron' || asrStatus?.nemotron?.downloading}
+          {/* TAB 1: GENERAL */}
+          <div data-cat="general">
+            <Accordion
+              title="État du système"
+              icon={<IconActivity color="#0ea5e9" />}
+              description="Vue d'ensemble de la connexion serveur, ProPresenter et IA."
+              defaultOpen={true}
             >
-              {asrStatus?.nemotron?.ready ? 'Moteur local prêt' : 'Préparer le moteur local'}
-            </button>
-            <span className="settings-muted-note">
-              Décodage en flux, sans Internet. Plus précis que Vosk sur les accents,
-              pour 716 Mo téléchargés une seule fois.
-            </span>
-          </div>
-          <div className="settings-divider">
-            <div className="settings-card-head">
-              <div>
-                <small>Embeddings bibliques ONNX</small>
-                <p>
-                  {semanticStatus?.verses_indexed || 0} versets indexés localement
-                  {semanticStatus?.model ? ` · moteur ${semanticStatus.model === 'e5-base' ? 'e5-base (précis)' : semanticStatus.model === 'e5-small' ? 'e5-small (léger, repli)' : semanticStatus.model}` : ''}
-                  {semanticStatus?.using_fallback ? ' · secours' : ''}
-                </p>
+              <div className="settings-status-grid">
+                {statusCards.map((card) => (
+                  <div key={card.label} className={`settings-status-card is-${card.tone}`}>
+                    <span>{card.label}</span>
+                    <strong>{card.value}</strong>
+                  </div>
+                ))}
               </div>
-              <label className="settings-switch">
-                <input type="checkbox" checked={form.local_semantic_enabled} onChange={(e) => updateField('local_semantic_enabled', e.target.checked)} />
-                <span />
-              </label>
-            </div>
-            <label>
-              <small>Seuil sémantique : <strong>{Math.round(form.local_semantic_threshold * 100)} %</strong></small>
-              <input type="range" min="0.50" max="0.95" step="0.005" value={form.local_semantic_threshold} onChange={(e) => updateField('local_semantic_threshold', Number(e.target.value))} />
-              <span className="settings-muted-note">Calibré automatiquement selon le moteur actif — n'ajustez qu'en cas de faux positifs ou d'oublis répétés.</span>
-            </label>
-            {semanticStatus?.last_error && !semanticStatus?.installed && (
-              <span className="settings-error-note" role="alert">
-                Échec : {semanticStatus.last_error}
-              </span>
-            )}
-            <button type="button" className="vp-btn vp-btn--sm" onClick={() => prepareLocalEngine('semantic')} disabled={preparingLocal === 'semantic' || semanticStatus?.indexing}>
-              {semanticStatus?.installed ? 'Réindexer' : semanticStatus?.indexing ? 'Indexation…' : 'Installer et indexer'}
-            </button>
-            <span className="settings-muted-note">
-              Première préparation uniquement : plusieurs minutes selon le processeur. Elle ne démarre jamais pendant le live sans votre action.
-            </span>
-          </div>
-        </div>
-
-        <div data-cat="moteurs" className="settings-card">
-          <span>Deepgram</span>
-          <h2>Transcription cloud</h2>
-          <div className="settings-two-cols">
-            <label>
-              <small>Modèle</small>
-              <select value={form.deepgram_model} onChange={(e) => updateField('deepgram_model', e.target.value)}>
-                <option value="nova-2">nova-2</option>
-                <option value="nova-3">nova-3</option>
-                <option value="base">base</option>
-                <option value="enhanced">enhanced</option>
-              </select>
-            </label>
-            <label>
-              <small>Langue</small>
-              <select value={form.deepgram_language} onChange={(e) => updateField('deepgram_language', e.target.value)}>
-                <option value="fr">Français</option>
-                <option value="en">Anglais</option>
-                <option value="es">Espagnol</option>
-                <option value="pt">Portugais</option>
-              </select>
-            </label>
-          </div>
-          <div className="settings-divider">
-            <label>
-              <small className="settings-label-row">
-                <span>Clé API Deepgram</span>
-                <button
-                  type="button"
-                  onClick={() => setHelpModal('deepgram')}
-                  className="settings-help-button"
-                >
-                  Obtenir une clé
-                </button>
-              </small>
-              <input
-                type="password"
-                placeholder={settings?.deepgram_api_key_configured ? `Configuree (${settings.deepgram_api_key_hint})` : 'Coller une cle Deepgram'}
-                value={secretForm.deepgram_api_key}
-                onChange={(e) => updateSecret('deepgram_api_key', e.target.value)}
-              />
-            </label>
-            <span className="settings-secret-hint">
-              Le backend conserve la cle. L interface ne la relit jamais en clair.
-            </span>
-          </div>
-        </div>
-
-        <div data-cat="moteurs" className="settings-card is-wide">
-          <div className="settings-card-head">
-            <div>
-              <span>Analyse intelligente</span>
-              <h2>Moteur semantique</h2>
-            </div>
-            <label className="settings-switch">
-              <input
-                type="checkbox"
-                checked={form.ai_agent_enabled}
-                onChange={(e) => updateField('ai_agent_enabled', e.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <p>
-            L'IA peut proposer une référence quand le prédicateur paraphrase, mais elle ne doit pas prendre le contrôle de l'écran.
-          </p>
-
-          <div className="settings-form-grid">
-            <label>
-              <small className="settings-label-row">
-                <span>Clé API OpenRouter</span>
-                <button
-                  type="button"
-                  onClick={() => setHelpModal('openrouter')}
-                  className="settings-help-button"
-                >
-                  Obtenir une clé
-                </button>
-              </small>
-              <input
-                type="password"
-                placeholder={settings?.openrouter_api_key_configured ? `Configuree (${settings.openrouter_api_key_hint})` : 'sk-or-v1-...'}
-                value={secretForm.openrouter_api_key}
-                onChange={(e) => updateSecret('openrouter_api_key', e.target.value)}
-              />
-            </label>
-            <label>
-              <small className="settings-label-row">
-                <span>Clé API Gemini Direct</span>
-                <button
-                  type="button"
-                  onClick={() => setHelpModal('gemini')}
-                  className="settings-help-button"
-                >
-                  Obtenir une clé
-                </button>
-              </small>
-              <input
-                type="password"
-                placeholder={settings?.gemini_api_key_configured ? `Configuree (${settings.gemini_api_key_hint})` : 'AIzaSy...'}
-                value={secretForm.gemini_api_key}
-                onChange={(e) => updateSecret('gemini_api_key', e.target.value)}
-              />
-            </label>
+            </Accordion>
           </div>
 
-          <div className="settings-divider">
-            <label>
-              <small>Quand consulter l'IA (dernier recours)</small>
-              <div className="live-segmented settings-segmented">
-                <button
-                  type="button"
-                  className={form.ai_filtering_mode === 'strict' ? 'is-active' : ''}
-                  onClick={() => updateField('ai_filtering_mode', 'strict')}
-                >
-                  Prudent — si le sujet est biblique
-                </button>
-                <button
-                  type="button"
-                  className={form.ai_filtering_mode === 'open' ? 'is-active' : ''}
-                  onClick={() => updateField('ai_filtering_mode', 'open')}
-                >
-                  Large — à chaque phrase non résolue
-                </button>
-              </div>
-              <span className="settings-muted-note">
-                Ce réglage ne change <strong>rien</strong> à la détection locale : citations, versets lus et
-                paraphrases sont toujours analysés. Il décide seulement quand l'IA est sollicitée, et
-                uniquement <strong>si le moteur local n'a rien trouvé</strong>.
-                <br />
-                <strong>Prudent</strong> — l'IA n'est appelée que si la phrase contient un mot du registre
-                biblique. <strong>Large</strong> — elle est appelée sur chaque phrase non résolue : quelques
-                versets implicites en plus, au prix d'un appel de 10 à 20 s (modèle local) qui charge le
-                processeur pendant le direct. Dans les deux cas, une suggestion de l'IA passe toujours par
-                votre validation, jamais directement à l'écran.
-              </span>
-            </label>
+          {/* TAB 2: AUDIO */}
+          <div data-cat="audio">
+            <Accordion
+              title="Entrée micro"
+              icon={<IconMic color="#0ea5e9" />}
+              description="Sélectionnez le micro et le mode de filtrage adapté à votre environnement."
+              defaultOpen={true}
+            >
+              <Row label="Source audio">
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <select value={selectedAudioDeviceId} onChange={(e) => updateAudioDevice(e.target.value)}>
+                    {audioDevices.length === 0 ? (
+                      <option value="">Micro par défaut du navigateur</option>
+                    ) : (
+                      audioDevices.map((device, index) => (
+                        <option key={device.deviceId || index} value={device.deviceId}>
+                          {device.label || `Micro ${index + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <button type="button" className="vp-btn vp-btn--ghost vp-btn--sm" onClick={refreshAudioDevices}>
+                    Actualiser
+                  </button>
+                </div>
+              </Row>
+              <Row label="Prétraitement audio">
+                <select value={audioFilterMode} onChange={(e) => setAudioFilterMode(e.target.value)}>
+                  <option value="off">Signal brut (recommandé)</option>
+                  <option value="speech">Parole: 80 Hz à 8 kHz</option>
+                  <option value="church">Église avec musique: 120 Hz à 7 kHz</option>
+                </select>
+              </Row>
+            </Accordion>
+
+            <Accordion
+              title="Barrière vocale (anti-musique)"
+              icon={<IconShield color="#0ea5e9" />}
+              description={`Détection Silero VAD : bloque les segments musicaux pour ne transcrire que la voix.${!settings?.voice_gate_available ? ' — Modèle silero_vad.onnx absent du dossier data/.' : ''}`}
+            >
+              <Row label="Activer la barrière">
+                <label className="settings-switch">
+                  <input
+                    type="checkbox"
+                    aria-label="Activer la barrière vocale anti-musique"
+                    checked={form.voice_gate_enabled}
+                    disabled={!settings?.voice_gate_available}
+                    onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}
+                  />
+                  <span />
+                </label>
+              </Row>
+            </Accordion>
           </div>
 
-          <div className="settings-divider">
-            <label>
-              <small>
-                Seuil de confiance minimal (IA) : <strong>{form.ai_confidence_threshold}%</strong>
-                {form.ai_confidence_threshold >= 90 && (
-                  <span className="settings-muted-note">
-                    Seuil élevé : l'IA rejettera silencieusement de nombreuses suggestions pour protéger le direct.
+          {/* TAB 3: MOTEURS */}
+          <div data-cat="moteurs">
+            <Accordion title="Transcription" icon={<IconCpu color="#0ea5e9" />} defaultOpen={true}>
+              <Row label="Moteur par défaut">
+                <select value={form.asr_default_engine} onChange={(e) => {
+                  const val = e.target.value
+                  updateField('asr_default_engine', val)
+                  setSelectedEngine(val)
+                }}>
+                  <option value="auto">Auto (Deepgram Cloud puis Nemotron local)</option>
+                  <option value="deepgram">Deepgram Cloud (Rapide &lt; 0.5 s)</option>
+                  <option value="nemotron">Nemotron 3.5-ASR 0.6B (Recommandé Local, 716 Mo)</option>
+                  <option value="vosk">Vosk local (Secours)</option>
+                </select>
+              </Row>
+
+              <div className="settings-divider">
+                <div className="settings-card-head">
+                  <div>
+                    <small>Nemotron 3.5-ASR local</small>
+                    <p>
+                      {asrStatus?.nemotron?.ready
+                        ? 'Prêt · décodage en flux, hors ligne'
+                        : asrStatus?.nemotron?.downloading
+                          ? `Téléchargement en cours · ${Math.round((asrStatus.nemotron.download_progress || 0) * 100)} %`
+                          : `Non préparé · ${asrStatus?.nemotron?.model_size_mb || 716} Mo à télécharger`}
+                    </p>
+                  </div>
+                  <span className={`vp-chip ${asrStatus?.nemotron?.ready ? 'is-ok' : ''}`}>
+                    {asrStatus?.nemotron?.ready ? 'Prêt' : 'Optionnel'}
+                  </span>
+                </div>
+                {asrStatus?.nemotron?.last_error && !asrStatus?.nemotron?.ready && (
+                  <span className="settings-error-note" role="alert">
+                    Échec : {asrStatus.nemotron.last_error}
                   </span>
                 )}
-              </small>
-              <input
-                type="range"
-                min="50"
-                max="99"
-                value={form.ai_confidence_threshold}
-                onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
-              />
-              <span className="settings-muted-note">
-                Toute suggestion IA sous ce seuil sera automatiquement rejetée pour éviter les hallucinations.
-              </span>
-            </label>
-          </div>
-        </div>
-        <div data-cat="projection" className="settings-card is-wide">
-          <div className="settings-card-head">
-            <div>
-              <span>Projection</span>
-              <h2>Diffusion en direct</h2>
-            </div>
-            <label className="settings-switch">
-              <input
-                type="checkbox"
-                checked={form.auto_send}
-                onChange={(e) => updateField('auto_send', e.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <p>
-            La projection automatique reste réservée aux références explicites et vérifiées.
-            Les suggestions sémantiques et IA exigent toujours une validation humaine.
-          </p>
-          <div className="settings-form-grid">
-            <label className="settings-inline-check">
-              <input
-                type="checkbox"
-                checked={form.sunday_safe_mode}
-                onChange={(e) => updateField('sunday_safe_mode', e.target.checked)}
-              />
-              <span><strong>Mode dimanche sûr</strong><small>Bloque toute projection automatique.</small></span>
-            </label>
-            <label className="settings-inline-check">
-              <input
-                type="checkbox"
-                checked={form.shadow_mode}
-                onChange={(e) => updateField('shadow_mode', e.target.checked)}
-              />
-              <span><strong>Mode ombre</strong><small>Analyse le culte sans piloter les sorties.</small></span>
-            </label>
-          </div>
-        </div>
+                {asrStatus?.nemotron?.downloading && <ProgressBar percent={Math.round((asrStatus.nemotron.download_progress || 0) * 100)} status="Téléchargement Nemotron 3.5-ASR…" />}
+                <button
+                  type="button"
+                  className="vp-btn vp-btn--sm"
+                  onClick={() => prepareLocalEngine('nemotron')}
+                  disabled={preparingLocal === 'nemotron' || asrStatus?.nemotron?.downloading}
+                >
+                  {asrStatus?.nemotron?.ready ? 'Moteur local prêt' : 'Préparer le moteur local'}
+                </button>
+                <span className="settings-muted-note">
+                  Décodage en flux, sans Internet. Plus précis que Vosk sur les accents,
+                  pour 716 Mo téléchargés une seule fois.
+                </span>
+              </div>
 
-        <div data-cat="projection" className="settings-card is-wide">
-          <span>Projection & Rendu</span>
-          <h2>Thèmes & Personnalisation</h2>
-          
-          <div className="settings-form-grid" style={{ marginTop: '16px' }}>
-            {/* Colonne de gauche : les menus, puis l'aperçu juste dessous. Il
-                comble ainsi le vide d'origine sans repousser l'habillage, qui
-                garde sa place à droite — là où l'opérateur a l'habitude de le
-                chercher. */}
-            <div className="settings-stack">
-            <div className="settings-two-cols">
-              <label>
-                <small>Thème d'affichage</small>
-                <select 
-                  value={form.projection_theme} 
+              <div className="settings-divider">
+                <div className="settings-card-head">
+                  <div>
+                    <small>Embeddings bibliques ONNX</small>
+                    <p>
+                      {semanticStatus?.verses_indexed || 0} versets indexés localement
+                      {semanticStatus?.model ? ` · moteur ${semanticStatus.model === 'e5-base' ? 'e5-base (précis)' : semanticStatus.model === 'e5-small' ? 'e5-small (léger, repli)' : semanticStatus.model}` : ''}
+                      {semanticStatus?.using_fallback ? ' · secours' : ''}
+                    </p>
+                  </div>
+                </div>
+                {semanticStatus?.last_error && !semanticStatus?.installed && (
+                  <span className="settings-error-note" role="alert">
+                    Échec : {semanticStatus.last_error}
+                  </span>
+                )}
+                {(semanticStatus?.downloading || semanticStatus?.indexing) && <ProgressBar percent={semanticStatus?.download_progress || 0} status={semanticStatus?.downloading ? 'Téléchargement du modèle…' : 'Indexation des versets…'} />}
+                <button type="button" className="vp-btn vp-btn--sm" onClick={() => prepareLocalEngine('semantic')} disabled={preparingLocal === 'semantic' || semanticStatus?.indexing}>
+                  {semanticStatus?.installed ? 'Réindexer' : semanticStatus?.indexing ? 'Indexation…' : 'Installer et indexer'}
+                </button>
+                <span className="settings-muted-note">
+                  Première préparation uniquement : plusieurs minutes selon le processeur. Elle ne démarre jamais pendant le live sans votre action.
+                </span>
+              </div>
+
+              <Row label="Recherche sémantique">
+                <label className="settings-switch">
+                  <input type="checkbox" checked={form.local_semantic_enabled} onChange={(e) => updateField('local_semantic_enabled', e.target.checked)} />
+                  <span />
+                </label>
+              </Row>
+              <Row label="Seuil sémantique">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <input type="range" min="0.50" max="0.95" step="0.005" value={form.local_semantic_threshold} onChange={(e) => updateField('local_semantic_threshold', Number(e.target.value))} />
+                  <span className="settings-muted-note">
+                    {Math.round(form.local_semantic_threshold * 100)} %
+                  </span>
+                </div>
+              </Row>
+            </Accordion>
+
+            <Accordion title="Transcription Cloud (Deepgram)" icon={<IconCloud color="#0ea5e9" />}>
+              <Row label="Modèle">
+                <select value={form.deepgram_model} onChange={(e) => updateField('deepgram_model', e.target.value)}>
+                  <option value="nova-2">nova-2</option>
+                  <option value="nova-3">nova-3</option>
+                  <option value="base">base</option>
+                  <option value="enhanced">enhanced</option>
+                </select>
+              </Row>
+              <Row label="Langue">
+                <select value={form.deepgram_language} onChange={(e) => updateField('deepgram_language', e.target.value)}>
+                  <option value="fr">Français</option>
+                  <option value="en">Anglais</option>
+                  <option value="es">Espagnol</option>
+                  <option value="pt">Portugais</option>
+                </select>
+              </Row>
+              <Row label="Clé API Deepgram">
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="password"
+                    placeholder={settings?.deepgram_api_key_configured ? `Configurée (${settings.deepgram_api_key_hint})` : 'Coller une clé Deepgram'}
+                    value={secretForm.deepgram_api_key}
+                    onChange={(e) => updateSecret('deepgram_api_key', e.target.value)}
+                  />
+                  <button type="button" onClick={() => setHelpModal('deepgram')} className="settings-help-button">
+                    Obtenir
+                  </button>
+                </div>
+              </Row>
+            </Accordion>
+
+            <Accordion title="Détection intelligente" icon={<IconSparkles color="#0ea5e9" />} defaultOpen={true}>
+              <Row label="Activer">
+                <label className="settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={form.ai_agent_enabled}
+                    onChange={(e) => updateField('ai_agent_enabled', e.target.checked)}
+                  />
+                  <span />
+                </label>
+              </Row>
+
+              <div className="live-segmented settings-segmented-sv mt-4 mb-6" style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={aiTab === 'cloud' ? 'is-active flex-1 py-2 font-bold' : 'flex-1 py-2'}
+                  onClick={() => setAiTab('cloud')}
+                >
+                  ☁️ Cloud (Recommandé)
+                </button>
+                <button
+                  type="button"
+                  className={aiTab === 'local' ? 'is-active flex-1 py-2 font-bold' : 'flex-1 py-2'}
+                  onClick={() => setAiTab('local')}
+                >
+                  💻 Local (Hors-ligne)
+                </button>
+              </div>
+
+              {aiTab === 'cloud' && (
+                <div className="animate-fade-in space-y-4">
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3 text-emerald-400">
+                      <span>☁️</span>
+                      <span className="font-bold text-sm">IA Cloud VersePro</span>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded">✅ Connecté</span>
+                  </div>
+
+                  <div>
+                    <Row label="Clé API Gemini (Gratuit)">
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          type="password"
+                          placeholder={settings?.gemini_api_key_configured ? `Configurée (${settings.gemini_api_key_hint})` : 'AIzaSy...'}
+                          value={secretForm.gemini_api_key}
+                          onChange={(e) => updateSecret('gemini_api_key', e.target.value)}
+                        />
+                        <button type="button" onClick={() => setHelpModal('gemini')} className="settings-help-button">Obtenir</button>
+                      </div>
+                    </Row>
+                    <Row label="Clé API OpenRouter">
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          type="password"
+                          placeholder={settings?.openrouter_api_key_configured ? `Configurée (${settings.openrouter_api_key_hint})` : 'sk-or-v1-...'}
+                          value={secretForm.openrouter_api_key}
+                          onChange={(e) => updateSecret('openrouter_api_key', e.target.value)}
+                        />
+                        <button type="button" onClick={() => setHelpModal('openrouter')} className="settings-help-button">Obtenir</button>
+                      </div>
+                    </Row>
+                  </div>
+                  <p className="text-xs text-text-dim mt-2">
+                    VersePro utilise Gemini 1.5 Flash par défaut (15 requêtes/min gratuites).
+                  </p>
+                </div>
+              )}
+
+              {aiTab === 'local' && (
+                <div className="animate-fade-in space-y-4">
+                  <div className="p-4 rounded-xl bg-surface-2 border border-white/10 flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3 text-text-strong">
+                      <span>💻</span>
+                      <span className="font-bold text-sm">Ollama (Moteur Local)</span>
+                    </div>
+                    <span className="text-xs font-bold text-text-dim bg-surface-3 px-2 py-1 rounded">Modèle: llama3.1:8b</span>
+                  </div>
+
+                  <div className="p-4 bg-accent/10 border border-accent/20 rounded-xl">
+                    <h4 className="text-sm font-bold text-accent mb-2">Exécution Hors-Ligne</h4>
+                    <p className="text-xs text-text-dim mb-4 leading-relaxed">
+                      L'IA locale nécessite que le logiciel <a href="https://ollama.com" target="_blank" rel="noreferrer" className="underline hover:text-accent">Ollama</a> soit installé et lancé sur votre ordinateur.
+                      VersePro utilise le modèle <strong>Llama 3.1 8B</strong> (~4.7 Go).
+                    </p>
+
+                    {!pullProgress ? (
+                      <button
+                        className="vp-btn vp-btn--primary w-full text-sm py-3 font-bold"
+                        onClick={() => {
+                          setPullProgress({ status: 'Connexion à Ollama…', percent: 0 })
+                          const es = new EventSource(`${BACKEND_BASE}/api/v1/ai/pull-local-model`)
+                          es.onmessage = (ev) => {
+                            try {
+                              const d = JSON.parse(ev.data)
+                              if (d.error) {
+                                setPullProgress({ status: d.error, percent: 0, error: true })
+                                es.close()
+                                return
+                              }
+                              if (d.status === 'done' || d.percent >= 100) {
+                                setPullProgress({ status: 'Installation terminée !', percent: 100, done: true })
+                                addToast?.({ message: '✅ Llama 3.1 installé avec succès ! Redémarrez VersePro pour activer le mode local.', kind: 'success' })
+                                es.close()
+                                return
+                              }
+                              let label = d.status || ''
+                              if (label.startsWith('pulling')) label = 'Téléchargement…'
+                              else if (label.startsWith('verifying')) label = 'Vérification…'
+                              else if (label.startsWith('writing')) label = 'Écriture…'
+                              setPullProgress({ status: label, percent: d.percent || 0 })
+                            } catch {}
+                          }
+                          es.onerror = () => {
+                            setPullProgress(prev => prev?.done ? prev : { status: 'Connexion perdue. Ollama est-il lancé ?', percent: 0, error: true })
+                            es.close()
+                          }
+                        }}
+                      >
+                        📥 Installer l'Intelligence Biblique (Llama 3.1)
+                      </button>
+                    ) : pullProgress.error ? (
+                      <div>
+                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-center mb-3">
+                          <p className="text-xs text-red-400 font-bold">❌ {pullProgress.status}</p>
+                        </div>
+                        <button
+                          className="vp-btn vp-btn--primary w-full text-sm py-2"
+                          onClick={() => setPullProgress(null)}
+                        >
+                          🔄 Réessayer
+                        </button>
+                      </div>
+                    ) : pullProgress.done ? (
+                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-center">
+                        <p className="text-sm text-emerald-400 font-bold">✅ {pullProgress.status}</p>
+                        <p className="text-[10px] text-text-dim mt-1">Le moteur local est prêt à l'emploi.</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-text-dim">{pullProgress.status}</span>
+                          <span className="text-xs font-bold text-accent">{pullProgress.percent.toFixed(0)}%</span>
+                        </div>
+                        <div className="w-full h-3 rounded-full bg-surface-3 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{
+                              width: `${pullProgress.percent}%`,
+                              background: 'linear-gradient(90deg, var(--accent), var(--accent-bright, #60a5fa))',
+                            }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-text-dim mt-2 text-center opacity-70">
+                          Ne fermez pas cette page pendant le téléchargement.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="settings-divider" style={{ marginTop: '24px' }}>
+                <Row label="Mode de consultation IA">
+                  <div className="live-segmented settings-segmented">
+                    <button
+                      type="button"
+                      className={form.ai_filtering_mode === 'strict' ? 'is-active' : ''}
+                      onClick={() => updateField('ai_filtering_mode', 'strict')}
+                    >
+                      Prudent
+                    </button>
+                    <button
+                      type="button"
+                      className={form.ai_filtering_mode === 'open' ? 'is-active' : ''}
+                      onClick={() => updateField('ai_filtering_mode', 'open')}
+                    >
+                      Large
+                    </button>
+                  </div>
+                </Row>
+                <Row label="Seuil de confiance IA">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <input
+                      type="range"
+                      min="50"
+                      max="99"
+                      value={form.ai_confidence_threshold}
+                      onChange={(e) => updateField('ai_confidence_threshold', Number(e.target.value))}
+                    />
+                    <span className="settings-muted-note">
+                      {form.ai_confidence_threshold}%
+                    </span>
+                  </div>
+                </Row>
+              </div>
+            </Accordion>
+          </div>
+
+          {/* TAB 4: PROJECTION */}
+          <div data-cat="projection">
+            <Accordion title="Diffusion en direct" icon={<IconMonitor color="#0ea5e9" />} description="Contrôle comment les versets sont envoyés à l'écran." defaultOpen={true}>
+              <Row label="Envoi automatique">
+                <label className="settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={form.auto_send}
+                    onChange={(e) => updateField('auto_send', e.target.checked)}
+                  />
+                  <span />
+                </label>
+              </Row>
+              <Row label="Mode dimanche sûr" desc="Bloque toute projection automatique.">
+                <label className="settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={form.sunday_safe_mode}
+                    onChange={(e) => updateField('sunday_safe_mode', e.target.checked)}
+                  />
+                  <span />
+                </label>
+              </Row>
+              <Row label="Mode ombre" desc="Analyse le culte sans piloter les sorties.">
+                <label className="settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={form.shadow_mode}
+                    onChange={(e) => updateField('shadow_mode', e.target.checked)}
+                  />
+                  <span />
+                </label>
+              </Row>
+            </Accordion>
+
+            <Accordion title="Thèmes & Personnalisation" icon={<IconPalette color="#0ea5e9" />}>
+              <Row label="Thème d'affichage">
+                <select
+                  value={form.projection_theme}
                   onChange={(e) => updateField('projection_theme', e.target.value)}
                 >
                   <option value="presentation">presentation (Plein écran classique)</option>
@@ -783,13 +1087,11 @@ export default function Settings() {
                   <option value="souffle">souffle (Adoration — texte seul, aucun décor)</option>
                   <option value="story">story (Format vertical avec fond)</option>
                 </select>
-              </label>
-
-              {form.projection_theme === 'broadcast' ? (
-                <label>
-                  <small>Style de Lower-Third</small>
-                  <select 
-                    value={form.projection_style} 
+              </Row>
+              <Row label="Style Lower-Third">
+                {form.projection_theme === 'broadcast' ? (
+                  <select
+                    value={form.projection_style}
                     onChange={(e) => updateField('projection_style', e.target.value)}
                   >
                     <option value="agoe-logope">🔥 agoe-logope (Exact Trait pour Trait — Panneau blanc, étiquette émeraude & exposant)</option>
@@ -802,9 +1104,6 @@ export default function Settings() {
                     <option value="pill">pill (Capsule arrondie)</option>
                     <option value="sage">sage (Sauge & Terracotta)</option>
                     <option value="split">split (Barre complète divisée)</option>
-                    {/* Habillages de l'église, rangés par catégorie, à côté des
-                        styles livrés : un habillage créé devient un choix comme
-                        un autre. */}
                     {Object.entries(
                       presetsHabillage.reduce((groupes, p) => {
                         (groupes[p.category] ||= []).push(p)
@@ -820,300 +1119,309 @@ export default function Settings() {
                       </optgroup>
                     ))}
                   </select>
-                </label>
-              ) : (
-                <div style={{ opacity: 0.4, pointerEvents: 'none' }}>
-                  <label>
-                    <small>Style de Lower-Third</small>
-                    <select disabled value="default">
-                      <option value="default">Indisponible avec ce thème</option>
-                    </select>
-                  </label>
-                </div>
-              )}
-            </div>
+                ) : (
+                  <select disabled value="default">
+                    <option value="default">Indisponible avec ce thème</option>
+                  </select>
+                )}
+              </Row>
 
-            {/* Aperçu RÉEL : la page de projection elle-même, sur le thème ET
-                le style choisis. Une vignette dessinée à la main aurait fini
-                par mentir dès qu'un style change ; ici c'est le vrai rendu. */}
-            <div className="settings-divider">
-              <div className="settings-card-head">
-                <div>
-                  <small>Aperçu</small>
-                  <p>Le rendu exact, thème et style combinés, tel qu'il sortira sur l'écran.</p>
-                </div>
-                <span className="vp-chip">
-                  {form.projection_theme}{form.projection_theme === 'broadcast' ? ` · ${form.projection_style}` : ''}
-                </span>
-              </div>
-              <StylePreview theme={form.projection_theme} style={form.projection_style} />
-            </div>
-            </div>
-
-            <div className="settings-divider">
-              <div className="settings-card-head">
-                <div>
-                  <small>Atelier d'habillage</small>
-                  <p>
-                    C'est ici qu'on <strong>compose</strong>, pas qu'on projette. Importez votre
-                    graphique (PNG à fond transparent, exporté de Canva, Photoshop…), placez les
-                    zones, puis <strong>enregistrez</strong> : l'habillage rejoint alors la liste
-                    « Style de Lower-Third » ci-contre. C'est celui que vous y choisissez qui part
-                    à l'écran, en NDI et par les liens — jamais le brouillon de cet atelier.
-                  </p>
-                </div>
-              </div>
-              <OverlayEditor />
-            </div>
-
-            <div className="flex flex-col gap-2 pt-2">
-              <label className="flex items-center gap-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={form.show_bible_version}
-                  onChange={(e) => updateField('show_bible_version', e.target.checked)}
-                  style={{ width: '16px', height: '16px' }}
-                />
-                <span className="text-xs text-[var(--text)]">
-                  Indiquer l'édition sous le verset. Les styles <strong>filet</strong>, <strong>cartouche</strong>,
-                  <strong> ligne</strong> et le thème <strong>souffle</strong> l'écrivent en toutes lettres
-                  (<strong>Louis Segond 1910</strong>) ; les autres gardent le sigle (<strong>Jean 3:16 (LSG)</strong>).
-                </span>
-              </label>
-            </div>
-
-            {form.projection_theme === 'dual' && (
-              <div className="flex flex-col gap-2 pt-3 border-t border-border-weak">
-                <small className="block font-semibold mb-1 text-[var(--text-dim)]">Traductions à projeter en parallèle (Duo / Trio) :</small>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {availableBibles.map((code) => {
-                    const isChecked = form.dual_translations?.split(',').map(s => s.trim()).includes(code);
-                    return (
-                      <label key={code} className="flex items-center gap-2 cursor-pointer text-xs select-none">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleDualBibleToggle(code)}
-                          style={{ width: '14px', height: '14px' }}
-                        />
-                        <span>{code} ({BIBLE_NAMES[code] || code})</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="pt-3 border-t border-border-weak">
-              <small className="block font-semibold mb-1 text-[var(--text-dim)]">Lien d'intégration OBS / vMix :</small>
-              <div className="flex gap-2 items-center bg-[var(--color-paper-deep)] border border-border-weak rounded-lg p-2 font-mono text-[10px] text-accent truncate select-all">
-                <span>
-                  {`${BACKEND_BASE || 'http://127.0.0.1:8001'}/output?theme=${form.projection_theme}&style=${form.projection_style}&versions=${form.dual_translations}&subtitle=off`}
-                </span>
-                <button
-                  type="button"
-                  className="vp-btn vp-btn--ghost vp-btn--2xs ml-auto flex-shrink-0"
-                  onClick={() => {
-                    const url = `${BACKEND_BASE || 'http://127.0.0.1:8001'}/output?theme=${form.projection_theme}&style=${form.projection_style}&versions=${form.dual_translations}&subtitle=off`;
-                    navigator.clipboard.writeText(url);
-                    addToast({ message: 'URL copiée !', kind: 'success' });
-                  }}
-                >
-                  Copier
-                </button>
-              </div>
-              <span className="settings-muted-note mt-1 block">
-                Ajoutez ce lien comme source navigateur (Browser Source) dans OBS Studio ou vMix (1920x1080, fond transparent).
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div data-cat="projection" className="settings-card">
-          <span>Bible</span>
-          <h2>Version par défaut</h2>
-          <div className="settings-two-cols">
-            <label>
-              <small>Version projetée</small>
-              <select value={form.bible_version} onChange={(e) => updateField('bible_version', e.target.value)}>
-                {availableBibles.map((code) => (
-                  <option key={code} value={code}>
-                    {code} - {BIBLE_NAMES[code] || code}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {/* Import à droite du sélecteur, là où on cherche naturellement à
-                compléter la liste. */}
-            <BibleImport />
-          </div>
-        </div>
-
-        <div data-cat="sorties" className="settings-card">
-          <div className="settings-card-head">
-            <div>
-              <span>NDI</span>
-              <h2>Diffusion vers le mélangeur</h2>
-            </div>
-            <span className={`vp-chip ${settings?.ndi?.sending ? 'is-ok' : settings?.ndi?.available ? '' : 'is-warn'}`}>
-              {settings?.ndi?.sending ? 'À l\'antenne' : settings?.ndi?.available ? 'Prêt' : 'Indisponible'}
-            </span>
-          </div>
-          <p>
-            Envoie le bandeau — habillage compris, fond transparent — sur le réseau
-            local. La source apparaît dans vMix, OBS ou TriCaster sans câble ni
-            capture d'écran. L'image diffusée est identique à celle de l'écran.
-          </p>
-          {settings?.ndi?.available ? (
-            <>
-              <label className="flex items-center gap-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={form.ndi_enabled}
-                  onChange={(e) => updateField('ndi_enabled', e.target.checked)}
-                />
-                <span><strong>Activer la sortie NDI</strong></span>
-              </label>
-              <label>
-                <small>Nom de la source</small>
-                <input
-                  value={form.ndi_source_name}
-                  onChange={(e) => updateField('ndi_source_name', e.target.value)}
-                />
-                <span className="settings-muted-note">
-                  Nom affiché dans la liste des sources du mélangeur.
-                </span>
-              </label>
-            </>
-          ) : (
-            <div className="settings-error-note flex flex-col gap-2 p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-200">
-              <div>
-                <strong>NDIlib (Runtime NDI de Vizrt) est absent de ce poste.</strong>
-                {settings?.ndi?.last_error ? ` (${settings.ndi.last_error})` : ''}
-              </div>
-              <p className="text-xs opacity-90">
-                Pour diffuser le flux vidéo NDI vers vMix, OBS Studio ou TriCaster sur votre réseau d'église, installez le runtime gratuit NDI de Vizrt puis relancez VersePro :
-              </p>
-              <a
-                href="https://ndi.video/tools/ndi-core-suite/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-amber-400 underline font-medium hover:text-amber-300 w-fit"
-              >
-                <span>Télécharger le Runtime NDI gratuit de Vizrt (NDI Core Suite) ↗</span>
-              </a>
-            </div>
-          )}
-        </div>
-
-        <div data-cat="sorties" className="settings-card">
-          <span>ProPresenter</span>
-          <h2>Connexion locale</h2>
-          <div className="settings-two-cols">
-            <label>
-              <small>Hôte</small>
-              <input
-                value={form.propresenter_host}
-                onChange={(e) => updateField('propresenter_host', e.target.value)}
-              />
-            </label>
-            <label>
-              <small>Port</small>
-              <input
-                type="number"
-                value={form.propresenter_port}
-                onChange={(e) => updateField('propresenter_port', e.target.value)}
-              />
-            </label>
-          </div>
-          <label>
-            <small>Nom du message ProPresenter</small>
-            <input
-              value={form.propresenter_message_name}
-              onChange={(e) => updateField('propresenter_message_name', e.target.value)}
-            />
-            <span className="settings-muted-note">
-              Vos habillages restent les vôtres : créez dans ProPresenter un Message
-              portant ce nom, stylé comme votre église le souhaite, avec un jeton de
-              référence et un jeton de texte. VersePro ne fait que les remplir.
-            </span>
-          </label>
-        </div>
-
-        <div data-cat="avance" className="settings-card">
-          <span>Avant le culte</span>
-          <h2>Mode répétition</h2>
-          <p className="settings-rehearsal-copy">
-            Collez un extrait de prédication : la chaîne de détection est rejouée comme en direct,
-            sans rien projeter.
-          </p>
-          <textarea
-            value={rehearseText}
-            onChange={(e) => setRehearseText(e.target.value)}
-            placeholder="Ex : ce matin nous lisons dans jean chapitre trois verset seize car dieu a tant aimé le monde…"
-            rows={3}
-          />
-          <button
-            type="button"
-            className="vp-btn vp-btn--sm"
-            onClick={runRehearsal}
-            disabled={rehearsing || !rehearseText.trim()}
-          >
-            {rehearsing ? 'Analyse…' : 'Tester la détection'}
-          </button>
-          {rehearseResults !== null && (
-            <div className="settings-result-list">
-              {rehearseResults.length === 0 ? (
-                <span className="settings-secret-hint">Aucune référence détectée dans ce texte.</span>
-              ) : (
-                rehearseResults.map((d, i) => (
-                  <div key={i} className="settings-result-row">
-                    <strong>{d.reference}</strong>
-                    <span>{d.detection_method}</span>
+              <div className="settings-divider">
+                <div className="settings-card-head">
+                  <div>
+                    <small>Aperçu</small>
+                    <p>Le rendu exact, thème et style combinés, tel qu'il sortira sur l'écran.</p>
                   </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+                  <span className="vp-chip">
+                    {form.projection_theme}{form.projection_theme === 'broadcast' ? ` · ${form.projection_style}` : ''}
+                  </span>
+                </div>
+                <StylePreview theme={form.projection_theme} style={form.projection_style} />
+              </div>
 
-      {versionInfo && onglet === 'avance' && (
-        <section className="settings-section">
-          <div className="settings-section-head">
-            <span className="settings-eyebrow">à propos</span>
-            <h2>Version installée</h2>
+              <div className="settings-divider">
+                <div className="settings-card-head">
+                  <div>
+                    <small>Atelier d'habillage</small>
+                  </div>
+                </div>
+                <OverlayEditor />
+              </div>
+
+              <Row label="Afficher version Bible">
+                <label className="settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={form.show_bible_version}
+                    onChange={(e) => updateField('show_bible_version', e.target.checked)}
+                  />
+                  <span />
+                </label>
+              </Row>
+
+              {form.projection_theme === 'dual' && (
+                <div className="flex flex-col gap-2 pt-3 border-t border-border-weak">
+                  <small className="block font-semibold mb-1 text-[var(--text-dim)]">Traductions à projeter en parallèle (Duo / Trio) :</small>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {availableBibles.map((code) => {
+                      const isChecked = form.dual_translations?.split(',').map(s => s.trim()).includes(code);
+                      return (
+                        <label key={code} className="flex items-center gap-2 cursor-pointer text-xs select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => handleDualBibleToggle(code)}
+                            style={{ width: '14px', height: '14px' }}
+                          />
+                          <span>{code} ({BIBLE_NAMES[code] || code})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-border-weak">
+                <small className="block font-semibold mb-1 text-[var(--text-dim)]">Lien d'intégration OBS / vMix :</small>
+                <div className="flex gap-2 items-center bg-[var(--color-paper-deep)] border border-border-weak rounded-lg p-2 font-mono text-[10px] text-accent truncate select-all">
+                  <span>
+                    {`${BACKEND_BASE || 'http://127.0.0.1:8001'}/output?theme=${form.projection_theme}&style=${form.projection_style}&versions=${form.dual_translations}&subtitle=off`}
+                  </span>
+                  <button
+                    type="button"
+                    className="vp-btn vp-btn--ghost vp-btn--2xs ml-auto flex-shrink-0"
+                    onClick={() => {
+                      const url = `${BACKEND_BASE || 'http://127.0.0.1:8001'}/output?theme=${form.projection_theme}&style=${form.projection_style}&versions=${form.dual_translations}&subtitle=off`;
+                      navigator.clipboard.writeText(url);
+                      addToast({ message: 'URL copiée !', kind: 'success' });
+                    }}
+                  >
+                    Copier
+                  </button>
+                </div>
+              </div>
+            </Accordion>
+
+            <Accordion title="Bible" icon={<IconBook color="#0ea5e9" />}>
+              <Row label="Version projetée">
+                <select value={form.bible_version} onChange={(e) => updateField('bible_version', e.target.value)}>
+                  {availableBibles.map((code) => (
+                    <option key={code} value={code}>
+                      {code} - {BIBLE_NAMES[code] || code}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+              <BibleImport />
+            </Accordion>
           </div>
-          <div className="settings-section-body">
-            <p className="text-sm">
-              VersePro <strong>{versionInfo.current}</strong> — Selah Studios.
-              {' '}
-              {versionInfo.update_available
-                ? <>Une version <strong>{versionInfo.latest}</strong> est disponible.</>
-                : versionInfo.checked
-                  ? 'Vous êtes à jour.'
-                  : 'Le contrôle des mises à jour n\'est pas activé — rien n\'est envoyé sur internet.'}
-            </p>
-            {versionInfo.update_available && versionInfo.url && (
-              <p className="text-sm" style={{ marginTop: '8px' }}>
-                {versionInfo.notes ? <span>{versionInfo.notes} </span> : null}
-                <a href={versionInfo.url} target="_blank" rel="noreferrer">Télécharger la mise à jour</a>
-                {' '}— l'installation reste manuelle : VersePro ne se remplace jamais tout seul.
-              </p>
+
+          {/* TAB 5: SORTIES */}
+          <div data-cat="sorties">
+            <Accordion
+              title="NDI"
+              icon={<IconRadio color="#0ea5e9" />}
+              description={settings?.ndi?.sending ? 'À l\'antenne' : settings?.ndi?.available ? 'Prêt' : 'Non détecté'}
+              badge={<span className={`vp-chip ${settings?.ndi?.sending ? 'is-ok' : settings?.ndi?.available ? '' : 'is-warn'}`}>
+                {settings?.ndi?.sending ? 'À l\'antenne' : settings?.ndi?.available ? 'Prêt' : 'Non détecté'}
+              </span>}
+              defaultOpen={true}
+            >
+              {settings?.ndi?.available ? (
+                <>
+                  <Row label="Activer NDI">
+                    <label className="settings-switch">
+                      <input
+                        type="checkbox"
+                        checked={form.ndi_enabled}
+                        onChange={(e) => updateField('ndi_enabled', e.target.checked)}
+                      />
+                      <span />
+                    </label>
+                  </Row>
+                  <Row label="Nom de la source">
+                    <input
+                      type="text"
+                      value={form.ndi_source_name}
+                      onChange={(e) => updateField('ndi_source_name', e.target.value)}
+                      placeholder="VersePro"
+                    />
+                  </Row>
+                  {settings?.ndi?.sending && (
+                    <div className="flex items-center gap-2 mt-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <span className="text-emerald-400 text-xs font-semibold">● NDI actif — visible sur le réseau local</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col gap-3 p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-200">
+                  <div>
+                    <strong>NDI Runtime (Vizrt) non détecté sur ce poste.</strong>
+                    {settings?.ndi?.last_error ? <span className="block text-xs mt-1 opacity-70">{settings.ndi.last_error}</span> : null}
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    NDI permet d'envoyer l'écran de projection en direct sur le réseau local (OBS, vMix, Resolume…).
+                    Installez le Runtime NDI gratuit, redémarrez VersePro, et la sortie NDI sera disponible.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <a href="https://ndi.video/tools/ndi-core-suite/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-amber-400 underline font-medium hover:text-amber-300 w-fit">
+                      ⬇ Télécharger NDI Core Suite (Windows) ↗
+                    </a>
+                    <a href="https://ndi.video/tools/ndi-core-suite/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-sky-400 underline font-medium hover:text-sky-300 w-fit">
+                      ⬇ Télécharger NDI Core Suite (macOS) ↗
+                    </a>
+                  </div>
+                </div>
+              )}
+            </Accordion>
+
+            <Accordion title="ProPresenter" icon={<IconMonitor color="#0ea5e9" />}>
+              <Row label="Hôte">
+                <input
+                  type="text"
+                  value={form.propresenter_host}
+                  onChange={(e) => updateField('propresenter_host', e.target.value)}
+                />
+              </Row>
+              <Row label="Port">
+                <input
+                  type="number"
+                  value={form.propresenter_port}
+                  onChange={(e) => updateField('propresenter_port', e.target.value)}
+                />
+              </Row>
+              <Row label="Nom du message">
+                <input
+                  type="text"
+                  value={form.propresenter_message_name}
+                  onChange={(e) => updateField('propresenter_message_name', e.target.value)}
+                />
+              </Row>
+            </Accordion>
+          </div>
+
+          {/* TAB 6: AVANCE */}
+          <div data-cat="avance">
+            <Accordion title="📋 Notes du Sermon & Extraction" icon={<IconClipboard color="#0ea5e9" />} description="Collez le texte de votre prédication pour en extraire automatiquement tous les versets et les ajouter au déroulé." defaultOpen={true}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <textarea
+                  value={sermonText}
+                  onChange={(e) => setSermonText(e.target.value)}
+                  placeholder="Collez ici votre prédication ou vos notes de sermon (ex: Dimanche nous lirons Jean 3:16 et Psaume 23:1...)"
+                  rows={5}
+                  style={{
+                    width: '100%',
+                    background: 'var(--vp-bg-raised)',
+                    border: '1px solid var(--vp-border-strong)',
+                    borderRadius: 'var(--vp-radius)',
+                    color: 'var(--vp-text)',
+                    fontSize: '13px',
+                    padding: '10px',
+                    fontFamily: 'var(--vp-font)'
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="vp-btn vp-btn--primary"
+                    onClick={handleExtractSermonNotes}
+                    disabled={extractingNotes || !sermonText.trim()}
+                  >
+                    {extractingNotes ? 'Extraction…' : '🔍 Extraire les versets'}
+                  </button>
+                  {sermonExtracted.length > 0 && (
+                    <button
+                      type="button"
+                      className="vp-btn vp-btn--secondary"
+                      onClick={handleAddAllSermonVerses}
+                    >
+                      📥 Ajouter tous au déroulé ({sermonExtracted.length})
+                    </button>
+                  )}
+                </div>
+
+                {sermonExtracted.length > 0 && (
+                  <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--vp-text)' }}>
+                      {sermonExtracted.length} verset(s) extrait(s) :
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px' }}>
+                      {sermonExtracted.map((item, idx) => (
+                        <div key={idx} style={{ background: 'var(--vp-bg-elevated)', border: '1px solid var(--vp-border)', padding: '8px 12px', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '12.5px', color: 'var(--vp-text)' }}>{item.reference}</strong>
+                          <button
+                            type="button"
+                            className="vp-btn vp-btn--ghost vp-btn--sm"
+                            onClick={() => {
+                              if (prepareReference) prepareReference(item.reference)
+                              addToast?.({ message: `Ajouté : ${item.reference}`, kind: 'success' })
+                            }}
+                          >
+                            + Déroulé
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Accordion>
+
+            <Accordion title="Mode répétition" icon={<IconFlask color="#0ea5e9" />} description="Testez la détection de versets avant le culte.">
+              <textarea
+                value={rehearseText}
+                onChange={(e) => setRehearseText(e.target.value)}
+                placeholder="Ex : ce matin nous lisons dans jean chapitre trois verset seize car dieu a tant aimé le monde…"
+                rows={3}
+                style={{ width: '100%', marginBottom: '12px' }}
+              />
+              <button
+                type="button"
+                className="vp-btn vp-btn--sm"
+                onClick={runRehearsal}
+                disabled={rehearsing || !rehearseText.trim()}
+              >
+                {rehearsing ? 'Analyse…' : 'Tester la détection'}
+              </button>
+              {rehearseResults !== null && (
+                <div className="settings-result-list" style={{ marginTop: '12px' }}>
+                  {rehearseResults.length === 0 ? (
+                    <span className="settings-secret-hint">Aucune référence détectée dans ce texte.</span>
+                  ) : (
+                    rehearseResults.map((d, i) => (
+                      <div key={i} className="settings-result-row">
+                        <strong>{d.reference}</strong>
+                        <span>{d.detection_method}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </Accordion>
+
+            {versionInfo && (
+              <Accordion title="Version installée" icon={<IconInfo color="#0ea5e9" />}>
+                <p className="text-sm">
+                  VersePro <strong>{versionInfo.current}</strong> — Selah Studios.
+                  {' '}
+                  {versionInfo.update_available
+                    ? <>Une version <strong>{versionInfo.latest}</strong> est disponible.</>
+                    : versionInfo.checked
+                      ? 'Vous êtes à jour.'
+                      : 'Le contrôle des mises à jour n\'est pas activé — rien n\'est envoyé sur internet.'}
+                </p>
+                {versionInfo.update_available && versionInfo.url && (
+                  <p className="text-sm" style={{ marginTop: '8px' }}>
+                    {versionInfo.notes ? <span>{versionInfo.notes} </span> : null}
+                    <a href={versionInfo.url} target="_blank" rel="noreferrer">Télécharger la mise à jour</a>
+                  </p>
+                )}
+              </Accordion>
             )}
           </div>
         </section>
-      )}
 
-      <div className="settings-footer">
-        <div>
-          <strong>{savedAt ? 'Paramètres sauvegardés' : 'Prêt à sauvegarder'}</strong>
-          <span>{savedAt ? savedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'Les changements seront appliques au backend.'}</span>
-        </div>
-        <button onClick={save} disabled={saving}>
-          {saving ? 'Sauvegarde...' : 'Sauvegarder'}
-        </button>
-      </div>
+
 
       </main>
       {helpModal && (
@@ -1124,7 +1432,7 @@ export default function Settings() {
               {helpModal === 'openrouter' && 'Obtenir une clé API OpenRouter'}
               {helpModal === 'gemini' && 'Obtenir une clé API Gemini Direct'}
             </h3>
-            
+
             <div className="settings-modal-body">
               {helpModal === 'deepgram' && (
                 <ol className="settings-modal-list">
@@ -1151,7 +1459,7 @@ export default function Settings() {
                 </ol>
               )}
             </div>
-            
+
             <button
               onClick={() => setHelpModal(null)}
               className="vp-btn vp-btn--primary settings-modal-close"

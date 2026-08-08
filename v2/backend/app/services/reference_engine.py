@@ -66,8 +66,14 @@ class BibleReferenceEngine:
 
         recent = self._recent_window(analysis_text, self.settings.HYBRID_WINDOW_WORDS)
 
-        # ── A. Citation explicite ──
-        reference = await self.verse_parser.parse(recent, skip_text_search=True)
+        # ── A. Citation explicite & sauts relatifs ──
+        active_ctx = None
+        if self.last_detected_ref:
+            p_act = await self.verse_parser.parse(self.last_detected_ref, skip_text_search=True)
+            if p_act and p_act.get("book_abbr") and p_act.get("chapter"):
+                active_ctx = {"book_abbr": p_act["book_abbr"], "chapter": p_act["chapter"]}
+
+        reference = await self.verse_parser.parse(recent, skip_text_search=True, active_context=active_ctx)
         if reference:
             return reference
 
@@ -170,40 +176,47 @@ class BibleReferenceEngine:
 
         async with self._ai_last_resort_lock:
             try:
+                # 1. Extraction de l'intention (RAG Step 1)
+                intent_res = await self.ai_service.extract_biblical_intent(
+                    query, contexte=list(self._contexte_recent)
+                )
+
+                if not intent_res or intent_res.get("intent") != "biblical" or not intent_res.get("query"):
+                    logger.debug("IA : Aucune intention biblique détectée ou requête vide.")
+                    return None
+
+                clean_query = intent_res.get("query")
+                if clean_query.lower() == "none" or clean_query.lower() == "null":
+                    return None
+
+                logger.info(f"🤖 Intention biblique détectée. Mots-clés extraits : '{clean_query}'")
+
+                # 2. Recherche dans le vivier fermé (RAG Step 2)
                 shortlist = await asyncio.to_thread(
-                    self.verse_parser.bible_loader.search_candidates, query, 3
+                    self.verse_parser.bible_loader.search_candidates, clean_query, 3
                 )
                 if self.semantic_service and self.semantic_service.initialized:
-                    shortlist += await asyncio.to_thread(self.semantic_service.search, query, 3, 0.0)
-                # PAS DE `return None` SI LA LISTE EST VIDE, et c'était le
-                # défaut le plus profond de cette cascade.
-                #
-                # Mesuré : sur « tant qu'il tenait les bras levés le peuple
-                # l'emportait », la recherche lexicale rend ZÉRO candidat. Le
-                # code s'arrêtait donc là — l'IA n'était même pas appelée,
-                # précisément dans le seul cas où elle sert à quelque chose.
-                #
-                # Une liste vide ne veut pas dire « rien à trouver », elle veut
-                # dire « les moteurs locaux n'ont pas su ». On interroge alors
-                # l'IA SANS liste : elle propose librement, et sa réponse est
-                # revalidée contre la Bible chargée juste après — elle ne peut
-                # donc toujours pas inventer un verset.
+                    shortlist += await asyncio.to_thread(self.semantic_service.search, clean_query, 3, 0.0)
+
+                if not shortlist:
+                    logger.info("IA RAG : Aucun candidat trouvé dans le vivier pour ces mots-clés.")
+                    return None
+
+                # 3. Validation par l'IA (RAG Step 3)
+                # On valide en repassant la requête d'origine pour que l'IA voie le contexte de la shortlist
                 res = await self.ai_service.detect_bible_reference(
-                    query, candidates=shortlist, contexte=list(self._contexte_recent),
+                    query, candidates=shortlist, contexte=list(self._contexte_recent)
                 )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.debug(f"Arbitrage IA de dernier recours indisponible : {exc}")
+                logger.debug(f"Arbitrage IA hybride indisponible : {exc}")
                 return None
 
         if not res or not res.get("reference"):
             return None
 
-        # Validation stricte du résultat. La normalisation est une fonction de
-        # chaîne, pas une capacité du fournisseur : la prendre sur `type(...)`
-        # du service injecté obligeait TOUTE implémentation d'IA à exposer une
-        # méthode privée, et cassait dès qu'on branchait un autre fournisseur.
+        # Normalisation stricte de la référence
         normaliser = AIService._normalize_reference
         attendu = normaliser(res.get("reference", ""))
         selected = next(
@@ -211,43 +224,12 @@ class BibleReferenceEngine:
             None,
         )
 
-        # Proposition LIBRE : l'IA a répondu sans liste fermée. On la ramène
-        # au sol en la résolvant contre la Bible chargée. Si la référence
-        # n'existe pas — livre inventé, chapitre hors bornes — elle est
-        # écartée. L'IA choisit, la Bible tranche.
-        if not selected and not shortlist:
-            resolue = await self.verse_parser.parse(res.get("reference", ""),
-                                                    skip_text_search=True)
-            if resolue and (resolue.get("text") or "").strip():
-                selected = {
-                    "reference": resolue["reference"],
-                    "text": resolue["text"],
-                    "book_abbr": resolue.get("book_abbr"),
-                    "chapter": resolue.get("chapter"),
-                    "verse_start": resolue.get("verse_start"),
-                    "verse_end": resolue.get("verse_end"),
-                    "translations": resolue.get("translations"),
-                    "_libre": True,
-                }
-                logger.info(f"🤖 Proposition IA libre, ancrée : {resolue['reference']}")
-            else:
-                logger.info(f"Suggestion IA écartée : « {res.get('reference')} » "
-                            "ne correspond à aucun verset de la Bible chargée")
-                return None
-
         if not selected:
-            logger.info("Suggestion IA écartée : référence absente de la liste fermée")
+            logger.info(f"Suggestion IA écartée : '{res.get('reference')}' absente de la shortlist du vivier")
             return None
-            
-        # Voie libre : la confiance du modèle fait foi telle quelle. Le
-        # plafond « 70 + score×30 » dérive d'un score de récupération qui
-        # n'existe pas ici — l'appliquer revenait à écraser toute proposition
-        # libre à 85, sous un seuil de 95, donc à l'interdire.
-        libre = bool(selected.get("_libre"))
-        if libre:
-            res = {**res, "reference": selected["reference"], "candidate_validated": True,
-                   "raw_model_confidence": float(res.get("confidence") or 0)}
-        elif not res.get("candidate_validated"):
+
+        # Validation du score
+        if not res.get("candidate_validated"):
             raw_confidence = max(0.0, min(100.0, float(res.get("confidence") or 0)))
             try:
                 raw_score = selected.get("score")
@@ -268,10 +250,8 @@ class BibleReferenceEngine:
                 "candidate_score": score,
                 "candidate_validated": True,
             }
-            
         confidence = float(res.get("confidence") or 0)
-        seuil = (self.settings.AI_FREE_CONFIDENCE_THRESHOLD if libre
-                 else self.settings.AI_CONFIDENCE_THRESHOLD)
+        seuil = self.settings.AI_CONFIDENCE_THRESHOLD
         if confidence < seuil:
             logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {seuil} %)")
             return None
@@ -347,7 +327,7 @@ class BibleReferenceEngine:
         source = "local" if method != "ai_semantic" else "ai"
         ref = dict(decision)
         ref["source"] = source
-        
+
         if source != "local":
             ref["detection_method"] = "ai_semantic"
             ref["confidence"] = min(float(ref.get("confidence") or 0.95), 0.95)
@@ -358,7 +338,7 @@ class BibleReferenceEngine:
             direct_allowed = self._is_direct_projection_allowed(ref)
             ref["requires_review"] = not direct_allowed
             ref["projection_policy"] = "autopilot_direct" if direct_allowed else "manual_review"
-            
+
             if self.verse_graph:
                 self.verse_graph.ancrer(ref)
 
@@ -366,7 +346,6 @@ class BibleReferenceEngine:
         ref["auto_projected"] = bool(
             self.settings.PROPRESENTER_AUTO_SEND
             and direct_allowed
-            and not self.settings.SUNDAY_SAFE_MODE
             and not self.settings.SHADOW_MODE
         )
         if ref["auto_projected"]:
@@ -386,16 +365,16 @@ class BibleReferenceEngine:
             )
         else:
             explanation = "Suggestion IA choisie dans une liste fermée de versets réels. Validation humaine requise."
-        
+
         ref["explanation"] = explanation
         ref["decision_generation"] = generation
 
         ref_key = f"{ref.get('book_abbr')}_{ref.get('chapter')}_{ref.get('verse_start')}_{ref.get('verse_end') or ''}"
         now = time.monotonic()
-        
+
         if ref_key == self.last_detected_ref and now - self.last_detected_at < 8.0:
             return None
-            
+
         self.last_detected_ref = ref_key
         self.last_detected_at = now
 

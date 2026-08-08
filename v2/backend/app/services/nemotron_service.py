@@ -99,7 +99,7 @@ SEGMENT_MAX_CARACTERES = 300
 # 1,8 s passe confortablement au-dessus du maximum observé, tout en ramenant la
 # cadence de 35 s à quelques secondes. Si un jour le modèle change de rythme,
 # c'est cette mesure qu'il faut refaire — pas ce nombre qu'il faut deviner.
-STABILITE_S = 1.8
+STABILITE_S = 1.3
 
 # Au-delà de cette longueur d'hypothèse, on referme et rouvre le flux. Sans
 # cela, une prédication de deux heures ferait grossir le texte courant sans
@@ -165,8 +165,11 @@ class NemotronService:
 
     @property
     def is_ready(self) -> bool:
+        if getattr(self, "downloading", False):
+            return False
         path = self.resolved_model_path
-        return path.exists() and path.stat().st_size > 0
+        # Le modèle fait ~716 Mo. S'il est plus petit que 700 Mo, c'est qu'il est incomplet.
+        return path.exists() and path.stat().st_size > 700 * 1024 * 1024
 
     @property
     def model_path(self) -> Path:
@@ -186,10 +189,27 @@ class NemotronService:
             "last_error": self.last_error,
         }
 
+    def prewarm(self) -> None:
+        """Précharge le modèle GGUF et les pipelines GPU en mémoire en arrière-plan au démarrage."""
+        if not self.is_ready or self._modele is not None:
+            return
+        try:
+            chemin = self.resolved_model_path
+            transcribe_cpp = self._binding()
+            logger.info("🧠 Pré-chargement de Nemotron 3.5-ASR (716 Mo) en mémoire...")
+            self._modele = transcribe_cpp.Model(str(chemin))
+            if self._modele.capabilities.supports_streaming:
+                self._session = self._modele.session().__enter__()
+                self._flux = self._session.stream(language=LANGUE).__enter__()
+            logger.info(f"✅ Nemotron 3.5-ASR prêt instantanément en mémoire")
+        except Exception as exc:
+            logger.warning(f"Pré-chargement Nemotron reporté : {exc}")
+
     def prepare(self, allow_download: bool = True) -> bool:
         """Télécharge le GGUF depuis Hugging Face si absent."""
         if self.is_ready:
             logger.info("Modèle Nemotron déjà présent.")
+            self.prewarm()
             return True
 
         if not allow_download:
@@ -204,17 +224,6 @@ class NemotronService:
         self.download_progress = 0.0
 
         def _download_task():
-            # LE TÉLÉCHARGEMENT DIRECT PASSE EN PREMIER, et c'est un choix
-            # d'interface, pas de performance.
-            #
-            # `hf_hub_download` n'expose aucune progression : la barre restait
-            # figée à 20 % pendant TOUT le téléchargement. Sur la connexion
-            # d'une église, 716 Mo peuvent prendre dix minutes — un bénévole
-            # devant une barre immobile conclut légitimement que c'est cassé,
-            # et c'est exactement le retour qu'on a eu.
-            #
-            # Le téléchargement direct, lui, rapporte octet par octet. Il était
-            # relégué en secours alors qu'il est le seul à pouvoir rassurer.
             def _progression(recus, total):
                 if total > 0:
                     self.download_progress = min(0.99, float(recus) / float(total))
@@ -227,21 +236,22 @@ class NemotronService:
                     logger.info(f"Téléchargement de Nemotron-3.5-ASR ({MODEL_SIZE_MB} Mo)…")
                     download_file(url, self._model_path, on_progress=_progression)
                 except Exception as exc:
-                    # Repli sur huggingface_hub : reprises, miroirs et cache
-                    # partagé. Sans progression fine, mais il aboutit là où le
-                    # téléchargement direct échoue (proxy d'entreprise, jeton).
                     logger.warning(f"Téléchargement direct impossible ({exc}), repli sur huggingface_hub")
                     from huggingface_hub import hf_hub_download
-                    import shutil
-                    self.download_progress = max(self.download_progress, 0.1)
-                    chemin = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILENAME)
-                    self.download_progress = 0.9
-                    shutil.copy2(chemin, self._model_path)
 
+                    hf_hub_download(
+                        repo_id=MODEL_REPO,
+                        filename=MODEL_FILENAME,
+                        local_dir=str(self._model_dir),
+                    )
+
+                self.downloading = False
                 self.download_progress = 1.0
-                logger.info("✅ Modèle Nemotron-3.5-ASR q8_0 téléchargé avec succès")
-            except Exception as e:
-                self.last_error = f"Échec téléchargement Nemotron : {e}"
+                logger.info("✅ Téléchargement Nemotron-3.5-ASR terminé avec succès.")
+                self.prewarm()
+            except Exception as exc:
+                self.downloading = False
+                self.last_error = f"Erreur téléchargement Nemotron : {exc}"
                 logger.error(self.last_error)
             finally:
                 self.downloading = False
@@ -301,7 +311,9 @@ class NemotronService:
 
         transcribe_cpp = self._binding()
         try:
-            self._modele = transcribe_cpp.Model(str(chemin))
+            if self._modele is None:
+                logger.info("⚡ Chargement de Nemotron 3.5-ASR en mémoire...")
+                self._modele = transcribe_cpp.Model(str(chemin))
             if not self._modele.capabilities.supports_streaming:
                 raise RuntimeError(
                     f"{self._modele.arch}/{self._modele.variant} ne gère pas le flux"
@@ -386,6 +398,16 @@ class NemotronService:
         # Clôture sur pause : l'hypothèse ne bouge plus, l'orateur a respiré.
         # Sans cela, il fallait attendre une ponctuation ou 300 caractères, et
         # la détection tournait sept fois moins souvent qu'avec Vosk.
+        with self._lock:
+            en_attente = self._tentatif
+            fige_depuis = time.monotonic() - self._dernier_changement
+        if en_attente and fige_depuis >= STABILITE_S:
+            self._recolter(tout=True)
+
+    def tick_pause(self) -> None:
+        """À appeler lors des silences pour permettre la clôture sur pause."""
+        if not self._running or self._flux is None:
+            return
         with self._lock:
             en_attente = self._tentatif
             fige_depuis = time.monotonic() - self._dernier_changement
@@ -484,9 +506,10 @@ class NemotronService:
             fini, self._enonce_fini = self._enonce_fini, None
             return fini
 
-    def _fermer_natif(self) -> None:
-        """Libère flux, session et modèle — dans cet ordre, l'inverse tomberait."""
-        for objet in (self._flux, self._session, self._modele):
+    def _fermer_natif(self, release_model: bool = False) -> None:
+        """Libère flux et session. Le modèle reste en mémoire pour réouverture instantanée."""
+        cibles = (self._flux, self._session, self._modele) if release_model else (self._flux, self._session)
+        for objet in cibles:
             if objet is None:
                 continue
             with suppress_erreurs():
@@ -495,4 +518,7 @@ class NemotronService:
                     sortie(None, None, None)
                 else:
                     objet.close()
-        self._flux = self._session = self._modele = None
+        self._flux = None
+        self._session = None
+        if release_model:
+            self._modele = None

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useStore } from '../store.js'
+import { shallow } from 'zustand/shallow'
 import { Icon, SkeletonRows, EmptyState } from './ui.jsx'
 
 export default function History() {
-  const { 
-    history, 
+  const {
+    history,
     fetchHistory,
     sessionsList,
     activeSessionDetails,
@@ -15,8 +16,20 @@ export default function History() {
     historyLoading,
     sessionsLoading,
     addToast
-  } = useStore()
-  
+  } = useStore(s => ({
+    history: s.history,
+    fetchHistory: s.fetchHistory,
+    sessionsList: s.sessionsList,
+    activeSessionDetails: s.activeSessionDetails,
+    fetchSessions: s.fetchSessions,
+    fetchSessionDetails: s.fetchSessionDetails,
+    generateSessionSummary: s.generateSessionSummary,
+    aiActive: s.aiActive,
+    historyLoading: s.historyLoading,
+    sessionsLoading: s.sessionsLoading,
+    addToast: s.addToast
+  }), shallow)
+
   const [activeTab, setActiveTab] = useState('verses') // 'verses' ou 'sessions'
   const [selectedSessionId, setSelectedSessionId] = useState(null)
   const [loadingSummary, setLoadingSummary] = useState(false)
@@ -57,7 +70,7 @@ export default function History() {
     if (!text) return null
     return text.split('\n').map((line, index) => {
       const cleanLine = line.replace(/\*\*/g, '').replace(/\*/g, '').trim()
-      
+
       if (line.startsWith('### ') || line.startsWith('#### ')) {
         return <h4 key={index} className="text-xs font-bold text-zinc-100 mt-3 mb-1.5 font-sans">{cleanLine.replace(/^#+\s+/, '')}</h4>
       }
@@ -76,7 +89,7 @@ export default function History() {
       return <p key={index} className="text-xs text-zinc-300 leading-relaxed my-1 font-sans">{cleanLine}</p>
     })
   }
- 
+
   return (
     <div className="space-y-6">
       {/* En-tête avec Sélecteur d'Onglets */}
@@ -86,7 +99,7 @@ export default function History() {
             <h2 className="text-xl font-bold text-[var(--text-main)] tracking-tight font-sans">Historique & rapports</h2>
             <p className="text-xs text-[var(--text-faint)] mt-0.5 font-sans">Retrouvez les versets détectés et les résumés de prédications générés</p>
           </div>
-          
+
           <div className="flex items-center gap-3">
             {/* Onglets */}
             <div className="vp-segmented text-xs">
@@ -103,7 +116,7 @@ export default function History() {
                 Sessions
               </button>
             </div>
- 
+
             <button
               onClick={() => {
                 fetchHistory()
@@ -116,7 +129,7 @@ export default function History() {
           </div>
         </div>
       </div>
-      
+
       {/* SECTION ONGLETS : VERSETS */}
       {activeTab === 'verses' && (
         <div className="vp-panel overflow-hidden">
@@ -152,19 +165,19 @@ export default function History() {
                           </span>
                         )}
                       </div>
-                      
+
                       <div className="text-[var(--text-faint)] text-[10px] font-sans">
                         {verse.book} {verse.chapter}:{verse.verse_start}
                         {verse.verse_end && `-${verse.verse_end}`}
                       </div>
-                      
+
                       {verse.context_text && (
                         <div className="mt-2 text-[var(--text-dim)] text-xs italic font-mono bg-[var(--surface-2)] p-3 rounded-xl border border-[var(--border-weak)] max-w-2xl leading-relaxed">
                           "{verse.context_text}"
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="text-right text-[9px] text-[var(--text-faint)] font-mono">
                       <div>{new Date(verse.detected_at).toLocaleDateString('fr-FR')}</div>
                       <div className="mt-0.5">{new Date(verse.detected_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
@@ -193,16 +206,16 @@ export default function History() {
               const isSelected = selectedSessionId === session.id
               const hasSummary = !!session.summary
               const hasTranscript = !!session.transcript
-              
+
               return (
-                <div 
+                <div
                   key={session.id}
                   className={`vp-panel transition-all overflow-hidden ${
                     isSelected ? 'border-[var(--border-strong)]' : 'hover:border-[var(--border-strong)]'
                   }`}
                 >
                   {/* En-tête de session */}
-                  <div 
+                  <div
                     onClick={() => handleSelectSession(session.id)}
                     className="p-5 flex items-center justify-between cursor-pointer select-none"
                   >
@@ -218,12 +231,12 @@ export default function History() {
                         </p>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-3">
                       <span className="px-2.5 py-1 bg-[var(--surface-2)] text-[var(--text-main)] border border-[var(--border-weak)] rounded-lg text-[10px] font-semibold font-sans">
                         {session.verse_count || 0} verset(s)
                       </span>
-                      
+
                       {hasSummary ? (
                         <span className="vp-chip is-ok flex items-center gap-1">
                           Résumé IA prêt
@@ -239,13 +252,13 @@ export default function History() {
                           </button>
                         )
                       )}
-                      
+
                       <span className="text-[var(--text-faint)] text-xs">
                         {isSelected ? '▲' : '▼'}
                       </span>
                     </div>
                   </div>
-                  
+
                   {/* Détail extensible de la session */}
                   {isSelected && activeSessionDetails && activeSessionDetails.id === session.id && (
                     <div className="border-t border-[var(--border-weak)] bg-[var(--surface-2)] p-6 space-y-6">
@@ -263,7 +276,7 @@ export default function History() {
                             )}
                           </div>
                         </div>
-                        
+
                         {/* Colonne Résumé IA */}
                         <div className="lg:col-span-5 space-y-3">
                           <h4 className="text-[9px] font-bold uppercase tracking-widest text-[var(--vp-ai)] font-mono flex items-center gap-1">
@@ -308,7 +321,7 @@ export default function History() {
           )}
         </div>
       )}
-      
+
       {/* Stats rapides */}
       {activeTab === 'verses' && history.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

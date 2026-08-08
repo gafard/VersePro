@@ -3,9 +3,11 @@ Routes API REST pour VersePro v2
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from loguru import logger
+import asyncio
+import re
 
 router = APIRouter()
 
@@ -42,13 +44,13 @@ def _redact_update(update: Dict[str, Any]) -> Dict[str, Any]:
 # Modèles Pydantic
 class ReferenceRequest(BaseModel):
     """Requête d'envoi de référence"""
-    reference: str
-    text: Optional[str] = None
-    version: Optional[str] = "LSG"
+    reference: str = Field(..., max_length=200)
+    text: Optional[str] = Field(None, max_length=5000)
+    version: Optional[str] = Field(None, max_length=50)
 
 
 class ParseRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=5000)
     skip_text_search: bool = False
 
 
@@ -87,7 +89,7 @@ class PrepareModelRequest(BaseModel):
 
 
 class SemanticSearchRequest(BaseModel):
-    text: str
+    text: str = Field(..., max_length=5000)
     top_k: int = 5
 
 
@@ -98,14 +100,14 @@ class OverlayImageRequest(BaseModel):
 
 class BibleImportRequest(BaseModel):
     """Contenu JSON d'une traduction, et le sigle sous lequel l'installer."""
-    content: str
-    version_id: Optional[str] = ""
+    content: str = Field(..., max_length=10_000_000)  # max ~10MB JSON string
+    version_id: Optional[str] = Field("", max_length=50)
 
 
 class OverlayPresetRequest(BaseModel):
     """Enregistrement d'un habillage dans la bibliothèque."""
-    name: str
-    category: Optional[str] = "Mes habillages"
+    name: str = Field(..., max_length=100)
+    category: Optional[str] = Field("Mes habillages", max_length=100)
     # Absents : on enregistre l'habillage tel qu'il est déjà en base.
     zones: Optional[Any] = None
     shapes: Optional[Any] = None
@@ -136,11 +138,11 @@ class HealthResponse(BaseModel):
 async def health_check():
     """Endpoint de santé"""
     from ..main import output_manager, deepgram_service, verse_parser
-    
+
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
         propresenter_connected = await output_manager.outputs["propresenter"].is_connected()
-    
+
     return {
         "status": "healthy",
         "version": "2.0.0",
@@ -298,10 +300,28 @@ async def send_reference(request: ReferenceRequest):
     """
     from ..main import output_manager, verse_parser, broadcast_projection
 
+    # Nettoie la ponctuation parasite en début de saisie (ex: ": car Dieu a tant aimé...")
+    clean_ref = re.sub(r"^[^\w\s]+", "", request.reference.strip()).strip() or request.reference.strip()
+
+    # Si la saisie est un simple numéro (ex: "21" ou "v.21") et qu'un verset est à l'antenne (ex: Jean 3:16)
+    number_match = re.match(r"^(?:v\.?\s*)?(\d+)(?:\s*-\s*(\d+))?$", clean_ref, re.IGNORECASE)
+    if number_match and output_manager:
+        current_ref = output_manager.get_current_projection().get("reference")
+        if current_ref:
+            v_match = re.match(r"^(.+?)\s+(\d+):(\d+)", current_ref)
+            if v_match:
+                book_chap = f"{v_match.group(1)} {v_match.group(2)}"
+                start_v = number_match.group(1)
+                end_v = number_match.group(2)
+                clean_ref = f"{book_chap}:{start_v}-{end_v}" if end_v else f"{book_chap}:{start_v}"
+
     # Résout la référence pour récupérer le texte du verset
     parsed = None
     if verse_parser:
-        parsed = await verse_parser.parse(request.reference, skip_text_search=True)
+        parsed = await verse_parser.parse(clean_ref, skip_text_search=True)
+        if not parsed and verse_parser.bible_loader:
+            # Fallback : si l'utilisateur saisit une citation textuelle ("car Dieu a tant aimé le monde")
+            parsed = await asyncio.to_thread(verse_parser.bible_loader.search_by_text, clean_ref)
 
     if not parsed and not (request.text or "").strip():
         raise HTTPException(
@@ -346,12 +366,15 @@ async def send_reference(request: ReferenceRequest):
     if not projected_text.strip():
         raise HTTPException(status_code=422, detail="Aucun texte à projeter")
 
+    active_v = demandee or (reference.get("version") if isinstance(reference, dict) else None)
+
     # OutputManager diffuse une seule fois vers chaque sortie et renvoie leurs
     # accusés. L'ancienne route envoyait ProPresenter une deuxième fois.
     receipts = await broadcast_projection(
         projected_text,
         reference.get("reference", request.reference),
         translations=reference.get("translations") if isinstance(reference, dict) else None,
+        version=active_v,
     )
     browser_sent = bool(receipts.get("browser"))
     if not browser_sent:
@@ -372,16 +395,16 @@ async def send_reference(request: ReferenceRequest):
 async def parse_reference(request: ParseRequest):
     """
     Parse un texte pour extraire une référence biblique
-    
+
     Utile pour tester le parser sans audio
     """
     from ..main import verse_parser
-    
+
     if not verse_parser:
         raise HTTPException(status_code=503, detail="Service parser non disponible")
-    
+
     reference = await verse_parser.parse(request.text, skip_text_search=request.skip_text_search)
-    
+
     if reference:
         return {
             "success": True,
@@ -409,7 +432,7 @@ async def bible_search(q: str, limit: int = 6):
     if not verse_parser or not q or not q.strip():
         return {"results": []}
 
-    query = q.strip()
+    query = re.sub(r"^[^\w\s]+", "", q.strip()).strip() or q.strip()
     results = []
     seen = set()
 
@@ -437,12 +460,69 @@ async def bible_search(q: str, limit: int = 6):
 
     # 2. Recherche textuelle (exacte puis floue)
     if len(query) >= 8:
-        for cand in verse_parser.bible_loader.search_candidates(query, limit=limit):
+        candidates = await asyncio.to_thread(
+            verse_parser.bible_loader.search_candidates, query, limit
+        )
+        for cand in candidates:
             if cand["reference"] not in seen:
                 seen.add(cand["reference"])
                 results.append(cand)
 
     return {"results": results[:limit]}
+
+
+class ExtractReferencesRequest(BaseModel):
+    text: str
+
+
+@router.post("/bibles/extract_references")
+async def extract_references_from_text(request: ExtractReferencesRequest):
+    """
+    Extrait toutes les références bibliques d'un texte (ex: notes de sermon du pasteur).
+    Scanne le texte ligne par ligne et par sous-phrases.
+    """
+    from ..main import verse_parser
+    import re
+    if not verse_parser or not request.text:
+        return {"references": [], "count": 0}
+
+    extracted = []
+    seen = set()
+
+    lines = [line.strip() for line in request.text.split("\n") if line.strip()]
+    for line in lines:
+        ref = await verse_parser.parse(line, skip_text_search=True)
+        if ref and ref.get("reference") and ref["reference"] not in seen:
+            seen.add(ref["reference"])
+            extracted.append(ref)
+        else:
+            parts = re.split(r'[.;,!?]', line)
+            for part in parts:
+                part = part.strip()
+                if len(part) >= 4:
+                    ref_p = await verse_parser.parse(part, skip_text_search=True)
+                    if ref_p and ref_p.get("reference") and ref_p["reference"] not in seen:
+                        seen.add(ref_p["reference"])
+                        extracted.append(ref_p)
+
+    return {"references": extracted, "count": len(extracted)}
+
+
+class AnnotationRequest(BaseModel):
+    annotations: list[dict]
+
+
+@router.post("/projection/annotation")
+async def send_projection_annotation(request: AnnotationRequest):
+    """
+    Envoie les annotations et surlignages en temps réel sur la projection.
+    """
+    from ..main import broadcast_output_event
+    await broadcast_output_event({
+        "type": "annotation",
+        "annotations": request.annotations
+    })
+    return {"status": "ok", "count": len(request.annotations)}
 
 
 @router.get("/session/current")
@@ -501,12 +581,12 @@ async def rehearse(request: RehearseRequest):
 async def propresenter_status():
     """Récupère le statut de ProPresenter"""
     from ..main import output_manager
-    
+
     if not output_manager or "propresenter" not in output_manager.outputs:
         raise HTTPException(status_code=503, detail="Service non disponible")
-        
+
     pp_driver = output_manager.outputs["propresenter"]
-    
+
     return {
         "connected": await pp_driver.is_connected(),
         "status": {"enabled": pp_driver.enabled},
@@ -518,13 +598,13 @@ async def propresenter_status():
 async def clear_display():
     """Efface l'affichage ProPresenter"""
     from ..main import output_manager
-    
+
     if not output_manager or "propresenter" not in output_manager.outputs:
         raise HTTPException(status_code=503, detail="Service non disponible")
-        
+
     pp_driver = output_manager.outputs["propresenter"]
     cleared = await pp_driver.clear()
-    
+
     return {
         "success": cleared,
         "message": "Affichage effacé" if cleared else "Échec de l'effacement"
@@ -671,6 +751,32 @@ async def import_bible(request: BibleImportRequest):
     return {**resume, "restart_required": True}
 
 
+@router.post("/bibles/download_public/{version_id}")
+async def download_public_bible(version_id: str):
+    """Télécharge et installe automatiquement une Bible du domaine public."""
+    import asyncio
+    import urllib.request
+    from ..services import bible_import
+    version_id = version_id.upper().strip()
+    url = bible_import.PUBLIC_DOWNLOAD_URLS.get(version_id)
+    if not url:
+        raise HTTPException(status_code=400, detail=f"Aucun lien de téléchargement direct pour '{version_id}'")
+
+    def _fetch_and_install():
+        req = urllib.request.Request(url, headers={"User-Agent": "VersePro/2.0"})
+        with urllib.request.urlopen(req) as resp:
+            content = resp.read().decode("utf-8")
+        return bible_import.importer(content, version_id)
+
+    try:
+        resume = await asyncio.to_thread(_fetch_and_install)
+        return {**resume, "restart_required": True}
+    except bible_import.BibleInvalide as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Échec du téléchargement direct : {exc}")
+
+
 @router.delete("/bibles/imported/{version_id}")
 async def delete_imported_bible(version_id: str):
     from ..services import bible_import
@@ -742,7 +848,7 @@ async def download_vosk_model():
     from ..main import vosk_service
     if not vosk_service:
         raise HTTPException(status_code=503, detail="Service Vosk non disponible")
-    
+
     import os
     import asyncio
     if os.path.exists(vosk_service.model_dir) and vosk_service.initialized:
@@ -834,7 +940,7 @@ async def get_settings():
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
         propresenter_connected = await output_manager.outputs["propresenter"].is_connected()
-        
+
     return {
         "deepgram_model": settings.DEEPGRAM_MODEL,
         "deepgram_language": settings.DEEPGRAM_LANGUAGE,
@@ -886,7 +992,7 @@ async def update_settings(settings_update: SettingsUpdate):
     from ..main import output_manager, verse_parser, ai_service, deepgram_service, semantic_service
     from ..services.database import get_database
     from ..services.secret_store import secret_store
-    
+
     db = get_database()
     update = settings_update.model_dump(exclude_unset=True)
     logger.info(f"Mise à jour settings: {_redact_update(update)}")
@@ -904,7 +1010,7 @@ async def update_settings(settings_update: SettingsUpdate):
     if "shadow_mode" in update:
         settings.SHADOW_MODE = bool(update["shadow_mode"])
         await db.set_setting("shadow_mode", settings.SHADOW_MODE)
-        
+
     if update.get("bible_version"):
         version = update["bible_version"].upper()
         settings.BIBLE_VERSION = version
@@ -919,21 +1025,21 @@ async def update_settings(settings_update: SettingsUpdate):
                     kwargs={"allow_download": False},
                     daemon=True,
                 ).start()
-            
+
     if update.get("propresenter_host"):
         settings.PROPRESENTER_HOST = update["propresenter_host"]
         await db.set_setting("propresenter_host", settings.PROPRESENTER_HOST)
         if output_manager and "propresenter" in output_manager.outputs:
             output_manager.outputs["propresenter"].host = settings.PROPRESENTER_HOST
             reconnect_propresenter = True
-            
+
     if update.get("propresenter_port") is not None:
         settings.PROPRESENTER_PORT = int(update["propresenter_port"])
         await db.set_setting("propresenter_port", settings.PROPRESENTER_PORT)
         if output_manager and "propresenter" in output_manager.outputs:
             output_manager.outputs["propresenter"].port = settings.PROPRESENTER_PORT
             reconnect_propresenter = True
-            
+
     if update.get("overlay_zones") is not None:
         from ..services import overlay_store
         # Nettoyage AVANT stockage : les zones finissent en styles inline sur
@@ -975,17 +1081,17 @@ async def update_settings(settings_update: SettingsUpdate):
     if update.get("deepgram_model"):
         settings.DEEPGRAM_MODEL = update["deepgram_model"]
         await db.set_setting("deepgram_model", settings.DEEPGRAM_MODEL)
-        
+
     if update.get("deepgram_language"):
         settings.DEEPGRAM_LANGUAGE = update["deepgram_language"]
         await db.set_setting("deepgram_language", settings.DEEPGRAM_LANGUAGE)
-        
+
     if "ai_agent_enabled" in update:
         settings.AI_AGENT_ENABLED = bool(update["ai_agent_enabled"])
         await db.set_setting("ai_agent_enabled", settings.AI_AGENT_ENABLED)
         if ai_service:
             ai_service.refresh_availability()
-            
+
     if "deepgram_api_key" in update:
         settings.DEEPGRAM_API_KEY = str(update["deepgram_api_key"] or "").strip()
         await secret_store.set("deepgram_api_key", settings.DEEPGRAM_API_KEY)
@@ -993,25 +1099,25 @@ async def update_settings(settings_update: SettingsUpdate):
             deepgram_service.api_key = settings.DEEPGRAM_API_KEY
             if settings.DEEPGRAM_API_KEY:
                 deepgram_service._init_client()
-                
+
     if "openrouter_api_key" in update:
         settings.OPENROUTER_API_KEY = str(update["openrouter_api_key"] or "").strip()
         await secret_store.set("openrouter_api_key", settings.OPENROUTER_API_KEY)
         if ai_service:
             ai_service.openrouter_key = settings.OPENROUTER_API_KEY
             ai_service.refresh_availability()
-            
+
     if "gemini_api_key" in update:
         settings.GEMINI_API_KEY = str(update["gemini_api_key"] or "").strip()
         await secret_store.set("gemini_api_key", settings.GEMINI_API_KEY)
         if ai_service:
             ai_service.api_key = settings.GEMINI_API_KEY
             ai_service.refresh_availability()
-            
+
     if "ai_confidence_threshold" in update:
         settings.AI_CONFIDENCE_THRESHOLD = int(update["ai_confidence_threshold"])
         await db.set_setting("ai_confidence_threshold", settings.AI_CONFIDENCE_THRESHOLD)
-        
+
     if "ai_filtering_mode" in update:
         settings.AI_FILTERING_MODE = str(update["ai_filtering_mode"])
         await db.set_setting("ai_filtering_mode", settings.AI_FILTERING_MODE)
@@ -1046,17 +1152,17 @@ async def update_settings(settings_update: SettingsUpdate):
         theme = str(update["projection_theme"])
         settings.PROJECTION_THEME = theme
         await db.set_setting("projection_theme", theme)
-        
+
     if "projection_style" in update:
         style = str(update["projection_style"])
         settings.PROJECTION_STYLE = style
         await db.set_setting("projection_style", style)
-        
+
     if "show_bible_version" in update:
         show_ver = bool(update["show_bible_version"])
         settings.SHOW_BIBLE_VERSION = show_ver
         await db.set_setting("show_bible_version", settings.SHOW_BIBLE_VERSION)
-        
+
     if "dual_translations" in update:
         dual_trans = str(update["dual_translations"])
         settings.DUAL_TRANSLATIONS = dual_trans
@@ -1079,13 +1185,13 @@ async def update_settings(settings_update: SettingsUpdate):
 async def get_history(limit: int = 50, session_id: Optional[int] = None):
     """Récupère l'historique des versets détectés"""
     from ..services.database import get_database
-    
+
     db = get_database()
     if not db.db:
         raise HTTPException(status_code=503, detail="Base de données non connectée")
-    
+
     verses = await db.get_recent_verses(limit=limit, session_id=session_id)
-    
+
     return {
         "verses": verses,
         "total": len(verses)
@@ -1096,13 +1202,13 @@ async def get_history(limit: int = 50, session_id: Optional[int] = None):
 async def get_verse(verse_id: int):
     """Récupère un verset spécifique"""
     from ..services.database import get_database
-    
+
     db = get_database()
     verse = await db.get_verse_by_id(verse_id)
-    
+
     if not verse:
         raise HTTPException(status_code=404, detail="Verset non trouvé")
-    
+
     return verse
 
 
@@ -1110,10 +1216,10 @@ async def get_verse(verse_id: int):
 async def delete_verse(verse_id: int):
     """Supprime un verset de l'historique"""
     from ..services.database import get_database
-    
+
     db = get_database()
     await db.delete_verse(verse_id)
-    
+
     return {"success": True, "message": "Verset supprimé"}
 
 
@@ -1121,10 +1227,10 @@ async def delete_verse(verse_id: int):
 async def validate_verse(verse_id: int, validated: bool = True):
     """Valide manuellement un verset"""
     from ..services.database import get_database
-    
+
     db = get_database()
     await db.update_verse_validation(verse_id, validated)
-    
+
     return {"success": True}
 
 
@@ -1132,10 +1238,10 @@ async def validate_verse(verse_id: int, validated: bool = True):
 async def get_sessions(limit: int = 10):
     """Récupère l'historique des sessions"""
     from ..services.database import get_database
-    
+
     db = get_database()
     sessions = await db.get_recent_sessions(limit=limit)
-    
+
     return {
         "sessions": sessions,
         "total": len(sessions)
@@ -1146,10 +1252,10 @@ async def get_sessions(limit: int = 10):
 async def start_session(name: Optional[str] = None):
     """Démarre une nouvelle session"""
     from ..services.database import get_database
-    
+
     db = get_database()
     session_id = await db.create_session(name)
-    
+
     return {"success": True, "session_id": session_id}
 
 
@@ -1157,10 +1263,10 @@ async def start_session(name: Optional[str] = None):
 async def end_session(session_id: int):
     """Termine une session"""
     from ..services.database import get_database
-    
+
     db = get_database()
     await db.end_session(session_id)
-    
+
     return {"success": True}
 
 
@@ -1168,7 +1274,7 @@ async def end_session(session_id: int):
 async def get_session_detail(session_id: int):
     """Récupère une session spécifique avec sa transcription et son résumé"""
     from ..services.database import get_database
-    
+
     db = get_database()
     session = await db.get_session(session_id)
     if not session:
@@ -1237,19 +1343,19 @@ async def generate_session_summary(session_id: int):
     """Génère le résumé d'une session par l'IA et l'enregistre"""
     from ..services.database import get_database
     from ..main import ai_service
-    
+
     if not ai_service or not ai_service.enabled:
          raise HTTPException(status_code=503, detail="Agent IA non configuré ou inactif")
-         
+
     db = get_database()
     session = await db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session non trouvée")
-        
+
     transcript = session.get("transcript")
     if not transcript or not transcript.strip():
         raise HTTPException(status_code=400, detail="La transcription de cette session est vide. Impossible de résumer.")
-        
+
     # Génération du résumé par l'Agent IA
     summary = await ai_service.generate_sermon_summary(transcript)
     if not summary:
@@ -1257,10 +1363,10 @@ async def generate_session_summary(session_id: int):
         # quota dépassé, délai expiré ne se corrigent pas de la même façon.
         raison = getattr(ai_service, "last_summary_error", "") or "cause inconnue"
         raise HTTPException(status_code=502, detail=f"Résumé impossible — {raison}")
-        
+
     # Enregistrement
     await db.update_session_summary(session_id, summary)
-    
+
     return {"success": True, "summary": summary}
 
 
@@ -1268,13 +1374,13 @@ async def generate_session_summary(session_id: int):
 async def get_statistics(days: int = 30):
     """Récupère les statistiques complètes"""
     from ..services.database import get_database
-    
+
     db = get_database()
     if not db.db:
         raise HTTPException(status_code=503, detail="Base de données non connectée")
-    
+
     stats = await db.get_statistics(days=days)
-    
+
     return stats
 
 
@@ -1282,10 +1388,10 @@ async def get_statistics(days: int = 30):
 async def get_book_statistics(days: int = 30):
     """Statistiques par livre de la Bible"""
     from ..services.database import get_database
-    
+
     db = get_database()
     books = await db.get_book_statistics(days=days)
-    
+
     return {"books": books}
 
 
@@ -1293,10 +1399,10 @@ async def get_book_statistics(days: int = 30):
 async def get_daily_stats(date: str):
     """Statistiques pour un jour spécifique (YYYY-MM-DD)"""
     from ..services.database import get_database
-    
+
     db = get_database()
     stats = await db.get_daily_stats(date)
-    
+
     return stats
 
 
@@ -1359,22 +1465,22 @@ class ControlProjectRequest(BaseModel):
 async def control_project(req: ControlProjectRequest):
     """Projette une référence directement à l'antenne à distance"""
     from ..main import output_manager, verse_parser, broadcast_projection
-    
+
     parsed = None
     if verse_parser:
         parsed = await verse_parser.parse(req.reference)
-        
+
     ref_name = parsed.get("reference") if parsed else req.reference
     ref_text = parsed.get("text") if parsed else (req.text or "")
     translations = parsed.get("translations") if parsed else None
-    
+
     await broadcast_projection(ref_text, ref_name, translations=translations)
     if output_manager:
         await output_manager.project(ref_text, ref_name, translations=translations)
-        
+
     return {
-        "success": True, 
-        "reference": ref_name, 
+        "success": True,
+        "reference": ref_name,
         "text": ref_text
     }
 

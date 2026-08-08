@@ -337,6 +337,13 @@ def lister() -> List[Dict[str, Any]]:
 # VersePro ne distribue que le domaine public. Une traduction sous droits reste
 # à la charge de l'église qui en possède l'usage.
 
+PUBLIC_DOWNLOAD_URLS = {
+    "DBY": "https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreJND.json",
+    "MAR": "https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreBDM1744.json",
+    "CRA": "https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreCrampon.json",
+    "OST": "https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreBBB.json",
+}
+
 CATALOGUE = [
     # Livrées avec VersePro — domaine public, toujours présentes.
     {"id": "LSG", "nom": "Louis Segond", "annee": 1910,
@@ -347,13 +354,13 @@ CATALOGUE = [
     # Domaine public, non embarquées pour ne pas alourdir le paquet : sept Mo
     # chacune, pour des traductions que peu d'églises emploient au culte.
     {"id": "DBY", "nom": "Darby", "annee": 1885,
-     "licence": "domaine-public", "origine": "publique"},
+     "licence": "domaine-public", "origine": "publique", "download_url": PUBLIC_DOWNLOAD_URLS["DBY"]},
     {"id": "OST", "nom": "Ostervald", "annee": 1867,
-     "licence": "domaine-public", "origine": "publique"},
+     "licence": "domaine-public", "origine": "publique", "download_url": PUBLIC_DOWNLOAD_URLS["OST"]},
     {"id": "MAR", "nom": "Martin", "annee": 1744,
-     "licence": "domaine-public", "origine": "publique"},
+     "licence": "domaine-public", "origine": "publique", "download_url": PUBLIC_DOWNLOAD_URLS["MAR"]},
     {"id": "CRA", "nom": "Crampon", "annee": 1904,
-     "licence": "domaine-public", "origine": "publique"},
+     "licence": "domaine-public", "origine": "publique", "download_url": PUBLIC_DOWNLOAD_URLS["CRA"]},
 
     # Sous droits : l'église doit posséder le fichier. VersePro ne le fournit
     # pas et ne le rediffuse pas.

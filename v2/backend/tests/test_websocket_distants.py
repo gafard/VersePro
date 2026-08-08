@@ -153,3 +153,43 @@ def test_remote_audio_stream_reaches_production_parser(monkeypatch):
     assert detected["type"] == "reference_detected"
     assert detected["reference"]["reference"] == "Jean 3:16"
     assert detected["reference"]["auto_projected"] is False
+
+
+def test_nemotron_audio_stream_emits_transcript(monkeypatch):
+    """Un premier bloc Nemotron ne doit pas arrêter la tâche de réception."""
+
+    class FakeNemotron:
+        is_ready = True
+
+        def start(self):
+            return None
+
+        def accept_waveform(self, data):
+            return None
+
+        def prendre_enonce_fini(self):
+            return None
+
+        def get_result(self):
+            return "bonjour"
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(main, "nemotron_service", FakeNemotron())
+    remote_client = TestClient(main.app, client=("203.0.113.10", 49152))
+
+    with remote_client.websocket_connect(
+        "/ws/audio?token=secure-integration-token&engine=nemotron"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ai_status"
+        status = websocket.receive_json()
+        assert status["type"] == "status_update"
+        assert status["mode"] == "nemotron"
+
+        websocket.send_bytes(b"\x00\x00" * 4000)
+        transcript = websocket.receive_json()
+
+    assert transcript["type"] == "transcript"
+    assert transcript["text"] == "bonjour"
+    assert transcript["is_final"] is False

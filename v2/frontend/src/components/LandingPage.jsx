@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react'
 import { useStore } from '../store.js'
+import { shallow } from 'zustand/shallow'
 
 /*
  * Landing — Hallmark · Lumen (Night Foundry) · Marquee Hero
@@ -29,10 +30,22 @@ export default function LandingPage({ setActiveTab }) {
     onAir,
     isListening,
     waveform
-  } = useStore()
-  const recentVerses = useMemo(() => history.slice(0, 3), [history])
+  } = useStore(s => ({
+    history: s.history,
+    connected: s.connected,
+    propresenterConnected: s.propresenterConnected,
+    availableBibles: s.availableBibles,
+    semanticStatus: s.semanticStatus,
+    asrStatus: s.asrStatus,
+    currentTranscript: s.currentTranscript,
+    projectionQueue: s.projectionQueue,
+    onAir: s.onAir,
+    isListening: s.isListening,
+    waveform: s.waveform
+  }), shallow)
+  const recentVerses = useMemo(() => (history || []).slice(0, 3), [history])
   const pending = useMemo(
-    () => projectionQueue.filter((item) => item.status === 'pending').slice(0, 2),
+    () => (projectionQueue || []).filter((item) => item.status === 'pending').slice(0, 2),
     [projectionQueue]
   )
   const previewPrimary = pending[0] || onAir || recentVerses[0]

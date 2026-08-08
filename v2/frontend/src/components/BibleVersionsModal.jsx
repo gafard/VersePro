@@ -15,7 +15,11 @@ const BIBLE_CATALOG = [
 ]
 
 export default function BibleVersionsModal({ onClose }) {
-  const { availableBibles, activeBible, selectBible, fetchBibles, addToast } = useStore()
+  const availableBibles = useStore(s => s.availableBibles)
+  const activeBible = useStore(s => s.activeBible)
+  const selectBible = useStore(s => s.selectBible)
+  const fetchBibles = useStore(s => s.fetchBibles)
+  const addToast = useStore(s => s.addToast)
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('official') // 'official' | 'custom'
   const [filterLang, setFilterLang] = useState('all')

@@ -9,7 +9,7 @@ from ..core.config import settings
 
 class AIService:
     """Service d'Agent IA pour la détection sémantique et l'analyse via Google Gemini, OpenRouter ou Ollama Local"""
-    
+
     def __init__(self, api_key: str = "", openrouter_key: str = ""):
         self.openrouter_key = openrouter_key or settings.OPENROUTER_API_KEY
         self.api_key = api_key or settings.GEMINI_API_KEY
@@ -17,7 +17,7 @@ class AIService:
         self.ollama_model = settings.OLLAMA_MODEL
         self.openrouter_model = settings.OPENROUTER_MODEL
         self.gemini_model = settings.GEMINI_MODEL
-        
+
         self.ollama_active = False
         self.ollama_reachable = False
         # Dernière raison d'échec d'un résumé, remontée telle quelle à l'écran.
@@ -29,11 +29,11 @@ class AIService:
         self._reference_cache: Dict[str, Optional[Dict[str, Any]]] = {}
         self._translation_cache: Dict[str, Optional[str]] = {}
         self._summary_cache: Dict[str, Optional[str]] = {}
-        
+
         # Une URL Ollama configurée ne prouve pas qu'un serveur ou un modèle est
         # disponible. L'état passe à actif seulement après le contrôle réseau.
         self.enabled = settings.AI_AGENT_ENABLED and (bool(self.openrouter_key) or bool(self.api_key))
-        
+
         # Tente de détecter Ollama en tâche de fond
         if settings.AI_AGENT_ENABLED and self.ollama_url:
             asyncio.create_task(self._detect_ollama())
@@ -64,7 +64,7 @@ class AIService:
                 return json.loads(match.group(0))
             except Exception:
                 return {}
-            
+
     async def _detect_ollama(self):
         """Vérifie Ollama sans lancer de téléchargement implicite de plusieurs Go."""
         self.ollama_reachable = False
@@ -233,7 +233,7 @@ class AIService:
         1. OpenRouter (si clé configurée)
         2. Gemini Direct (si clé configurée et OpenRouter échoue/absent)
         3. Ollama local (si détecté actif)
-        
+
         Returns:
             Dictionnaire {"reference": "Jean 3:16", "confidence": 95} ou None
         """
@@ -244,21 +244,21 @@ class AIService:
         cache_key = self._normalize_cache_key(text, f"reference:{candidate_key}")
         if cache_key in self._reference_cache:
             return self._reference_cache[cache_key]
-            
+
         # 1. OpenRouter
         if self.openrouter_key:
             ref = self._validate_candidate_result(await self._call_openrouter(text, candidates, contexte), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
-                
+
         # 2. Gemini Direct
         if self.api_key:
             ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates, contexte), candidates)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
-                
+
         # 3. Ollama Local
         if self.ollama_active:
             ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates, contexte), candidates)
@@ -268,32 +268,93 @@ class AIService:
 
         self._cache_put(self._reference_cache, cache_key, None)
         return None
-        
-    async def _call_openrouter(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None, contexte: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+
+    async def extract_biblical_intent(
+        self,
+        text: str,
+        contexte: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Analyse sémantiquement le texte pour détecter si l'orateur a l'intention
+        de citer ou de faire allusion à la Bible.
+
+        Returns:
+            Dictionnaire {"intent": "biblical", "query": "mots clés nettoyés"} ou None
+        """
+        logger.info(f"🔍 [Intent Extractor] START for text: '{text}', enabled: {self.enabled}")
+        if not self.enabled or not text or len(text.strip()) < 10:
+            logger.info("🔍 [Intent Extractor] Bypassed because not enabled or text too short.")
+            return None
+
+        cache_key = self._normalize_cache_key(text, "intent")
+        if cache_key in self._reference_cache:
+            return self._reference_cache[cache_key]
+
+        contexte_block = ""
+        if contexte:
+            contexte_block = (
+                "\n\nCE QUI VIENT D'ETRE DIT (contexte pour t'aider a comprendre de quoi il parle) :\n"
+                + "\n".join(f"- {c}" for c in contexte[-3:])
+            )
+
+        prompt = (
+            f'Phrase a analyser: "{text}"'
+            f"{contexte_block}\n\n"
+        )
+
+        system_prompt = (
+            "Tu es un moteur d'extraction biblique. Ton but est de dire si la phrase prononcée "
+            "cite ou fait allusion à la Bible. Si oui, tu dois extraire UNIQUEMENT les mots-clés de l'allusion "
+            "présents DANS LA PHRASE, en retirant le bruit de conversation (ex: 'On va lire dans...', 'Le pasteur a dit...'). "
+            "N'INVENTE AUCUN MOT. La `query` doit être extraite directement du texte fourni. "
+            "Si l'orateur ne fait que mentionner un livre ou donne juste l'heure, c'est 'none'. "
+            "Reponds UNIQUEMENT avec un objet JSON valide :\n"
+            '{"intent": "biblical" ou "none", "query": "mots-clés extraits ou null"}'
+        )
+
+        res = None
+        logger.info(f"🔍 [Intent Extractor] Keys: openrouter={bool(self.openrouter_key)}, gemini={bool(self.api_key)}, ollama={self.ollama_active}")
+        # 1. OpenRouter
+        if self.openrouter_key:
+            res = await self._call_openrouter(text, None, contexte, prompt_override=prompt, system_override=system_prompt)
+        # 2. Gemini Direct
+        elif self.api_key:
+            res = await self._call_gemini_direct(text, None, contexte, prompt_override=prompt, system_override=system_prompt)
+        # 3. Ollama Local
+        elif self.ollama_active:
+            res = await self._call_ollama_local(text, None, contexte, prompt_override=prompt, system_override=system_prompt)
+
+        logger.info(f"🤖 [Intent Extractor] Résultat brut IA : {res}")
+
+        return res
+
+    async def _call_openrouter(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None, contexte: Optional[List[str]] = None,
+                               prompt_override: Optional[str] = None, system_override: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API OpenRouter pour détecter le verset avec score de confiance"""
         url = "https://openrouter.ai/api/v1/chat/completions"
-        
-        prompt = self._build_detection_prompt(text, candidates, contexte)
-        
+
+        prompt = prompt_override or self._build_detection_prompt(text, candidates, contexte)
+        system_instruction = system_override or (
+            "Tu es un assistant théologique de régie d'église. Analyse le texte et "
+            "renvoie la référence biblique correspondante au format français, ainsi qu'un score de confiance "
+            "de 0 à 100. Sois très rigoureux. Si le texte ne contient aucune citation ou paraphrase, "
+            "renvoie 'reference': null et 'confidence': 0. "
+            "Renvoie UNIQUEMENT du JSON valide, sans balise de code markdown."
+        )
+
         headers = {
             "Authorization": f"Bearer {self.openrouter_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost:3001",
             "X-Title": "VersePro"
         }
-        
+
         payload = {
             "model": self.openrouter_model,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "Tu es un assistant théologique de régie d'église. Analyse le texte et "
-                        "renvoie la référence biblique correspondante au format français, ainsi qu'un score de confiance "
-                        "de 0 à 100. Sois très rigoureux. Si le texte ne contient aucune citation ou paraphrase, "
-                        "renvoie 'reference': null et 'confidence': 0. "
-                        "Renvoie UNIQUEMENT du JSON valide, sans balise de code markdown."
-                    )
+                    "content": system_instruction
                 },
                 {"role": "user", "content": prompt}
             ],
@@ -304,7 +365,7 @@ class AIService:
             # qu'il n'y avait rien à générer, et chaque appel était facturé large.
             "max_tokens": 200,
         }
-        
+
         try:
             async with httpx.AsyncClient(timeout=4.0) as client:
                 response = await client.post(url, json=payload, headers=headers)
@@ -315,6 +376,9 @@ class AIService:
                         content = choices[0].get("message", {}).get("content", "")
                         if content:
                             data = self._decode_json_payload(content)
+                            if "intent" in data:
+                                return data
+
                             ref = data.get("reference")
                             conf = data.get("confidence", 95)
                             if ref and ref.strip() and ref.lower() != "null":
@@ -324,21 +388,29 @@ class AIService:
                     logger.error(f"❌ Erreur OpenRouter: HTTP {response.status_code} - {response.text}")
         except Exception as e:
             logger.error(f"❌ Erreur lors de l'appel à OpenRouter: {e}")
-            
+
         return None
-        
-    async def _call_gemini_direct(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None, contexte: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+
+    async def _call_gemini_direct(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None, contexte: Optional[List[str]] = None,
+                                  prompt_override: Optional[str] = None, system_override: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Gemini directe de Google avec score de confiance"""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
         headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
-        
-        prompt = self._build_detection_prompt(text, candidates, contexte)
-        
+
+        prompt = prompt_override or self._build_detection_prompt(text, candidates, contexte)
+        system_instruction = system_override or (
+            "Tu es un assistant théologique de régie d'église. Analyse le texte et "
+            "renvoie la référence biblique correspondante au format français, ainsi qu'un score de confiance "
+            "de 0 à 100. Sois très rigoureux. Si le texte ne contient aucune citation ou paraphrase, "
+            "renvoie 'reference': null et 'confidence': 0. "
+            "Renvoie UNIQUEMENT du JSON valide, sans balise de code markdown."
+        )
+
         schema = {
             "type": "OBJECT",
             "properties": {
                 "reference": {
-                    "type": "STRING", 
+                    "type": "STRING",
                     "description": "La référence biblique détectée au format standard français, ex: 'Jean 3:16' ou 'Genèse 12:1-3'. Doit être null ou vide si aucune écriture ou histoire biblique n'est citée."
                 },
                 "confidence": {
@@ -348,25 +420,20 @@ class AIService:
             },
             "required": ["reference", "confidence"]
         }
-        
+
         payload = {
             "contents": [{
                 "parts": [{"text": prompt}]
             }],
             "systemInstruction": {
-                "parts": [{"text": (
-                    "Tu es un assistant théologique de régie d'église. Analyse le texte et "
-                    "renvoie la référence biblique correspondante au format français, ainsi qu'un score de confiance "
-                    "de 0 à 100. Sois très rigoureux. Si le texte ne contient aucune citation, paraphrase "
-                    "ou référence à une histoire de la Bible, renvoie la propriété 'reference' comme null et 'confidence' comme 0."
-                )}]
+                "parts": [{"text": system_instruction}]
             },
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema
             }
         }
-        
+
         try:
             async with httpx.AsyncClient(timeout=4.0) as client:
                 response = await client.post(url, json=payload, headers=headers)
@@ -377,6 +444,9 @@ class AIService:
                         text_res = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                         if text_res:
                             data = self._decode_json_payload(text_res)
+                            if "intent" in data:
+                                return data
+
                             ref = data.get("reference")
                             conf = data.get("confidence", 95)
                             if ref and ref.strip() and ref.lower() != "null":
@@ -386,24 +456,24 @@ class AIService:
                     logger.error(f"❌ Erreur API Gemini: HTTP {response.status_code} - {response.text}")
         except Exception as e:
             logger.error(f"❌ Erreur lors de l'appel à l'API Gemini directe: {e}")
-            
+
         return None
 
     async def _call_ollama_local(self, text: str, candidates: Optional[List[Dict[str, Any]]] = None,
-                                 contexte: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+                                 contexte: Optional[List[str]] = None, prompt_override: Optional[str] = None, system_override: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Appelle l'API Ollama locale pour détecter le verset avec score de confiance de façon 100% hors-ligne"""
         url = f"{self.ollama_url}/api/generate"
-        
-        prompt = self._build_detection_prompt(text, candidates, contexte)
-        
-        system_instruction = (
+
+        prompt = prompt_override or self._build_detection_prompt(text, candidates, contexte)
+
+        system_instruction = system_override or (
             "Tu es un assistant théologique de régie d'église. Analyse le texte et "
             "renvoie la référence biblique correspondante au format français, avec son score de confiance. "
             "Sois très précis. Si le texte ne contient aucune citation, paraphrase "
             "ou référence à une histoire de la Bible, renvoie la propriété 'reference' comme null et 'confidence' comme 0. "
             "Renvoie uniquement du JSON brut, pas de markdown, pas de texte d'explication."
         )
-        
+
         payload = {
             "model": self.ollama_model,
             "prompt": prompt,
@@ -411,7 +481,7 @@ class AIService:
             "stream": False,
             "format": "json"
         }
-        
+
         try:
             # Un modèle local 8B met 10–15 s à répondre (chargement + génération),
             # bien plus que les 6 s d'origine : TOUS les appels expiraient et
@@ -420,19 +490,23 @@ class AIService:
             # il peut donc prendre son temps.
             async with httpx.AsyncClient(timeout=settings.OLLAMA_TIMEOUT) as client:
                 response = await client.post(url, json=payload)
+                if system_override:
+                    logger.info(f"🤖 [Ollama] Status: {response.status_code}, Raw response: {response.text}")
                 if response.status_code == 200:
                     res_json = response.json()
                     response_text = res_json.get("response", "")
-                    if response_text:
-                        data = self._decode_json_payload(response_text)
-                        ref = data.get("reference")
-                        conf = data.get("confidence", 95)
-                        if ref and ref.strip() and ref.lower() != "null":
-                            logger.info(f"🤖 [Agent IA - Ollama Local] Référence détectée: '{ref}' (Confiance: {conf}%)")
-                            return {"reference": ref.strip(), "confidence": int(conf)}
+                    data = self._decode_json_payload(response_text)
+                    if "intent" in data:
+                        return data
+
+                    ref = data.get("reference")
+                    conf = data.get("confidence", 95)
+                    if ref and ref.strip() and ref.lower() != "null":
+                        logger.info(f"🤖 [Agent IA - Ollama Local] Référence détectée: '{ref}' (Confiance: {conf}%)")
+                        return {"reference": ref.strip(), "confidence": int(conf)}
         except Exception as e:
             logger.error(f"❌ Erreur lors de l'appel à Ollama local ({self.ollama_model}): {e}")
-            
+
         return None
 
     async def translate_text(self, text: str, target_lang: str) -> Optional[str]:

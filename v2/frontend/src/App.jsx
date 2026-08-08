@@ -1,15 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useState } from 'react'
 import { useStore } from './store.js'
 import LiveDetection from './components/LiveDetection.jsx'
-import History from './components/History.jsx'
-import Statistics from './components/Statistics.jsx'
+const History = React.lazy(() => import('./components/History.jsx'))
+const Statistics = React.lazy(() => import('./components/Statistics.jsx'))
 import LandingPage from './components/LandingPage.jsx'
-import Settings from './components/Settings.jsx'
+const Settings = React.lazy(() => import('./components/Settings.jsx'))
 import { ToastHost } from './components/ui.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import FirstRunWizard from './components/FirstRunWizard.jsx'
 import LaunchIntro from './components/LaunchIntro.jsx'
 import CloseGuard from './components/CloseGuard.jsx'
+import MicButton from './components/MicButton.jsx'
 
 const NAV_ITEMS = [
   {
@@ -55,12 +56,48 @@ const NAV_ITEMS = [
   }
 ]
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("VersePro UI Error Caught:", error, errorInfo)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center space-y-4">
+          <h2 className="text-xl font-bold text-amber-400">⚠️ Incident d'Affichage Régie</h2>
+          <p className="text-sm text-slate-300 max-w-md">Une erreur inattendue est survenue dans l'interface. Cliquez ci-dessous pour réinitialiser la vue.</p>
+          <pre className="text-xs bg-black/50 p-3 rounded text-rose-300 max-w-lg overflow-auto">
+            {this.state.error?.toString()}
+          </pre>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false, error: null })
+              window.location.reload()
+            }}
+            className="px-4 py-2 bg-sky-600 text-white rounded-lg font-bold hover:bg-sky-500 transition-all"
+          >
+            🔄 Réinitialiser la Régie
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 function App() {
   const [showLaunchIntro, setShowLaunchIntro] = useState(() => {
-    try { return sessionStorage.getItem('versepro_launch_intro_seen') !== 'true' } catch { return true }
+    try { return localStorage.getItem('versepro_launch_intro_seen') !== 'true' } catch { return true }
   })
   const closeLaunchIntro = useCallback(() => {
-    try { sessionStorage.setItem('versepro_launch_intro_seen', 'true') } catch { /* stockage privé */ }
+    try { localStorage.setItem('versepro_launch_intro_seen', 'true') } catch { /* stockage privé */ }
     setShowLaunchIntro(false)
   }, [])
 
@@ -71,26 +108,27 @@ function App() {
     setActiveTabState(tab)
   }
   
-  const { 
-    fetchHistory, 
-    fetchStatistics, 
-    checkBackendHealth,
-    fetchBibles,
-    fetchSettings,
-    fetchProjectionState,
-    hydrateQueueFromSession,
-    fetchIntelligenceStatus,
-    disconnectWebSocket, 
-    connected,
-    connectionStatus,
-    asrMode,
-    aiActive,
-    propresenterConnected,
-    isListening,
-    toggleListening,
-    volume,
-    onAir
-  } = useStore()
+  // ── Sélecteurs granulaires : chaque composant ne re-rend que quand
+  // l'état qu'il observe change. volume et toggleListening sont maintenant
+  // dans MicButton — l'app racine n'est plus affectée par le VU-mètre.
+  const fetchHistory = useStore(s => s.fetchHistory)
+  const fetchStatistics = useStore(s => s.fetchStatistics)
+  const checkBackendHealth = useStore(s => s.checkBackendHealth)
+  const fetchBibles = useStore(s => s.fetchBibles)
+  const fetchSettings = useStore(s => s.fetchSettings)
+  const fetchProjectionState = useStore(s => s.fetchProjectionState)
+  const hydrateQueueFromSession = useStore(s => s.hydrateQueueFromSession)
+  const fetchIntelligenceStatus = useStore(s => s.fetchIntelligenceStatus)
+  const disconnectWebSocket = useStore(s => s.disconnectWebSocket)
+  const connected = useStore(s => s.connected)
+  const connectionStatus = useStore(s => s.connectionStatus)
+  const asrMode = useStore(s => s.asrMode)
+  const aiActive = useStore(s => s.aiActive)
+  const propresenterConnected = useStore(s => s.propresenterConnected)
+  const isListening = useStore(s => s.isListening)
+  const listeningStartedAt = useStore(s => s.listeningStartedAt)
+  const listeningStoppedAt = useStore(s => s.listeningStoppedAt)
+  const onAir = useStore(s => s.onAir)
 
   const serverStatus = connected
     ? { label: 'Serveur', tooltip: 'Serveur connecté', tone: 'is-ok', color: 'var(--success)' }
@@ -227,50 +265,60 @@ function App() {
               <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
                 <span className="dot" />IA {aiActive ? 'prête' : 'off'}
               </span>
-              <span className={`vp-chip ${propresenterConnected ? 'is-ok' : 'is-warn'}`}>
-                <span className="dot" />{propresenterConnected ? 'ProPresenter' : 'PP manuel'}
+              <span className={`vp-chip ${isListening ? 'is-accent font-mono font-bold' : ''}`} title="Durée de la session micro (Chrono direct)">
+                <span className="dot" />⏱️ {(() => {
+                  if (!listeningStartedAt) return '00:00:00'
+                  const end = isListening ? clock.getTime() : (listeningStoppedAt || clock.getTime())
+                  const total = Math.max(0, Math.floor((end - listeningStartedAt) / 1000))
+                  const h = String(Math.floor(total / 3600)).padStart(2, '0')
+                  const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0')
+                  const s = String(total % 60).padStart(2, '0')
+                  return `${h}:${m}:${s}`
+                })()}
               </span>
 
-              <span className="global-clock">
+              <span className={`vp-chip ${propresenterConnected ? 'is-ok' : ''}`} title={propresenterConnected ? 'ProPresenter connecté' : 'ProPresenter non connecté (Mode manuel)'}>
+                <span className="dot" />{propresenterConnected ? 'ProPresenter' : 'PP off'}
+              </span>
+
+              <span className="global-clock" title="Heure actuelle">
                 {clock.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
 
-              <button 
-                className={`global-mic-btn ${isListening ? 'is-live' : ''}`} 
-                onClick={toggleListening}
-                title={isListening ? 'Micro activé — cliquer pour désactiver' : 'Démarrer le micro'}
-              >
-                <span className="mic-dot" />
-                {isListening ? 'LIVE' : 'Micro'}
-                <span className="mic-vu">
-                  <div style={{ width: `${isListening ? volume : 0}%` }} />
-                </span>
-              </button>
+              <MicButton />
             </div>
           </header>
         )}
 
-        {activeTab === 'home' && <LandingPage setActiveTab={setActiveTab} />}
-        {activeTab === 'live' && (
-          <div className="app-live-page p-6 animate-slide-up flex-1">
-            <LiveDetection setActiveTab={setActiveTab} />
-          </div>
-        )}
-        {activeTab === 'history' && (
-          <div className="p-6 lg:p-8 animate-slide-up flex-1">
-            <History />
-          </div>
-        )}
-        {activeTab === 'statistics' && (
-          <div className="p-6 lg:p-8 animate-slide-up flex-1">
-            <Statistics />
-          </div>
-        )}
-        {activeTab === 'settings' && (
-          <div className="p-6 lg:p-8 animate-slide-up flex-1">
-            <Settings />
-          </div>
-        )}
+        <ErrorBoundary>
+          {activeTab === 'home' && <LandingPage setActiveTab={setActiveTab} />}
+          {activeTab === 'live' && (
+            <div className="app-live-page p-6 animate-slide-up flex-1">
+              <LiveDetection setActiveTab={setActiveTab} />
+            </div>
+          )}
+          {activeTab === 'history' && (
+            <Suspense fallback={<div className="p-6 lg:p-8 flex-1" />}>
+              <div className="p-6 lg:p-8 animate-slide-up flex-1">
+                <History />
+              </div>
+            </Suspense>
+          )}
+          {activeTab === 'statistics' && (
+            <Suspense fallback={<div className="p-6 lg:p-8 flex-1" />}>
+              <div className="p-6 lg:p-8 animate-slide-up flex-1">
+                <Statistics />
+              </div>
+            </Suspense>
+          )}
+          {activeTab === 'settings' && (
+            <Suspense fallback={<div className="p-6 lg:p-8 flex-1" />}>
+              <div className="p-6 lg:p-8 animate-slide-up flex-1">
+                <Settings />
+              </div>
+            </Suspense>
+          )}
+        </ErrorBoundary>
       </main>
 
       <ToastHost />

@@ -3,7 +3,9 @@ import { useStore } from '../store.js'
 import { SkeletonRows, Skeleton } from './ui.jsx'
 
 export default function Statistics() {
-  const { statistics, fetchStatistics, statsLoading } = useStore()
+  const statistics = useStore(s => s.statistics)
+  const fetchStatistics = useStore(s => s.fetchStatistics)
+  const statsLoading = useStore(s => s.statsLoading)
   
   useEffect(() => {
     fetchStatistics(30)

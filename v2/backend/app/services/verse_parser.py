@@ -56,7 +56,7 @@ STANDARD_BOOK_MAP = {
     "aggee": "Ag", "aggée": "Ag",
     "zacharie": "Za",
     "malachie": "Ml",
-    
+
     # Nouveau Testament
     "matthieu": "Mt",
     "marc": "Mc",
@@ -176,10 +176,10 @@ class BibleLoader:
     _shared_index = None
     _shared_phrase_hits = None
     _shared_fuzzy = None
-    
+
     def __init__(self, json_path: Optional[str] = None):
         import os
-        
+
         self.versions = {}  # version_id -> dict (book -> chapter -> verse -> text)
         self.active_version = "LSG"
         self.verse_index = {}  # Index inversé global
@@ -194,7 +194,7 @@ class BibleLoader:
             self.fuzzy_index = BibleLoader._shared_fuzzy
             logger.info(f"📚 BibleLoader réutilisé en mémoire: {len(self.versions)} versions, {len(self.verse_index)} clés")
             return
-        
+
         # 1. Charge la version par défaut LSG (avec fallbacks).
         #    RESOURCE_DIR d'abord : indispensable en application figée, où le
         #    dossier de travail n'a plus de dossier data/ relatif.
@@ -207,7 +207,7 @@ class BibleLoader:
             "../data/bible.json",
             "../../data/bible.json"
         ]
-        
+
         for p in paths_to_try:
             if os.path.exists(p):
                 loaded_lsg = self._load_version("LSG", p)
@@ -215,7 +215,7 @@ class BibleLoader:
                     self.versions["LSG"] = loaded_lsg
                     logger.info(f"📚 Bible LSG chargée avec succès depuis {p}")
                     break
-            
+
         # 2. Charge les autres versions converties (celles présentes seulement :
         #    l'app distribuée n'embarque que le domaine public — LSG + KJF).
         from pathlib import Path
@@ -256,14 +256,14 @@ class BibleLoader:
                         v_id = "FC"
                     elif v_id == "NOUVELLE_SEGOND":
                         v_id = "NBS"
-                        
+
                     path = os.path.join(cache_dir, filename)
                     loaded = self._load_version(v_id, path)
                     if loaded:
                         self.versions[v_id] = loaded
-                        
+
         logger.info(f"📚 {len(self.versions)} versions de la Bible prêtes: {list(self.versions.keys())}")
-        
+
         # 3. Construit l'index de recherche textuelle global
         self._build_index()
         self._build_curated_phrase_hits()
@@ -294,14 +294,14 @@ class BibleLoader:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                
+
             books_dict = {}
-            
+
             # Schema 1: books -> chapters -> verses (comme lsg1910)
             if isinstance(data, dict) and "books" in data:
                 def to_real(val):
                     return 1 if val == 0 else val
-                    
+
                 for book in data.get("books", []):
                     book_name = book.get("name", "").strip()
                     book_abbr = book.get("abbreviation", "").strip()
@@ -313,16 +313,16 @@ class BibleLoader:
                         continue
 
                     books_dict[std_abbr.lower()] = {}
-                    
+
                     for ch in book.get("chapters", []):
                         ch_num = to_real(ch.get("chapter", 0))
                         books_dict[std_abbr.lower()][ch_num] = {}
-                        
+
                         for v in ch.get("verses", []):
                             v_num = to_real(v.get("verse", 0))
                             v_text = v.get("text", "").strip()
                             books_dict[std_abbr.lower()][ch_num][v_num] = v_text
-                            
+
             # Schema 2: Testaments -> Books -> Chapters -> Verses
             elif isinstance(data, dict) and "Testaments" in data:
                 for testament in data.get("Testaments", []):
@@ -331,18 +331,18 @@ class BibleLoader:
                         std_abbr = get_standard_abbr(book_name)
                         if not std_abbr:
                             continue
-                            
+
                         books_dict[std_abbr.lower()] = {}
-                        
+
                         for ch_index, ch in enumerate(book.get("Chapters", [])):
                             ch_num = ch.get("ID", ch_index + 1)
                             books_dict[std_abbr.lower()][ch_num] = {}
-                            
+
                             for v_index, v in enumerate(ch.get("Verses", [])):
                                 v_num = v.get("ID", v_index + 1)
                                 v_text = v.get("Text", "").strip()
                                 books_dict[std_abbr.lower()][ch_num][v_num] = v_text
-                                
+
             # Schema 3: Indexation directe par livre 1-66 (comme kjf.json)
             elif isinstance(data, dict) and "1" in data and isinstance(data["1"], dict) and "1" in data["1"]:
                 STANDARD_66_BOOKS = [
@@ -360,17 +360,17 @@ class BibleLoader:
                         if 0 <= book_idx < len(STANDARD_66_BOOKS):
                             std_abbr = STANDARD_66_BOOKS[book_idx]
                             books_dict[std_abbr.lower()] = {}
-                            
+
                             for ch_num_str, verses in chapters.items():
                                 ch_num = int(ch_num_str)
                                 books_dict[std_abbr.lower()][ch_num] = {}
-                                
+
                                 for v_num_str, text in verses.items():
                                     v_num = int(v_num_str)
                                     books_dict[std_abbr.lower()][ch_num][v_num] = text.strip()
                     except ValueError:
                         continue
-                        
+
             return books_dict
         except Exception as e:
             logger.error(f"Erreur chargement version {v_id} depuis {path}: {e}")
@@ -386,17 +386,18 @@ class BibleLoader:
     def _build_index(self):
         """Construit un index inversé global sur les 5 premiers mots de chaque verset"""
         self.verse_index = {}
-        
+
         # Mots vides ou extrêmement fréquents pour éviter les faux-positifs sur des formules de transition orales
         STOP_WORDS = {
-            "il", "y", "a", "point", "de", "le", "la", "les", "car", "je", "vous", "dit", "est", 
-            "un", "une", "dans", "en", "pour", "ce", "ces", "mon", "ma", "mes", "ton", "ta", "tes", 
-            "son", "sa", "ses", "et", "ou", "mais", "donc", "or", "ni", "que", "qui", "ceux", 
-            "celles", "ils", "elles", "nous", "se", "ne", "pas", "plus", "tout", "tous", "faire", 
+            "il", "y", "a", "point", "de", "le", "la", "les", "car", "je", "vous", "dit", "est",
+            "un", "une", "dans", "en", "pour", "ce", "ces", "mon", "ma", "mes", "ton", "ta", "tes",
+            "son", "sa", "ses", "et", "ou", "mais", "donc", "or", "ni", "que", "qui", "ceux",
+            "celles", "ils", "elles", "nous", "se", "ne", "pas", "plus", "tout", "tous", "faire",
             "fait", "comme", "avec", "sur", "par", "aux", "au", "des", "du", "lui", "leur", "leurs",
             "en", "y", "moi", "toi", "soi", "ete", "ont", "sont", "ces", "ses", "cette"
         }
-        
+
+        LEADING_CONJUNCTIONS = {"car", "et", "mais", "or", "afin", "en", "pour", "ainsi", "par"}
         # On utilise LSG en priorité pour peupler l'index, puis les autres
         # afin de couvrir le maximum de formulations orales.
         for v_id in sorted(self.versions.keys(), key=lambda x: 0 if x == "LSG" else 1):
@@ -407,11 +408,17 @@ class BibleLoader:
                         if not text:
                             continue
                         norm_text = self._normalize_text(text)
-                        words = norm_text.split()[:5]
-                        if len(words) >= 5:
-                            # Pour éviter d'indexer des phrases trop triviales (comme "il n'y a point de", "car je vous le dis")
-                            # on exige qu'au moins 2 mots de la phrase de début de verset soient significatifs.
-                            significant_count = sum(1 for w in words if w not in STOP_WORDS and len(w) >= 4)
+                        all_words = norm_text.split()
+
+                        candidate_windows = []
+                        if len(all_words) >= 5:
+                            candidate_windows.append(all_words[:5])
+                        if len(all_words) >= 6 and all_words[0] in LEADING_CONJUNCTIONS:
+                            candidate_windows.append(all_words[1:6])
+
+                        for words in candidate_windows:
+                            # Pour éviter d'indexer des phrases trop triviales
+                            significant_count = sum(1 for w in words if w not in STOP_WORDS and len(w) >= 3)
                             if significant_count >= 2:
                                 key = " ".join(words)
                                 if key not in self.verse_index:
@@ -424,12 +431,16 @@ class BibleLoader:
                                         "verse": v_num,
                                         "text": text
                                     })
-                                
+
         logger.info(f"⚡ Index de recherche textuelle global construit: {len(self.verse_index)} phrases uniques")
 
     def _build_curated_phrase_hits(self):
         """Ajoute des accroches courtes difficiles à trouver avec un index à 5 mots."""
         phrases = {
+            "car dieu a tant aime le monde": ("Jn", 3, 16),
+            "dieu a tant aime le monde": ("Jn", 3, 16),
+            "dieu a tant aime": ("Jn", 3, 16),
+            "car dieu a tant aime": ("Jn", 3, 16),
             "dieu est amour": ("1 Jn", 4, 8),
             "l eternel est mon berger": ("Ps", 23, 1),
             "le seigneur est mon berger": ("Ps", 23, 1),
@@ -442,6 +453,8 @@ class BibleLoader:
             "je puis tout par celui qui me fortifie": ("Ph", 4, 13),
             "je peux tout par celui qui me fortifie": ("Ph", 4, 13),
             "je peux tout par celui qui me donne la force": ("Ph", 4, 13),
+            "au commencement dieu crea": ("Gen", 1, 1),
+            "au commencement etait la parole": ("Jn", 1, 1),
         }
         self.curated_phrase_hits = {
             self._normalize_text(phrase): ref
@@ -480,31 +493,31 @@ class BibleLoader:
             if not self.versions:
                 return ""
             version = list(self.versions.values())[0]
-            
+
         book_key = book_abbr.lower()
         if book_key not in version:
             return ""
-            
+
         ch_dict = version[book_key]
         if chapter not in ch_dict:
             return ""
-            
+
         v_dict = ch_dict[chapter]
-        
+
         verses_to_find = list(range(verse_start, (verse_end or verse_start) + 1))
         found_texts = []
-        
+
         for v_num in verses_to_find:
             if v_num in v_dict:
                 found_texts.append(v_dict[v_num])
-                
+
         return " ".join(found_texts)
 
     def search_by_text(self, query_text: str) -> Optional[Dict[str, Any]]:
         """Recherche une référence à partir d'une phrase textuelle parlée"""
         if not self.versions or not query_text:
             return None
-            
+
         norm_query = self._normalize_text(query_text)
         words = norm_query.split()
 
@@ -514,7 +527,7 @@ class BibleLoader:
 
         if len(words) < 5:
             return None
-            
+
         # 1. Recherche par les 5 premiers mots (index inversé très rapide) - De droite à gauche (plus récent d'abord)
         for i in range(len(words) - 5, -1, -1):
             for length in range(min(5, len(words) - i), 4, -1):
@@ -522,14 +535,14 @@ class BibleLoader:
                 if phrase in self.verse_index:
                     match = self.verse_index[phrase][0]
                     ref_text = format_reference(match['book_abbr'], match['chapter'], match['verse'])
-                    
+
                     # Récupération de toutes les traductions disponibles pour la comparaison
                     translations = {}
                     for v_name in self.versions.keys():
                         text_v = self.get_verse_text(match['book_abbr'], match['chapter'], match['verse'], version_id=v_name)
                         if text_v:
                             translations[v_name] = text_v
-                            
+
                     return {
                         "book": get_full_book_name(match['book_abbr']),
                         "book_abbr": match["book_abbr"],
@@ -543,7 +556,7 @@ class BibleLoader:
                         "detection_method": "text_index",
                         "confidence": 0.9,
                     }
-                    
+
         # 2. (Supprimé) L'ancien scan par sous-chaîne parcourait ~180 000 versets
         #    en BLOQUANT la boucle d'événements ~2,6 s par phrase sans détection —
         #    cause directe des transcripts saccadés et des projections en retard.
@@ -609,22 +622,22 @@ class VerseParserService:
     """
     Service de parsing de références bibliques v2 avec multi-traduction et correction d'homophones
     """
-    
+
     def __init__(self, bible_json_path: Optional[str] = None):
         self.book_names = self._load_book_names()
         self.book_abbreviations = self._load_abbreviations()
         self.chapter_counts = self._load_chapter_counts()
         self.patterns = self._compile_patterns()
         self.inc_patterns = self._compile_inc_patterns()
-        
+
         # Tableaux de correspondance insensibles aux accents
         self.clean_book_names = {strip_accents(k): v for k, v in self.book_names.items()}
-        
+
         # Initialise le chargeur de texte biblique multi-version
         self.bible_loader = BibleLoader(bible_json_path)
-        
+
         logger.info("✅ Parser de versets initialisé")
-    
+
     def _load_book_names(self) -> Dict[str, str]:
         """Charge le dictionnaire complet de correspondance de livres"""
         return {
@@ -668,7 +681,7 @@ class VerseParserService:
             "aggée": "Ag", "agee": "Ag", "ag": "Ag",
             "zacharie": "Za", "zach": "Za",
             "malachie": "Ml", "mal": "Ml",
-            
+
             # Nouveau Testament
             "matthieu": "Mt", "mat": "Mt", "mt": "Mt",
             "marc": "Mc", "mar": "Mc", "mc": "Mc",
@@ -699,7 +712,7 @@ class VerseParserService:
             "apocalypse": "Ap", "apoc": "Ap", "ap": "Ap",
             "révélation": "Ap", "rev": "Ap",
         }
-    
+
     def _load_abbreviations(self) -> Dict[str, str]:
         """Charge les abréviations courantes"""
         return {
@@ -721,7 +734,7 @@ class VerseParserService:
             "2 jn": "2 jean",
             "3 jn": "3 jean",
         }
-    
+
     def _load_chapter_counts(self) -> Dict[str, int]:
         """Charge le nombre de chapitres par livre"""
         return {
@@ -740,32 +753,41 @@ class VerseParserService:
             "Jc": 5, "1 P": 5, "2 P": 3, "1 Jn": 5, "2 Jn": 1,
             "3 Jn": 1, "Jude": 1, "Ap": 22,
         }
-    
+
+    INVERTED_A_PATTERN_INDEX = 6
+    INVERTED_B_PATTERN_INDEX = 7
+
     def _compile_patterns(self) -> List[re.Pattern]:
         """Compile les patterns regex optimisés (évite le greedy matching)"""
-        patterns = [
-            # "Jean 3:16" ou "Jn 3:16" ou "1 Co 13:4-8"
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
-            
-            # "Jean chapitre 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
-            
-            # "Jean 3 verset 16" (DOIT avoir le numéro de verset)
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:\s+(?:au|aux|et))*\s+(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+        books = sorted(STANDARD_BOOK_MAP.keys(), key=len, reverse=True)
+        books_pattern = "|".join(re.escape(b) for b in books)
 
-            # "Jean 3 16" (sans séparateur, par exemple après conversion des mots de Vosk)
+        patterns = [
+            # 0: "Jean 3:16" ou "Jn 3:16" ou "1 Co 13:4-8"
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+
+            # 1: "Jean chapitre 3 verset 16" ou "Matthieu chapitre 8, et je lis à partir du verset 2"
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la|livre\s+de|épître\s+aux))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:[\s,]+(?:[^\d\n]{1,45}?\s+)?)?(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+
+            # 2: "Jean 3 verset 16" ou "Matthieu 8, et je lis au verset 2"
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:[\s,]+(?:[^\d\n]{1,45}?\s+)?)?(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+
+            # 3: "Jean 3 16" (sans séparateur, par exemple après conversion des mots de Vosk)
             # ⚠️ Pattern "loose" : sujet aux faux positifs sur du langage courant converti en
             # chiffres — sa confiance est plafonnée sous le seuil d'autopilotage (voir LOOSE_PATTERN_INDEX)
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s+(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
-            
-            # "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
+
+            # 4: "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
 
-            # "Jude verset 24" : livre à CHAPITRE UNIQUE, cité sans chapitre —
-            # personne ne dit « Jude chapitre un verset vingt-quatre ». Le
-            # chapitre 1 est sous-entendu, et la validation ci-dessous refuse ce
-            # motif pour tout livre en comptant plusieurs.
+            # 5: "Jude verset 24" : livre à CHAPITRE UNIQUE, cité sans chapitre
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:versets?|v\.?)\s*(\d+)(?:\s*(?:[-–àa])\s*(\d+))?\b', re.IGNORECASE),
+
+            # 6: Inversé A: "verset 2 du chapitre 8 de Matthieu"
+            re.compile(r'\b(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?(?:[\s,]+(?:du|dans|au|dans\s+le)\s*(?:chapitre|ch\.?|chap\.?)\s*(\d+))(?:[\s,]+(?:de|des|du|dans|dans\s+le\s+livre\s+de|d\'|à))\s+\b(' + books_pattern + r')\b', re.IGNORECASE),
+
+            # 7: Inversé B: "verset 2 dans Matthieu chapitre 8" ou "verset 2 dans Matthieu 8"
+            re.compile(r'\b(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?(?:[\s,]+(?:dans|de|du|dans\s+le\s+livre\s+de|dans\s+l\'|d\'|à))\s+\b(' + books_pattern + r')\b(?:[\s,]+(?:au|dans|le|la|livre\s+de))*\s*(?:chapitre|ch\.?|chap\.?)?\s*(\d+)\b', re.IGNORECASE),
         ]
         return patterns
 
@@ -778,7 +800,7 @@ class VerseParserService:
         return [
             # 0. Livre + Chapitre ("dans jean 3" ou "jean chapitre 3")
             re.compile(rf'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)?\s*(\d+)\b', re.IGNORECASE),
-            
+
             # 1. Livre seul ("dans jean", "lisons jean")
             re.compile(rf'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\b', re.IGNORECASE)
         ]
@@ -909,7 +931,7 @@ class VerseParserService:
             "dix": 10, "onze": 11, "douze": 12, "treize": 13, "quatorze": 14, "quinze": 15, "seize": 16,
             "vingt": 20, "trente": 30, "quarante": 40, "cinquante": 50, "soixante": 60, "cent": 100
         }
-        
+
         def parse_french_number_words(words: list[str]) -> int:
             total = 0
             current = 0
@@ -936,7 +958,7 @@ class VerseParserService:
         # Garde : . - pour ne pas dégrader les références déjà bien formatées.
         normalized = re.sub(r'[^a-z0-9à-ÿ\s:\.\-–]', ' ', normalized)
         words = normalized.split()
-        
+
         new_words = []
         i = 0
         while i < len(words):
@@ -954,7 +976,7 @@ class VerseParserService:
                     next_val = values.get(next_word)
                     if next_val is None:
                         break
-                    
+
                     is_cont = False
                     if next_val == 100:
                         is_cont = True
@@ -962,7 +984,7 @@ class VerseParserService:
                         is_cont = True
                     elif next_val < current_val:
                         is_cont = True
-                    
+
                     if is_cont:
                         num_sequence.append(next_word)
                         if next_val == 100:
@@ -974,43 +996,56 @@ class VerseParserService:
                         i += 1
                     else:
                         break
-                
+
                 while num_sequence and num_sequence[-1] == "et":
                     num_sequence.pop()
                     i -= 1
-                    
+
                 val = parse_french_number_words(num_sequence)
                 new_words.append(str(val))
             else:
                 new_words.append(word)
                 i += 1
-                
+
         return " ".join(new_words)
-    
-    async def parse(self, text: str, skip_text_search: bool = False) -> Optional[Dict[str, Any]]:
+
+    RELATIVE_JUMP_RE = re.compile(
+        r'\b(?:allons|passons|lisons|sautons|regardons|venons|relisons)?'
+        r'(?:\s+(?:au|aux|le|du|vers\s+le))*\s*'
+        r'(?:versets?|v\.?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b',
+        re.IGNORECASE
+    )
+
+    async def parse(
+        self,
+        text: str,
+        skip_text_search: bool = False,
+        active_context: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         Parse un texte et extrait la référence biblique (explicite ou par recherche textuelle)
-        
+
         Args:
             text: Texte transcrit contenant potentiellement une référence
-            skip_text_search: Si True, ignore la recherche textuelle en fallback (recherche uniquement les références explicites)
-        
+            skip_text_search: Si True, ignore la recherche textuelle en fallback
+            active_context: Dictionnaire optionnel avec {"book_abbr": "Mt", "chapter": 8} pour sauts relatifs
+
         Returns:
             Dictionnaire avec la référence structurée ou None
         """
         if not text:
             return None
-            
+
         # 1. Correction d'homophones sémantiques vocaux
         cleaned_text = self._clean_homophones(text)
-        
+
         # 1.5. Conversion des nombres parlés en chiffres (très utile pour Vosk)
         cleaned_text = self._convert_spoken_numbers(cleaned_text)
-        
+
         # Conservation d'une copie nettoyée pour le regex
         clean_text_regex = cleaned_text.lower().strip()
         clean_text_regex = clean_text_regex.replace(",", " ")
-        
+
         # 2. Patterns explicites (regex), par groupes de fiabilité décroissante :
         #    formes précises d'abord, puis le pattern "loose", puis le chapitre seul.
         #    Au sein d'un groupe, la référence la plus RÉCEMMENT prononcée prime :
@@ -1024,9 +1059,9 @@ class VerseParserService:
         # Le motif « livre verset N » vient juste après les motifs explicites :
         # il est aussi sûr qu'eux puisqu'il exige un livre à chapitre unique,
         # mais il ne doit pas primer sur une référence pleinement énoncée.
-        pattern_groups = [(0, 1, 2), (self.SINGLE_CHAPTER_PATTERN_INDEX,),
+        pattern_groups = [(0, 1, 2, self.INVERTED_A_PATTERN_INDEX, self.INVERTED_B_PATTERN_INDEX), (self.SINGLE_CHAPTER_PATTERN_INDEX,),
                           (self.LOOSE_PATTERN_INDEX,), (4,)]
-        is_direct_input = skip_text_search or len(clean_text_regex) <= 30
+        is_direct_input = skip_text_search
         for group in pattern_groups:
             if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue and not is_direct_input:
                 continue
@@ -1040,17 +1075,55 @@ class VerseParserService:
                     match, cleaned_text,
                     loose=(idx == self.LOOSE_PATTERN_INDEX),
                     single_chapter=(idx == self.SINGLE_CHAPTER_PATTERN_INDEX),
+                    inverted_a=(idx == self.INVERTED_A_PATTERN_INDEX),
+                    inverted_b=(idx == self.INVERTED_B_PATTERN_INDEX),
                 )
                 if reference:
                     if self._validate_reference(reference):
+                        if reference.get("verse_start") is None and not skip_text_search:
+                            book_abbr = reference["book_abbr"]
+                            chapter = reference["chapter"]
+                            best_verse = None
+                            best_score = 0.0
+
+                            version = self.bible_loader.versions.get(self.bible_loader.active_version)
+                            if not version and self.bible_loader.versions:
+                                version = list(self.bible_loader.versions.values())[0]
+
+                            if version and book_abbr.lower() in version and chapter in version[book_abbr.lower()]:
+                                chapter_verses = version[book_abbr.lower()][chapter]
+                                query_words = {w for w in self.bible_loader._normalize_text(cleaned_text).split() if len(w) >= 3}
+
+                                for v_num, v_text in chapter_verses.items():
+                                    if not v_text: continue
+                                    v_words = {w for w in self.bible_loader._normalize_text(v_text).split() if len(w) >= 3}
+                                    if not v_words: continue
+
+                                    overlap = len(query_words.intersection(v_words))
+                                    score = overlap / len(v_words)
+
+                                    if score > best_score and overlap >= 2:
+                                        best_score = score
+                                        best_verse = v_num
+
+                            if best_verse:
+                                reference["verse_start"] = best_verse
+                                reference["reference"] = format_reference(book_abbr, chapter, best_verse)
+                                reference["text"] = self.bible_loader.get_verse_text(book_abbr, chapter, best_verse)
+                                reference["translations"] = self.bible_loader.translations_for(book_abbr, chapter, best_verse)
+                                reference["detection_method"] = "chapter_contextual_text"
+                                reference["confidence"] = min(0.98, max(0.85, 0.70 + (best_score * 0.3)))
+                                logger.info(f"📖 Verset déduit du contexte du chapitre: {reference['reference']} (score: {best_score:.2f})")
+                                return reference
+
                         logger.info(f"📖 Référence explicite détectée: {reference['reference']}")
                         return reference
                     else:
                         logger.debug(f"⚠️ Référence explicite invalide rejetée: {match.group()}")
-        
+
         if skip_text_search:
             return None
-            
+
         # 3. Fallback : Recherche textuelle directe dans la Bible (si phrase parlée)
         text_search_res = self.bible_loader.search_by_text(cleaned_text)
         if text_search_res:
@@ -1071,12 +1144,12 @@ class VerseParserService:
         clean_text_regex = cleaned_text.lower().strip().replace(",", " ")
 
         # On teste d'abord Livre + Chapitre, puis Livre seul
-        
+
         # Livre + Chapitre
         for match in self.inc_patterns[0].finditer(clean_text_regex):
             raw_book = match.group(1).strip()
             chapter_str = match.group(2).strip()
-            
+
             # Reprise de la logique de nettoyage de _extract_reference
             book_name = raw_book.lower()
             book_name = re.sub(r'\s+', ' ', book_name)
@@ -1085,7 +1158,7 @@ class VerseParserService:
                 '',
                 book_name
             )
-            
+
             book_abbr = self._normalize_book(book_name)
             if book_abbr and chapter_str.isdigit():
                 return {
@@ -1094,12 +1167,12 @@ class VerseParserService:
                     "chapter": int(chapter_str),
                     "verse": None,
                 }
-        
+
         # Livre seul (on veut le plus récent dans la phrase, d'où finditer et on prend le dernier)
         matches = list(self.inc_patterns[1].finditer(clean_text_regex))
         for match in reversed(matches):
             raw_book = match.group(1).strip()
-            
+
             # Nettoyage
             book_name = raw_book.lower()
             book_name = re.sub(r'\s+', ' ', book_name)
@@ -1108,7 +1181,7 @@ class VerseParserService:
                 '',
                 book_name
             )
-            
+
             book_abbr = self._normalize_book(book_name)
             if book_abbr:
                 return {
@@ -1127,33 +1200,33 @@ class VerseParserService:
         if not text:
             return ""
         return self._convert_spoken_numbers(self._clean_homophones(text))
-    
+
     def _extract_reference(self, match: re.Match, full_text: str, loose: bool = False,
-                           single_chapter: bool = False) -> Optional[Dict[str, Any]]:
+                           single_chapter: bool = False, inverted_a: bool = False, inverted_b: bool = False) -> Optional[Dict[str, Any]]:
         """
         Extrait les informations de référence du match regex.
-
-        loose=True : match issu du pattern sans séparateur ("jean 3 16"), fréquent en
-        sortie Vosk mais sujet aux faux positifs — la confiance est plafonnée à 0.85
-        pour que la référence passe par la file de validation manuelle au lieu d'être
-        projetée automatiquement (le seuil autopilote est de 0.95).
-
-        single_chapter=True : match issu de « Jude verset 24 ». Les groupes sont
-        décalés — pas de chapitre énoncé — et le chapitre 1 est sous-entendu. Le
-        motif est refusé si le livre en compte plusieurs, sans quoi « Jean verset
-        16 » deviendrait Jean 1:16 au lieu de rester ambigu.
         """
         try:
-            book_name = match.group(1).lower().strip()
-            book_name = re.sub(r'\s+', ' ', book_name)
-            # Nettoyer les préfixes génériques de désignation oraux (ex: "livre de jean" -> "jean")
-            book_name = re.sub(
-                r'^(?:livre de|livre des|evangile selon|evangile de|epitre de|epitre aux|epitre de paul aux|epitre de paul de)\s+',
-                '',
-                book_name
-            )
-
-            if single_chapter:
+            if inverted_a:
+                verse_start = int(match.group(1))
+                verse_end = int(match.group(2)) if match.group(2) else None
+                chapter = int(match.group(3))
+                book_name = match.group(4).lower().strip()
+                book_abbr = self._normalize_book(book_name)
+            elif inverted_b:
+                verse_start = int(match.group(1))
+                verse_end = int(match.group(2)) if match.group(2) else None
+                book_name = match.group(3).lower().strip()
+                chapter = int(match.group(4))
+                book_abbr = self._normalize_book(book_name)
+            elif single_chapter:
+                book_name = match.group(1).lower().strip()
+                book_name = re.sub(r'\s+', ' ', book_name)
+                book_name = re.sub(
+                    r'^(?:livre de|livre des|evangile selon|evangile de|epitre de|epitre aux|epitre de paul aux|epitre de paul de)\s+',
+                    '',
+                    book_name
+                )
                 book_abbr = self._normalize_book(book_name)
                 if not book_abbr or self.chapter_counts.get(book_abbr) != 1:
                     return None
@@ -1161,6 +1234,13 @@ class VerseParserService:
                 verse_start = int(match.group(2))
                 verse_end = int(match.group(3)) if match.lastindex and match.lastindex >= 3 and match.group(3) else None
             else:
+                book_name = match.group(1).lower().strip()
+                book_name = re.sub(r'\s+', ' ', book_name)
+                book_name = re.sub(
+                    r'^(?:livre de|livre des|evangile selon|evangile de|epitre de|epitre aux|epitre de paul aux|epitre de paul de)\s+',
+                    '',
+                    book_name
+                )
                 chapter = int(match.group(2))
 
                 if match.lastindex >= 3 and match.group(3) is not None:
@@ -1176,17 +1256,17 @@ class VerseParserService:
                 book_abbr = self._normalize_book(book_name)
             if not book_abbr:
                 return None
-            
+
             if verse_end and verse_start is None:
                 verse_end = None
 
             # Référence d'AFFICHAGE en nom complet (« Actes 2:38 »), l'abréviation
             # reste dans book_abbr pour la recherche/les clés.
             ref_text = format_reference(book_abbr, chapter, verse_start, verse_end)
-            
+
             # Récupère le texte de la version active
             verse_text = self.bible_loader.get_verse_text(book_abbr, chapter, verse_start, verse_end)
-            
+
             # Récupère toutes les traductions disponibles pour comparaison
             translations = {}
             if verse_start is not None:
@@ -1194,7 +1274,7 @@ class VerseParserService:
                     text_v = self.bible_loader.get_verse_text(book_abbr, chapter, verse_start, verse_end, version_id=v_name)
                     if text_v:
                         translations[v_name] = text_v
-            
+
             return {
                 "book": self._get_full_book_name(book_abbr),
                 "book_abbr": book_abbr,
@@ -1208,67 +1288,67 @@ class VerseParserService:
                 "detection_method": "chapter_candidate" if verse_start is None else "explicit",
                 "confidence": 0.72 if verse_start is None else (0.85 if loose else 0.98),
             }
-            
+
         except Exception as e:
             logger.error(f"❌ Erreur extraction référence: {e}")
             return None
-    
+
     def _normalize_book(self, book_name: str) -> Optional[str]:
         """Normalise le nom du livre vers son abréviation en évitant les collisions"""
         book_clean = strip_accents(book_name)
-        
+
         if book_clean in self.clean_book_names:
             return self.clean_book_names[book_clean]
-            
+
         for abbr, full in self.book_abbreviations.items():
             abbr_clean = strip_accents(abbr)
             if book_clean.startswith(abbr_clean):
                 return self.clean_book_names.get(strip_accents(full))
-        
+
         sorted_names = sorted(self.clean_book_names.keys(), key=len, reverse=True)
         for name in sorted_names:
             if name == book_clean:
                 return self.clean_book_names[name]
             if len(book_clean) >= 2 and name.startswith(book_clean):
                 return self.clean_book_names[name]
-        
+
         return None
-    
+
     def _get_full_book_name(self, abbr: str) -> str:
         """Retourne le nom complet du livre depuis l'abréviation"""
         for name, a in self.book_names.items():
             if a == abbr:
                 return name.title()
         return abbr
-    
+
     def _validate_reference(self, reference: Dict[str, Any]) -> bool:
         """Valide qu'une référence est bibliquement correcte"""
         book_abbr = reference.get("book_abbr")
         chapter = reference.get("chapter")
         verse_start = reference.get("verse_start")
         verse_end = reference.get("verse_end")
-        
+
         if not book_abbr or not chapter:
             return False
-        
+
         max_chapters = self.chapter_counts.get(book_abbr)
         if max_chapters and chapter > max_chapters:
             logger.debug(f"❌ Chapitre {chapter} invalide pour {book_abbr} (max: {max_chapters})")
             return False
-        
+
         if verse_start is None:
             return True
 
         if verse_start > 176:
             logger.debug(f"❌ Verset {verse_start} invalide (max: 176)")
             return False
-        
+
         if verse_end and verse_end < verse_start:
             logger.debug(f"❌ Verset fin {verse_end} < début {verse_start}")
             return False
-        
+
         return True
-    
+
     async def parse_batch(self, texts: List[str]) -> List[Dict[str, Any]]:
         """Parse plusieurs textes en batch"""
         results = []

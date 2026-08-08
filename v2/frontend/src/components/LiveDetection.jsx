@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
+import { shallow } from 'zustand/shallow'
 import TranscriptTicker from './TranscriptTicker.jsx'
 import ChapterModal from './ChapterModal.jsx'
 import BibleVersionsModal from './BibleVersionsModal.jsx'
@@ -34,6 +35,15 @@ function shiftVerse(reference, delta) {
   const verse = parseInt(match[3], 10) + delta
   if (verse < 1) return null
   return `${match[1]} ${match[2]}:${verse}`
+}
+
+/** Décale le numéro de chapitre d'une référence "Livre C:V" */
+function shiftChapter(reference, delta) {
+  const match = /^(.+?)\s+(\d+):(\d+)/.exec(reference || '')
+  if (!match) return null
+  const chap = parseInt(match[2], 10) + delta
+  if (chap < 1) return null
+  return `${match[1]} ${chap}:1`
 }
 
 /** Illumine les mots clés ou expressions prononcées dans le texte du verset (Paraphrase / Sémantique) */
@@ -95,7 +105,6 @@ export default function LiveDetection({ setActiveTab }) {
   const {
     isListening,
     currentTranscript,
-    santeTranscription,
     detectedReferences,
     propresenterConnected,
     sendReference, sendAudio,
@@ -111,8 +120,28 @@ export default function LiveDetection({ setActiveTab }) {
     statistics,
     toggleListening, volume, waveform, audioDevices, selectedAudioDeviceId, micError, refreshAudioDevices, setMicPermissionState,
     preflight, preflightLoading, runPreflight, activatePanicMode, sundaySafeMode, shadowMode,
-    listeningStartedAt, listeningStoppedAt
-  } = useStore()
+    listeningStartedAt, listeningStoppedAt, addToast
+  } = useStore(s => ({
+    isListening: s.isListening,
+    currentTranscript: s.currentTranscript,
+    detectedReferences: s.detectedReferences,
+    propresenterConnected: s.propresenterConnected,
+    sendReference: s.sendReference, sendAudio: s.sendAudio,
+    asrMode: s.asrMode, fetchBibles: s.fetchBibles,
+    aiActive: s.aiActive,
+    translationLang: s.translationLang, currentTranslation: s.currentTranslation, setTranslationLang: s.setTranslationLang,
+    autoSend: s.autoSend, setAutoSend: s.setAutoSend,
+    projectionQueue: s.projectionQueue, projectVerseFromQueue: s.projectVerseFromQueue, rejectVerseFromQueue: s.rejectVerseFromQueue, clearProjectionQueue: s.clearProjectionQueue,
+    previewSlide: s.previewSlide, previewBusy: s.previewBusy, previewReference: s.previewReference, takePreview: s.takePreview, clearPreview: s.clearPreview, fetchPreview: s.fetchPreview,
+    preparedVerses: s.preparedVerses, prepareReference: s.prepareReference, projectPreparedVerse: s.projectPreparedVerse, removePreparedVerse: s.removePreparedVerse, clearPreparedVerses: s.clearPreparedVerses,
+    lastAiRejection: s.lastAiRejection,
+    onAir: s.onAir, clearProjectionScreen: s.clearProjectionScreen,
+    statistics: s.statistics,
+    toggleListening: s.toggleListening, volume: s.volume, waveform: s.waveform, audioDevices: s.audioDevices, selectedAudioDeviceId: s.selectedAudioDeviceId, micError: s.micError, refreshAudioDevices: s.refreshAudioDevices, setMicPermissionState: s.setMicPermissionState,
+    preflight: s.preflight, preflightLoading: s.preflightLoading, runPreflight: s.runPreflight, activatePanicMode: s.activatePanicMode, sundaySafeMode: s.sundaySafeMode, shadowMode: s.shadowMode,
+    listeningStartedAt: s.listeningStartedAt, listeningStoppedAt: s.listeningStoppedAt,
+    addToast: s.addToast
+  }), shallow)
 
   const [manualReference, setManualReference] = useState('')
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
@@ -123,6 +152,8 @@ export default function LiveDetection({ setActiveTab }) {
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [failedIds, setFailedIds] = useState(new Set())
   const [preparingReference, setPreparingReference] = useState(false)
+  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false)
+  const [activeHighlightColor, setActiveHighlightColor] = useState(null)
   const [previewDeplie, setPreviewDeplie] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [chapterModalRef, setChapterModalRef] = useState(null)
@@ -135,7 +166,9 @@ export default function LiveDetection({ setActiveTab }) {
   const lastAdvancedRef = useRef(null)
   const advanceTimerRef = useRef(null)
 
-  const { activeBible, availableBibles, undoLastProjection, selectedEngine, setSelectedEngine } = useStore()
+  const { activeBible, availableBibles, undoLastProjection, selectedEngine, setSelectedEngine } = useStore(s => ({
+    activeBible: s.activeBible, availableBibles: s.availableBibles, undoLastProjection: s.undoLastProjection, selectedEngine: s.selectedEngine, setSelectedEngine: s.setSelectedEngine
+  }), shallow)
   const [compareOpen, setCompareOpen] = useState(false)
   const [comparePreviews, setComparePreviews] = useState(null)
 
@@ -224,8 +257,8 @@ export default function LiveDetection({ setActiveTab }) {
     const width = rect.width
     const height = rect.height
     const styles = getComputedStyle(document.documentElement)
-    const liveWave = styles.getPropertyValue('--color-wave-live').trim()
-    const idleWave = styles.getPropertyValue('--color-wave-idle').trim()
+    const liveWave = styles.getPropertyValue('--color-wave-live').trim() || '#3b82f6'
+    const idleWave = styles.getPropertyValue('--color-wave-idle').trim() || '#64748b'
 
     ctx.clearRect(0, 0, width, height)
     ctx.beginPath()
@@ -281,7 +314,7 @@ export default function LiveDetection({ setActiveTab }) {
   // Raccourcis clavier de régie : ↑/↓ naviguer, Espace/Entrée projeter, Échap ignorer, "/" recherche
   useEffect(() => {
     const handleKeyDown = (e) => {
-      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
 
       if (e.key === '/' && !typing) {
         e.preventDefault()
@@ -514,6 +547,29 @@ export default function LiveDetection({ setActiveTab }) {
     return projected ? { reference: projected.reference, text: projected.text, version: projected.version || activeBible } : null
   })()
 
+  // Navigation dynamique autour du verset actuellement projeté à l'antenne
+  const onAirNavChips = useMemo(() => {
+    if (!onAirDisplay?.reference) return null
+    const ref = onAirDisplay.reference
+    const prevV = shiftVerse(ref, -1)
+    const nextV = shiftVerse(ref, 1)
+    const prevC = shiftChapter(ref, -1)
+    const nextC = shiftChapter(ref, 1)
+    const match = /^(.+?)\s+(\d+):(\d+)/.exec(ref || '')
+    const bookName = match ? match[1] : ''
+    const chapNum = match ? parseInt(match[2], 10) : 1
+    const verseNum = match ? parseInt(match[3], 10) : 1
+
+    return {
+      ref,
+      bookName,
+      prevV: prevV ? { ref: prevV, label: `◄ Verset ${verseNum - 1}` } : null,
+      nextV: nextV ? { ref: nextV, label: `Verset ${verseNum + 1} ►` } : null,
+      prevC: prevC ? { ref: prevC, label: `◄ Chap. ${chapNum - 1}` } : null,
+      nextC: nextC ? { ref: nextC, label: `Chap. ${chapNum + 1} ►` } : null,
+    }
+  }, [onAirDisplay])
+
   const followProgress = useMemo(() => {
     if (!followMode || !onAirDisplay?.text) return null
     // 1. Signal serveur (traqueur de lecture, aligné sur les écrans)
@@ -574,13 +630,7 @@ export default function LiveDetection({ setActiveTab }) {
     || ['ai_semantic', 'semantic_local'].includes(item.detectionMethod)
   )
   const displayQueue = useMemo(() => {
-    const pending = projectionQueue.filter((item) => item.status === 'pending')
-    const done = projectionQueue.filter((item) => item.status !== 'pending')
-    // Garde tous les éléments en attente, et les 3 derniers validés/rejetés
-    const recentDoneItems = done.slice(-3)
-    
-    // Préserve l'ordre chronologique naturel d'insertion
-    return projectionQueue.filter(item => pending.includes(item) || recentDoneItems.includes(item))
+    return projectionQueue.filter((item) => item.status === 'pending')
   }, [projectionQueue])
   
   const projectedHistory = projectionQueue.filter((item) => item.status === 'projected')
@@ -640,25 +690,119 @@ export default function LiveDetection({ setActiveTab }) {
           {renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
         </p>
 
-        {/* Quick Verse Navigation */}
-        <div className="flex items-center gap-1.5 my-1.5 pt-1.5 border-t border-white/5">
-          {prevRef && (
-            <button
-              className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white"
-              onClick={(e) => { e.stopPropagation(); prepareReference(prevRef) }}
-              title={`Préparer ${prevRef}`}
-            >
-              ◄ {prevRef.split(' ').pop()}
-            </button>
-          )}
-          {nextRef && (
-            <button
-              className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white"
-              onClick={(e) => { e.stopPropagation(); prepareReference(nextRef) }}
-              title={`Préparer ${nextRef}`}
-            >
-              {nextRef.split(' ').pop()} ►
-            </button>
+        {/* Quick Verse Navigation & Direct Jump Selector */}
+        <div className="flex flex-col gap-1.5 my-1.5 pt-1.5 border-t border-white/5">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+            {prevRef && (
+              <button
+                className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white flex-shrink-0"
+                onClick={(e) => { e.stopPropagation(); prepareReference(prevRef) }}
+                title={`Préparer ${prevRef}`}
+              >
+                ◄ {prevRef.split(' ').pop()}
+              </button>
+            )}
+            {/* Quick jump targets: 5, 10, 15, 20, 25, 30 */}
+            {(() => {
+              const match = /^(.+?)\s+(\d+):(\d+)/.exec(item.reference || '')
+              if (!match) return null
+              const bookChap = `${match[1]} ${match[2]}`
+              const currV = parseInt(match[3], 10)
+              const jumpTargets = [1, 5, 10, 15, 20, 25, 30, 40].filter((v) => v !== currV)
+
+              return (
+                <div className="flex items-center gap-1 overflow-x-auto flex-1">
+                  <span className="text-[9px] text-text-faint uppercase font-bold mr-1">Saut:</span>
+                  {jumpTargets.map((targetV) => (
+                    <button
+                      key={targetV}
+                      className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-accent/10 hover:bg-accent/30 text-accent font-semibold flex-shrink-0 transition-all"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const targetRef = `${bookChap}:${targetV}`
+                        if (isProjected) {
+                          sendReference(targetRef)
+                        } else {
+                          prepareReference(targetRef)
+                        }
+                      }}
+                      title={`Sauter directement au verset ${targetV}`}
+                    >
+                      v.{targetV}
+                    </button>
+                  ))}
+                </div>
+              )
+            })()}
+            {nextRef && (
+              <button
+                className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white flex-shrink-0"
+                onClick={(e) => { e.stopPropagation(); prepareReference(nextRef) }}
+                title={`Préparer ${nextRef}`}
+              >
+                {nextRef.split(' ').pop()} ►
+              </button>
+            )}
+          </div>
+
+          {/* Surligneur Live pour le verset à l'antenne */}
+          {isProjected && (
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-emerald-500/20 bg-emerald-500/5 px-2 py-1 rounded">
+              <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                <span>🖊️</span>
+                <span>Surlignage Live :</span>
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-amber-400/20 hover:bg-amber-400/40 text-amber-300 border border-amber-400/30 transition-all"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    try {
+                      await fetch('/api/v1/projection/annotation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: item.reference }] }),
+                      })
+                      addToast?.({ message: '🟡 Surlignage appliqué à la projection', kind: 'success' })
+                    } catch (err) { console.error(err) }
+                  }}
+                >
+                  🟡 Jaune
+                </button>
+                <button
+                  className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 border border-rose-500/30 transition-all"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    try {
+                      await fetch('/api/v1/projection/annotation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: item.reference }] }),
+                      })
+                      addToast?.({ message: '🔴 Soulignage appliqué à la projection', kind: 'success' })
+                    } catch (err) { console.error(err) }
+                  }}
+                >
+                  🔴 Rouge
+                </button>
+                <button
+                  className="px-1.5 py-0.5 rounded text-[9.5px] font-medium bg-surface-3 hover:bg-surface-2 text-text-dim transition-all"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    try {
+                      await fetch('/api/v1/projection/annotation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ annotations: [] }),
+                      })
+                      addToast?.({ message: '🧹 Annotations effacées', kind: 'info' })
+                    } catch (err) { console.error(err) }
+                  }}
+                >
+                  🧹 Effacer
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -962,22 +1106,30 @@ export default function LiveDetection({ setActiveTab }) {
                 <h2>À valider <span className="count">{pendingItems.length}</span></h2>
                 
                 {/* Triggers: Auto-Scroll & Diffusion en direct */}
-                <div className="flex items-center gap-2">
-                  <button
-                    className={`vp-btn vp-btn--sm py-1 px-2.5 text-xs font-semibold transition-all shadow-sm ${autoScroll ? 'vp-btn--primary' : 'vp-btn--ghost border border-white/10'}`}
-                    onClick={() => setAutoScroll(!autoScroll)}
-                    title="Défilement automatique vers le dernier verset"
-                  >
-                    Auto-Scroll : {autoScroll ? 'ON' : 'OFF'}
-                  </button>
+                <div className="flex items-center gap-4 text-xs font-semibold text-[var(--text-dim)]">
+                  <label className="flex items-center gap-2 cursor-pointer" title="Défilement automatique vers le dernier verset">
+                    <button
+                      className={`vp-switch ${autoScroll ? 'is-on' : ''}`}
+                      onClick={() => setAutoScroll(!autoScroll)}
+                      role="switch"
+                      aria-checked={autoScroll}
+                    >
+                      <span className="vp-switch-thumb" />
+                    </button>
+                    Auto-Scroll
+                  </label>
 
-                  <button
-                    className={`vp-btn vp-btn--sm py-1 px-2.5 text-xs font-semibold transition-all shadow-sm ${autoSend ? 'vp-btn--primary' : 'vp-btn--ghost border border-white/10'}`}
-                    onClick={() => setAutoSend(!autoSend)}
-                    title="Projeter automatiquement les versets fiables sans validation manuelle"
-                  >
-                    Diffusion en direct : {autoSend ? 'ON' : 'OFF'}
-                  </button>
+                  <label className="flex items-center gap-2 cursor-pointer" title="Projeter automatiquement les versets fiables sans validation manuelle">
+                    <button
+                      className={`vp-switch ${autoSend ? 'is-on' : ''}`}
+                      onClick={() => setAutoSend(!autoSend)}
+                      role="switch"
+                      aria-checked={autoSend}
+                    >
+                      <span className="vp-switch-thumb" />
+                    </button>
+                    Diffusion en direct
+                  </label>
                 </div>
               </div>
 
@@ -1060,12 +1212,59 @@ export default function LiveDetection({ setActiveTab }) {
                   Préparer
                 </button>
               </div>
-              <div className="live-quick-row flex gap-2 overflow-x-auto pb-1">
-                {quickRefs.map((sug) => (
-                  <button key={sug.ref} className="live-quick-chip text-[10px] px-2 py-0.5" onClick={() => prepareReference(sug.ref)} title={`Ajouter ${sug.ref} au déroulé`}>
-                    {sug.label}
-                  </button>
-                ))}
+              <div className="live-quick-row flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                {onAirNavChips ? (
+                  <>
+                    <span className="text-[10px] text-text-faint font-semibold uppercase whitespace-nowrap mr-1">
+                      Direct ({onAirNavChips.bookName}) :
+                    </span>
+                    {onAirNavChips.prevC && (
+                      <button
+                        className="live-quick-chip text-[10.5px] px-2 py-0.5 font-medium bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white transition-all flex-shrink-0"
+                        onClick={() => sendReference(onAirNavChips.prevC.ref)}
+                        title={`Projeter le chapitre précédent ${onAirNavChips.prevC.ref}`}
+                      >
+                        {onAirNavChips.prevC.label}
+                      </button>
+                    )}
+                    {onAirNavChips.prevV && (
+                      <button
+                        className="live-quick-chip text-[10.5px] px-2.5 py-0.5 font-bold bg-accent/20 hover:bg-accent/40 text-accent border border-accent/30 transition-all flex-shrink-0"
+                        onClick={() => sendReference(onAirNavChips.prevV.ref)}
+                        title={`Projeter immédiatement ${onAirNavChips.prevV.ref}`}
+                      >
+                        {onAirNavChips.prevV.label}
+                      </button>
+                    )}
+                    {onAirNavChips.nextV && (
+                      <button
+                        className="live-quick-chip text-[10.5px] px-2.5 py-0.5 font-bold bg-accent/20 hover:bg-accent/40 text-accent border border-accent/30 transition-all flex-shrink-0"
+                        onClick={() => sendReference(onAirNavChips.nextV.ref)}
+                        title={`Projeter immédiatement ${onAirNavChips.nextV.ref}`}
+                      >
+                        {onAirNavChips.nextV.label}
+                      </button>
+                    )}
+                    {onAirNavChips.nextC && (
+                      <button
+                        className="live-quick-chip text-[10.5px] px-2 py-0.5 font-medium bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white transition-all flex-shrink-0"
+                        onClick={() => sendReference(onAirNavChips.nextC.ref)}
+                        title={`Projeter le chapitre suivant ${onAirNavChips.nextC.ref}`}
+                      >
+                        {onAirNavChips.nextC.label}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[10px] text-text-faint font-semibold uppercase whitespace-nowrap mr-1">Raccourcis :</span>
+                    {quickRefs.map((sug) => (
+                      <button key={sug.ref} className="live-quick-chip text-[10px] px-2 py-0.5" onClick={() => prepareReference(sug.ref)} title={`Ajouter ${sug.ref} au déroulé`}>
+                        {sug.label}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
           </section>
@@ -1325,37 +1524,6 @@ export default function LiveDetection({ setActiveTab }) {
           </section>
         </div>
       </div>
-
-      {/* ── BARRE D'ÉTAT INFÉRIEURE ── */}
-      <footer className="live-statusbar">
-        <div className="live-statusbar-left">
-          <div className="live-statusbar-item">
-            Moteur : <span className="text-[var(--vp-accent)] font-bold">{ASR_LABELS[asrMode] || 'Automatique'}</span>
-          </div>
-          <div className="live-statusbar-item">
-            Flux : <span className="text-[var(--vp-ok)]">{isListening ? 'actif' : 'en veille'}</span>
-          </div>
-          <div className="live-statusbar-item">
-            Session : <span className="text-[var(--text-dim)]">SQLite Active</span>
-          </div>
-        </div>
-        
-        <div className="live-statusbar-right">
-          <span>VersePro v2.0 · Cockpit</span>
-          {/* Chrono de session : durée du direct, pas l'heure (déjà en haut). */}
-          <span className="global-clock" title="Durée de la session micro">
-            {(() => {
-              if (!listeningStartedAt) return '00:00:00'
-              const end = isListening ? clock.getTime() : (listeningStoppedAt || clock.getTime())
-              const total = Math.max(0, Math.floor((end - listeningStartedAt) / 1000))
-              const h = String(Math.floor(total / 3600)).padStart(2, '0')
-              const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0')
-              const s = String(total % 60).padStart(2, '0')
-              return `${h}:${m}:${s}`
-            })()}
-          </span>
-        </div>
-      </footer>
 
       {chapterModalRef && (
         <ChapterModal

@@ -1,0 +1,132 @@
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="theme-color" content="#0a0b0d">
+        <title>VersePro — Suivre le culte</title>
+        <style>
+            :root { color-scheme: dark; }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0;
+                min-height: 100vh;
+                background: #0a0b0d;
+                color: #f0f1f3;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                display: flex;
+                flex-direction: column;
+            }
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 14px 18px;
+                border-bottom: 1px solid #25262b;
+            }
+            header .brand { font-size: 14px; font-weight: 700; }
+            header .brand span { color: oklch(76% 0.17 50); }
+            select {
+                background: #16171b;
+                color: #f0f1f3;
+                border: 1px solid #35363d;
+                border-radius: 8px;
+                padding: 7px 10px;
+                font-size: 14px;
+            }
+            main {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                padding: 28px 22px 40px;
+                max-width: 640px;
+                margin: 0 auto;
+                width: 100%;
+            }
+            #reference {
+                font-size: 15px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: oklch(76% 0.17 50);
+                margin-bottom: 14px;
+            }
+            #text {
+                font-size: 26px;
+                line-height: 1.5;
+                font-weight: 450;
+                transition: opacity 0.25s ease;
+            }
+            #status {
+                font-size: 12px;
+                color: #63666d;
+                padding: 12px 18px;
+                border-top: 1px solid #25262b;
+                display: flex;
+                justify-content: space-between;
+            }
+            .waiting { color: #63666d; font-size: 18px; }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="brand">Verse<span>Pro</span> · Suivre le culte</div>
+            <select id="version" aria-label="Choisir la traduction">__OPTIONS__</select>
+        </header>
+        <main>
+            <div id="reference"></div>
+            <div id="text" class="waiting">En attente du prochain verset projeté…</div>
+        </main>
+        <div id="status"><span id="conn">Connexion…</span><span id="count"></span></div>
+        <script>
+            const refEl = document.getElementById('reference');
+            const textEl = document.getElementById('text');
+            const connEl = document.getElementById('conn');
+            const versionEl = document.getElementById('version');
+
+            const saved = localStorage.getItem('versepro_follow_version');
+            if (saved) versionEl.value = saved;
+            versionEl.addEventListener('change', () => {
+                localStorage.setItem('versepro_follow_version', versionEl.value);
+                render(lastSlide);
+            });
+
+            let lastSlide = null;
+            function render(data) {
+                if (!data) return;
+                lastSlide = data;
+                const wanted = versionEl.value;
+                const translations = data.translations || {};
+                const text = (wanted && translations[wanted]) || data.text || '';
+                refEl.textContent = data.reference || '';
+                if (data.reference || text) {
+                    textEl.classList.remove('waiting');
+                    textEl.textContent = text;
+                } else {
+                    textEl.classList.add('waiting');
+                    textEl.textContent = 'En attente du prochain verset projeté…';
+                }
+            }
+
+            let ws;
+            function connect() {
+                const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : ''));
+                ws.onopen = () => { connEl.textContent = 'En direct'; };
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    // Les événements de progression/traduction ne remplacent pas le verset
+                    if (data.type && data.type !== 'scripture') return;
+                    render(data);
+                };
+                ws.onclose = () => {
+                    connEl.textContent = 'Reconnexion…';
+                    setTimeout(connect, 2500);
+                };
+            }
+            connect();
+        </script>
+    </body>
+    </html>
