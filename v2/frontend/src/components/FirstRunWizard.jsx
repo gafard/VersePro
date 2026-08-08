@@ -72,14 +72,29 @@ export default function FirstRunWizard({ onDone }) {
   const semPct = semReady ? 100 : (sem?.downloading ? Math.round((sem?.download_progress || 0) * 100)
     : (sem?.indexing && sem?.verses_total ? Math.round((sem.verses_indexed / sem.verses_total) * 100) : 0))
 
+  // Le téléchargement peut se terminer dans le thread backend après que la
+  // requête « prepare » a rendu la main. Dans ce cas l'ancien état busy restait
+  // affiché et l'onboarding donnait l'impression d'être verrouillé à 100 %.
+  // Le statut réel du moteur est la source de vérité : dès qu'il est prêt,
+  // réactiver explicitement la navigation.
+  useEffect(() => {
+    if (!nemoReady) return
+    setDownloadStarted(true)
+    setDownloadError('')
+    setInstallationBusy(false)
+  }, [nemoReady])
+
   const startPreparation = async (url, body = {}) => {
     let lastError = null
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
       try {
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
+          signal: controller.signal
         })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) {
@@ -89,6 +104,8 @@ export default function FirstRunWizard({ onDone }) {
       } catch (error) {
         lastError = error
         if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 800 * (attempt + 1)))
+      } finally {
+        clearTimeout(timeout)
       }
     }
     throw lastError || new Error('Serveur local indisponible')
@@ -137,6 +154,13 @@ export default function FirstRunWizard({ onDone }) {
   const retryInstallation = async () => {
     setDownloadError('')
     await triggerInstallation(true)
+  }
+
+  const continueFromInstallation = () => {
+    // La navigation est volontairement indépendante du téléchargement :
+    // Nemotron peut finir en arrière-plan sans empêcher le test micro.
+    setInstallationBusy(false)
+    go(2)
   }
 
   // ── Micro : Visualiseur live HD ──
@@ -484,8 +508,9 @@ export default function FirstRunWizard({ onDone }) {
 
               <div className="pt-2">
                 <button
-                  className="px-6 py-2.5 rounded-xl bg-sky-500 text-slate-950 font-bold text-sm hover:bg-sky-400 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  onClick={() => go(2)}
+                  type="button"
+                  className="vp-onboarding-next px-6 py-2.5 rounded-xl bg-sky-500 text-slate-950 font-bold text-sm hover:bg-sky-400 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={continueFromInstallation}
                 >
                   Continuer vers le Micro →
                 </button>
@@ -635,8 +660,9 @@ export default function FirstRunWizard({ onDone }) {
 
             {step < STEPS.length - 1 ? (
               <button
-                className="px-5 py-2 rounded-xl bg-sky-500 text-slate-950 text-xs font-bold hover:bg-sky-400 shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
-                onClick={() => (step === 0 ? triggerInstallation() : go(step + 1))}
+                type="button"
+                className="vp-onboarding-next px-5 py-2 rounded-xl bg-sky-500 text-slate-950 text-xs font-bold hover:bg-sky-400 shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+                onClick={() => (step === 0 ? triggerInstallation() : step === 1 ? continueFromInstallation() : go(step + 1))}
               >
                 Continuer →
               </button>

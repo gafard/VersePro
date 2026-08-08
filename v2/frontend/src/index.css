@@ -4120,6 +4120,21 @@ select:focus-visible,
 .vp-onboarding .font-mono { font-family: var(--font-mono) !important; }
 .vp-onboarding input { font-family: var(--font-body); color: var(--text-main) !important; }
 .vp-onboarding input::placeholder { color: var(--text-faint) !important; }
+/* Les boutons de navigation restent actifs pendant que Nemotron termine en
+   arrière-plan. Le thème précédent les rendait visuellement presque gris,
+   ce qui faisait croire à un verrouillage alors qu'ils sont navigables. */
+.vp-onboarding .vp-onboarding-next {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--color-accent-ink) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+.vp-onboarding .vp-onboarding-next:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
 
 .fw-foot { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) var(--space-lg) var(--space-md); border-top: 1px solid var(--color-rule); }
 .fw-foot-right { display: flex; gap: var(--space-2xs); }
