@@ -1516,7 +1516,11 @@ export default function LiveDetection({ setActiveTab }) {
                 <p className="whitespace-pre-wrap">{currentTranscript}</p>
               ) : (
                 <div className="text-[var(--text-faint)] italic text-center py-8">
-                  En attente du signal micro...
+                  {!isListening
+                    ? 'Micro arrêté.'
+                    : volume > 2
+                      ? `${asrMode === 'nemotron' ? 'Nemotron' : asrMode === 'vosk' ? 'Vosk' : 'Le moteur ASR'} reçoit le son — transcription en cours...`
+                      : 'Micro actif — en attente de parole...'}
                 </div>
               )}
               <div ref={transcriptEndRef} />

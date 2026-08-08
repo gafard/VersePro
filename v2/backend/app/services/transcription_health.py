@@ -99,5 +99,8 @@ class SanteTranscription:
             "fiable": fiable,
             "mots_moyens": round(self.mots_moyens, 1),
             "segments_observes": len(self._longueurs),
-            "message": "",
+            "message": (
+                "Transcription hachée : vérifiez le micro ou réduisez la musique de fond."
+                if not fiable else ""
+            ),
         }

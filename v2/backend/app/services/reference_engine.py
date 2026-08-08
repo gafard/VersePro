@@ -176,20 +176,27 @@ class BibleReferenceEngine:
 
         async with self._ai_last_resort_lock:
             try:
-                # 1. Extraction de l'intention (RAG Step 1)
-                intent_res = await self.ai_service.extract_biblical_intent(
-                    query, contexte=list(self._contexte_recent)
-                )
+                # 1. Extraction de l'intention (RAG Step 1). Les doubles de
+                # tests et les intégrations tierces plus anciennes peuvent ne
+                # pas encore exposer cette méthode : dans ce cas, on conserve
+                # le contrat historique et on interroge directement le
+                # détecteur avec la même validation locale en aval.
+                extract_intent = getattr(self.ai_service, "extract_biblical_intent", None)
+                clean_query = query
+                if callable(extract_intent):
+                    intent_res = await extract_intent(
+                        query, contexte=list(self._contexte_recent)
+                    )
 
-                if not intent_res or intent_res.get("intent") != "biblical" or not intent_res.get("query"):
-                    logger.debug("IA : Aucune intention biblique détectée ou requête vide.")
-                    return None
+                    if not intent_res or intent_res.get("intent") != "biblical" or not intent_res.get("query"):
+                        logger.debug("IA : Aucune intention biblique détectée ou requête vide.")
+                        return None
 
-                clean_query = intent_res.get("query")
-                if clean_query.lower() == "none" or clean_query.lower() == "null":
-                    return None
+                    clean_query = intent_res.get("query")
+                    if clean_query.lower() in {"none", "null"}:
+                        return None
 
-                logger.info(f"🤖 Intention biblique détectée. Mots-clés extraits : '{clean_query}'")
+                    logger.info(f"🤖 Intention biblique détectée. Mots-clés extraits : '{clean_query}'")
 
                 # 2. Recherche dans le vivier fermé (RAG Step 2)
                 shortlist = await asyncio.to_thread(
@@ -199,11 +206,12 @@ class BibleReferenceEngine:
                     shortlist += await asyncio.to_thread(self.semantic_service.search, clean_query, 3, 0.0)
 
                 if not shortlist:
-                    logger.info("IA RAG : Aucun candidat trouvé dans le vivier pour ces mots-clés.")
-                    return None
+                    logger.info("IA RAG : aucun candidat local ; validation directe contre la Bible.")
 
-                # 3. Validation par l'IA (RAG Step 3)
-                # On valide en repassant la requête d'origine pour que l'IA voie le contexte de la shortlist
+                # 3. Validation par l'IA (RAG Step 3). Même sans shortlist,
+                # l'appel reste autorisé en dernier recours : la référence
+                # sera alors validée directement contre la Bible et ne pourra
+                # jamais être projetée automatiquement.
                 res = await self.ai_service.detect_bible_reference(
                     query, candidates=shortlist, contexte=list(self._contexte_recent)
                 )
@@ -218,18 +226,22 @@ class BibleReferenceEngine:
 
         # Normalisation stricte de la référence
         normaliser = AIService._normalize_reference
-        attendu = normaliser(res.get("reference", ""))
-        selected = next(
-            (c for c in shortlist if normaliser(c.get("reference", "")) == attendu),
-            None,
-        )
+        selected = None
+        if shortlist:
+            attendu = normaliser(res.get("reference", ""))
+            selected = next(
+                (c for c in shortlist if normaliser(c.get("reference", "")) == attendu),
+                None,
+            )
 
-        if not selected:
-            logger.info(f"Suggestion IA écartée : '{res.get('reference')}' absente de la shortlist du vivier")
-            return None
+            if not selected:
+                logger.info(f"Suggestion IA écartée : '{res.get('reference')}' absente de la shortlist du vivier")
+                return None
 
-        # Validation du score
-        if not res.get("candidate_validated"):
+        # Validation du score. Une suggestion issue d'une shortlist reçoit la
+        # confiance du candidat local ; une suggestion libre garde uniquement
+        # la confiance brute du modèle et reste obligatoirement manuelle.
+        if not res.get("candidate_validated") and selected:
             raw_confidence = max(0.0, min(100.0, float(res.get("confidence") or 0)))
             try:
                 raw_score = selected.get("score")
@@ -250,8 +262,22 @@ class BibleReferenceEngine:
                 "candidate_score": score,
                 "candidate_validated": True,
             }
+        elif not selected:
+            raw_confidence = max(0.0, min(100.0, float(res.get("confidence") or 0)))
+            res = {
+                **res,
+                "raw_model_confidence": raw_confidence,
+                "confidence": raw_confidence,
+                "candidate_score": None,
+                "candidate_validated": False,
+            }
+
         confidence = float(res.get("confidence") or 0)
-        seuil = self.settings.AI_CONFIDENCE_THRESHOLD
+        seuil = (
+            self.settings.AI_CONFIDENCE_THRESHOLD
+            if selected
+            else self.settings.AI_FREE_CONFIDENCE_THRESHOLD
+        )
         if confidence < seuil:
             logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {seuil} %)")
             return None

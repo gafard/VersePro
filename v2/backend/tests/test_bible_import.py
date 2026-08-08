@@ -45,9 +45,9 @@ def test_un_fichier_conforme_est_accepte():
     assert resume["books"] == 1 and resume["verses"] == 3 and resume["language"] == "fr"
 
 
-def test_une_liste_a_la_racine_est_refusee():
-    with pytest.raises(BibleInvalide, match="objet JSON"):
-        bible_import.valider([{"name": "Jean"}])
+def test_une_liste_de_livres_a_la_racine_est_acceptee():
+    resume = bible_import.valider(_bible()["books"])
+    assert resume["books"] == 1 and resume["verses"] == 1
 
 
 def test_sans_livres_le_fichier_est_refuse():

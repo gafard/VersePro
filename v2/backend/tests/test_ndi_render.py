@@ -158,12 +158,9 @@ def test_l_ordre_des_octets_est_bien_BGRA():
 
 def _output_html():
     """Le HTML de l'écran de projection, tel que servi."""
-    import re
     from pathlib import Path
-    source = Path(__file__).resolve().parents[1] / "app" / "main.py"
-    texte = source.read_text(encoding="utf-8")
-    debut = texte.index("async def get_output_page")
-    return texte[debut:debut + 120000]
+    template = Path(__file__).resolve().parents[1] / "app" / "templates" / "output.html"
+    return template.read_text(encoding="utf-8")
 
 
 def test_les_fonds_animes_ne_tournent_que_sur_demande():

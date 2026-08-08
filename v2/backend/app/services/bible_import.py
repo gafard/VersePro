@@ -230,10 +230,18 @@ def _parse_xml_bible(contenu: str) -> Dict[str, Any]:
 
 def valider(donnees: Any) -> Dict[str, Any]:
     """Vérifie la structure et retourne un résumé (sigle, langue, comptages)."""
-    donnees = normaliser_structure_bible(donnees)
-    if not isinstance(donnees, dict):
+    # Une structure déjà canonique doit être validée telle quelle. La
+    # normalisation des formats externes filtre volontairement les entrées
+    # incomplètes ; l'appliquer ici masquerait alors le nom du livre ou du
+    # verset fautif derrière un vague « aucun livre ».
+    structure = (
+        donnees
+        if isinstance(donnees, dict) and isinstance(donnees.get("books"), list)
+        else normaliser_structure_bible(donnees)
+    )
+    if not isinstance(structure, dict):
         raise BibleInvalide("Le fichier doit contenir une structure de Bible valide.")
-    livres = donnees.get("books")
+    livres = structure.get("books")
     if not isinstance(livres, list) or len(livres) < MIN_LIVRES:
         raise BibleInvalide("Aucun livre trouvé dans le fichier importé.")
 
@@ -275,8 +283,8 @@ def valider(donnees: Any) -> Dict[str, Any]:
         raise BibleInvalide("Le fichier ne contient aucun verset.")
 
     return {
-        "version": str(donnees.get("version") or "").strip().upper(),
-        "language": str(donnees.get("language") or "").strip() or "fr",
+        "version": str(structure.get("version") or "").strip().upper(),
+        "language": str(structure.get("language") or "").strip() or "fr",
         "books": len(livres),
         "chapters": nb_chapitres,
         "verses": nb_versets,

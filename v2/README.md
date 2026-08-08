@@ -25,6 +25,10 @@ VersePro est une régie biblique de bureau. Elle transcrit la prédication, dét
 
 Le navigateur envoie du PCM mono 16 kHz. Le filtre est désactivé par défaut; deux profils conservateurs sont proposés dans Paramètres. L'onde de la régie est dessinée depuis 64 crêtes du buffer PCM réel.
 
+### Windows
+
+Le backend fonctionne sous Windows x64 avec Python 3.13 ou 3.14. Le micro est capturé par le navigateur puis envoyé en PCM par WebSocket : PyAudio n'est donc pas requis et n'est plus installé. Python 3.13 reste recommandé pour la meilleure compatibilité avec les bibliothèques audio optionnelles. Le lancement local se fait avec `start.bat`.
+
 ## Détection
 
 1. Le parser local traite les références explicites en moins d'une milliseconde.
