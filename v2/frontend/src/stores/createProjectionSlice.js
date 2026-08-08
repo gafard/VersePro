@@ -137,6 +137,29 @@ export const createProjectionSlice = (set, get) => ({
     }
   }),
 
+  // Navigation dans une carte « À valider » : on remplace son contenu sur
+  // place, sans projection et sans toucher au déroulé préparé.
+  replaceQueuedVerse: (queueId, verse) => set((state) => ({
+    projectionQueue: state.projectionQueue.map((item) => (
+      item.queueId === queueId && item.status === 'pending'
+        ? {
+            ...item,
+            reference: verse.reference,
+            text: verse.text,
+            version: verse.version || item.version || state.activeBible,
+            detectedAt: new Date().toISOString(),
+            detectedFrom: '',
+            confidence: 1,
+            source: 'local',
+            detectionMethod: 'adjacent_navigation',
+            projectionPolicy: 'manual_review',
+            requiresReview: true,
+            status: 'pending'
+          }
+        : item
+    ))
+  })),
+
   projectVerseFromQueue: async (queueId, reference, text) => {
     const sent = await get().sendReference(reference)
     if (sent) {

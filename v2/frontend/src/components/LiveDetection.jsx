@@ -112,7 +112,7 @@ export default function LiveDetection({ setActiveTab }) {
     aiActive,
     translationLang, currentTranslation, setTranslationLang,
     autoSend, setAutoSend,
-    projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearDetectedVerses,
+    projectionQueue, projectVerseFromQueue, replaceQueuedVerse, rejectVerseFromQueue, clearDetectedVerses,
     previewSlide, previewBusy, previewReference, takePreview, clearPreview, fetchPreview,
     preparedVerses, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
     lastAiRejection,
@@ -131,7 +131,7 @@ export default function LiveDetection({ setActiveTab }) {
     aiActive: s.aiActive,
     translationLang: s.translationLang, currentTranslation: s.currentTranslation, setTranslationLang: s.setTranslationLang,
     autoSend: s.autoSend, setAutoSend: s.setAutoSend,
-    projectionQueue: s.projectionQueue, projectVerseFromQueue: s.projectVerseFromQueue, rejectVerseFromQueue: s.rejectVerseFromQueue, clearDetectedVerses: s.clearDetectedVerses,
+    projectionQueue: s.projectionQueue, projectVerseFromQueue: s.projectVerseFromQueue, replaceQueuedVerse: s.replaceQueuedVerse, rejectVerseFromQueue: s.rejectVerseFromQueue, clearDetectedVerses: s.clearDetectedVerses,
     previewSlide: s.previewSlide, previewBusy: s.previewBusy, previewReference: s.previewReference, takePreview: s.takePreview, clearPreview: s.clearPreview, fetchPreview: s.fetchPreview,
     preparedVerses: s.preparedVerses, prepareReference: s.prepareReference, projectPreparedVerse: s.projectPreparedVerse, removePreparedVerse: s.removePreparedVerse, clearPreparedVerses: s.clearPreparedVerses,
     lastAiRejection: s.lastAiRejection,
@@ -150,6 +150,7 @@ export default function LiveDetection({ setActiveTab }) {
   const [followMode, setFollowMode] = useState(false)
   const [preflightOpen, setPreflightOpen] = useState(false)
   const [projectingIds, setProjectingIds] = useState(new Set())
+  const [flippingIds, setFlippingIds] = useState(new Set())
   const [failedIds, setFailedIds] = useState(new Set())
   const [preparingReference, setPreparingReference] = useState(false)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false)
@@ -459,6 +460,32 @@ export default function LiveDetection({ setActiveTab }) {
     }
   }
 
+  const handleAdjacentVerse = async (item, reference) => {
+    if (!reference || item.status !== 'pending' || flippingIds.has(item.queueId)) return
+    setFlippingIds((prev) => new Set(prev).add(item.queueId))
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/bible/search?q=${encodeURIComponent(reference)}&limit=1`)
+      const data = await response.json().catch(() => ({}))
+      const match = data.results?.[0]
+      if (!response.ok || !match?.reference || !match?.text) {
+        throw new Error(data?.detail || `Verset introuvable : ${reference}`)
+      }
+      // Attend le milieu de la rotation : la carte disparaît brièvement,
+      // puis réapparaît avec le nouveau contenu au même emplacement.
+      await new Promise((resolve) => setTimeout(resolve, 210))
+      replaceQueuedVerse(item.queueId, match)
+      await new Promise((resolve) => setTimeout(resolve, 210))
+    } catch (error) {
+      addToast?.({ message: error.message || 'Impossible de charger le verset suivant', kind: 'error' })
+    } finally {
+      setFlippingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(item.queueId)
+        return next
+      })
+    }
+  }
+
   const handleShiftVerse = async (delta) => {
     const next = shiftVerse(onAir?.reference, delta)
     if (next) await sendReference(next)
@@ -666,6 +693,7 @@ export default function LiveDetection({ setActiveTab }) {
       : null
 
     const isLoading = projectingIds.has(item.queueId)
+    const isFlipping = flippingIds.has(item.queueId)
     const isFailed = failedIds.has(item.queueId)
     const isProjected = item.status === 'projected' || item.reference === onAir?.reference
     const prevRef = shiftVerse(item.reference, -1)
@@ -674,7 +702,7 @@ export default function LiveDetection({ setActiveTab }) {
     return (
       <article
         key={item.queueId}
-        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''} ${isProjected ? 'is-projected ring-2 ring-emerald-500/70 shadow-lg shadow-emerald-500/20' : ''} ${isLoading ? 'is-loading' : ''} ${isFailed ? 'is-failed' : ''}`}
+        className={`live-card ${accent === 'ai' ? 'is-ai' : ''} ${isKeyboardActive ? 'is-keyboard-active' : ''} ${isProjected ? 'is-projected ring-2 ring-emerald-500/70 shadow-lg shadow-emerald-500/20' : ''} ${isLoading ? 'is-loading' : ''} ${isFailed ? 'is-failed' : ''} ${isFlipping ? 'is-flipping' : ''}`}
         onClick={() => setSelectedQueueIndex(pendingIdx)}
       >
         <div className="live-card-head">
@@ -718,8 +746,8 @@ export default function LiveDetection({ setActiveTab }) {
               <button
                 type="button"
                 className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white flex-shrink-0"
-                onClick={(e) => { e.stopPropagation(); sendReference(prevRef) }}
-                title={`Afficher ${prevRef} à l'antenne`}
+                onClick={(e) => { e.stopPropagation(); isProjected ? sendReference(prevRef) : handleAdjacentVerse(item, prevRef) }}
+                title={isProjected ? `Afficher ${prevRef} à l'antenne` : `Remplacer la carte par ${prevRef}`}
               >
                 ◄ {prevRef.split(' ').pop()}
               </button>
@@ -760,8 +788,8 @@ export default function LiveDetection({ setActiveTab }) {
               <button
                 type="button"
                 className="px-2 py-0.5 rounded text-[10px] font-mono bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white flex-shrink-0"
-                onClick={(e) => { e.stopPropagation(); sendReference(nextRef) }}
-                title={`Afficher ${nextRef} à l'antenne`}
+                onClick={(e) => { e.stopPropagation(); isProjected ? sendReference(nextRef) : handleAdjacentVerse(item, nextRef) }}
+                title={isProjected ? `Afficher ${nextRef} à l'antenne` : `Remplacer la carte par ${nextRef}`}
               >
                 {nextRef.split(' ').pop()} ►
               </button>

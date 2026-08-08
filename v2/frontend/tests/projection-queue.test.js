@@ -75,3 +75,20 @@ test('vider les détections ne touche pas au déroulé préparé', () => {
   assert.deepEqual(useStore.getState().projectionQueue, [])
   assert.deepEqual(useStore.getState().preparedVerses, [prepared])
 })
+
+test('le bouton suivant remplace la carte sans la projeter ni toucher au déroulé', () => {
+  const pendingVerse = { ...pending, status: 'pending' }
+  useStore.setState({ projectionQueue: [pendingVerse], preparedVerses: [], onAir: null, toasts: [] })
+
+  useStore.getState().replaceQueuedVerse('queue-1', {
+    reference: 'Jean 3:17',
+    text: 'Dieu, en effet, n’a pas envoyé son Fils dans le monde pour qu’il juge le monde',
+    version: 'LSG'
+  })
+
+  const state = useStore.getState()
+  assert.equal(state.projectionQueue[0].reference, 'Jean 3:17')
+  assert.equal(state.projectionQueue[0].status, 'pending')
+  assert.equal(state.onAir, null)
+  assert.deepEqual(state.preparedVerses, [])
+})
