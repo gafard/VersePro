@@ -39,6 +39,16 @@ def test_http_control_clear(client):
     assert response.status_code == 200
     assert response.json()["success"] is True
 
+
+def test_diffusion_direct_desactive_le_mode_dimanche_sur(client):
+    """Le mode automatique ne peut pas rester protégé par le verrou dimanche."""
+    client.post("/api/v1/settings", json={"auto_send": False, "sunday_safe_mode": True})
+    response = client.post("/api/v1/settings", json={"auto_send": True})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["auto_send"] is True
+    assert data["sunday_safe_mode"] is False
+
 def test_http_control_status(client):
     # Projeter un élément
     client.post("/api/v1/control/project", json={

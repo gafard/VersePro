@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 import threading
 import time
 
@@ -681,19 +682,63 @@ async def pull_local_model():
     """Télécharge le modèle Ollama en streaming SSE avec progression en temps réel."""
     import httpx
 
-    model_name = "llama3.1:8b"
-    ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    model_name = settings.OLLAMA_MODEL or "llama3.1:8b"
+    ollama_url = (settings.OLLAMA_URL or "http://localhost:11434").rstrip("/")
+
+    def essayer_demarrer_ollama() -> bool:
+        """Ouvre Ollama si l'utilisateur l'a installé mais pas encore lancé.
+
+        Le bouton « Installer l'IA locale » doit pouvoir amorcer le serveur
+        desktop. Si Ollama n'est pas installé, les exceptions sont ignorées et
+        le flux SSE renvoie un diagnostic explicite au lieu d'un simple
+        « connexion perdue ».
+        """
+        if not any(hote in ollama_url for hote in ("localhost", "127.0.0.1", "::1")):
+            return False
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Ollama"], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            elif os.name == "nt":
+                subprocess.Popen(["ollama", "app.exe"], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            else:
+                subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            return True
+        except (FileNotFoundError, OSError):
+            return False
 
     async def stream_progress():
+        client_timeout = httpx.Timeout(600.0, connect=10.0)
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as client:
+            async with httpx.AsyncClient(timeout=client_timeout) as client:
+                # Le premier lancement de l'app Ollama peut prendre quelques
+                # secondes. On vérifie puis on ouvre l'app et on retente avant
+                # d'abandonner le téléchargement.
+                pret = False
+                for tentative in range(5):
+                    try:
+                        tags = await client.get(f"{ollama_url}/api/tags", timeout=10.0)
+                        if tags.status_code == 200:
+                            pret = True
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    if tentative == 0:
+                        essayer_demarrer_ollama()
+                    await asyncio.sleep(1.0 + tentative * 0.75)
+                if not pret:
+                    yield f'data: {json.dumps({"error": "Ollama est introuvable. Installez Ollama puis relancez le bouton ; l\'application a tenté de le démarrer automatiquement."})}\n\n'
+                    return
+
                 async with client.stream(
                     "POST",
                     f"{ollama_url}/api/pull",
                     json={"name": model_name, "stream": True},
                 ) as response:
                     if response.status_code != 200:
-                        yield f'data: {json.dumps({"error": "Ollama non disponible", "status": response.status_code})}\n\n'
+                        yield f'data: {json.dumps({"error": f"Ollama refuse le téléchargement du modèle {model_name}", "status": response.status_code})}\n\n'
                         return
                     async for line in response.aiter_lines():
                         if not line.strip():
@@ -706,21 +751,23 @@ async def pull_local_model():
                         total = chunk.get("total", 0)
                         completed = chunk.get("completed", 0)
                         pct = round((completed / total) * 100, 1) if total else 0
-                        payload = {
-                            "status": status,
-                            "total": total,
-                            "completed": completed,
-                            "percent": pct,
-                        }
+                        payload = {"status": status, "total": total, "completed": completed, "percent": pct}
                         yield f"data: {json.dumps(payload)}\n\n"
-                # Fin du stream — succès
-                yield f'data: {json.dumps({"status": "done", "percent": 100})}\n\n'
+                # Fin du stream — rafraîchit le fournisseur actif sans redémarrer
+                # VersePro, puis confirme au navigateur que le modèle est prêt.
+                if ai_service:
+                    await ai_service._detect_ollama()
+                yield f'data: {json.dumps({"status": "done", "percent": 100, "model": model_name})}\n\n'
         except httpx.ConnectError:
-            yield f'data: {json.dumps({"error": "Impossible de se connecter à Ollama. Vérifiez qu\'il est lancé."})}\n\n'
+            yield f'data: {json.dumps({"error": "Impossible de se connecter à Ollama. Vérifiez son installation."})}\n\n'
         except Exception as exc:
             yield f'data: {json.dumps({"error": str(exc)})}\n\n'
 
-    return StreamingResponse(stream_progress(), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_progress(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/v1/bibles/select")

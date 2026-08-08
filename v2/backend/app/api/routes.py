@@ -1015,6 +1015,14 @@ async def update_settings(settings_update: SettingsUpdate):
         settings.SUNDAY_SAFE_MODE = bool(update["sunday_safe_mode"])
         await db.set_setting("sunday_safe_mode", settings.SUNDAY_SAFE_MODE)
 
+    # La diffusion automatique et le mode dimanche sûr sont incompatibles :
+    # le premier envoie une détection sans validation, le second l'interdit.
+    # La règle est appliquée après les deux champs pour qu'un formulaire qui
+    # envoie simultanément auto_send=true et sunday_safe_mode=true reste sûr.
+    if settings.PROPRESENTER_AUTO_SEND and settings.SUNDAY_SAFE_MODE:
+        settings.SUNDAY_SAFE_MODE = False
+        await db.set_setting("sunday_safe_mode", False)
+
     if "shadow_mode" in update:
         settings.SHADOW_MODE = bool(update["shadow_mode"])
         await db.set_setting("shadow_mode", settings.SHADOW_MODE)

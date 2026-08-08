@@ -303,7 +303,8 @@ export const createProjectionSlice = (set, get) => ({
           settings: data,
           autoSend: Boolean(data.auto_send),
           autopilotMode: Boolean(data.auto_send),
-          propresenterConnected: Boolean(data.propresenter_connected)
+          propresenterConnected: Boolean(data.propresenter_connected),
+          sundaySafeMode: data.sunday_safe_mode !== false,
         })
       }
     } catch (error) {

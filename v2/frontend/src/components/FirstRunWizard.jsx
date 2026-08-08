@@ -35,6 +35,7 @@ export default function FirstRunWizard({ onDone }) {
   const [backendDown, setBackendDown] = useState(false)
   const [downloadStarted, setDownloadStarted] = useState(false)
   const [downloadError, setDownloadError] = useState('')
+  const [installationBusy, setInstallationBusy] = useState(false)
 
   const pollStatuses = async () => {
     const controller = new AbortController()
@@ -94,14 +95,21 @@ export default function FirstRunWizard({ onDone }) {
   }
 
   // Lancement du téléchargement de Nemotron dès la validation du mode.
-  const triggerInstallation = async () => {
+  const triggerInstallation = async (forceDownload = false) => {
+    if (installationBusy) return
+    setInstallationBusy(true)
     try {
       localStorage.setItem('versepro_usage_mode', usageMode)
       // Le choix d'onboarding doit survivre au wizard : sinon le moteur
       // revenait au réglage précédent au redémarrage.
-      await updateSettings({ asr_default_engine: usageMode === 'cloud' ? 'deepgram' : 'nemotron' })
+      // La configuration ne doit jamais retenir l'onboarding : un backend
+      // démarré lentement ne peut pas masquer le bouton « Continuer ».
+      await Promise.race([
+        updateSettings({ asr_default_engine: usageMode === 'cloud' ? 'deepgram' : 'nemotron' }),
+        new Promise(resolve => setTimeout(resolve, 2500))
+      ])
     } catch { /* le wizard reste utilisable si la base n'est pas encore prête */ }
-    if (usageMode !== 'cloud' && !nemoReady && !downloadStarted) {
+    if (usageMode !== 'cloud' && !nemoReady && (!downloadStarted || forceDownload)) {
       setDownloadStarted(true)
       setDownloadError('')
       try {
@@ -112,12 +120,23 @@ export default function FirstRunWizard({ onDone }) {
         startPreparation(`${BACKEND_BASE}/api/v1/semantic/prepare`).catch(() => {})
         go(1)
       } catch (error) {
-        setDownloadStarted(false)
         setDownloadError(error?.message || 'Le téléchargement du moteur local a échoué.')
+        // Même en cas d'échec réseau, afficher l'étape d'installation : elle
+        // propose Réessayer et permet de poursuivre le test micro. « Passer »
+        // ne doit plus être le seul moyen de sortir d'un écran bloqué.
+        go(1)
+      } finally {
+        setInstallationBusy(false)
       }
     } else {
       go(1)
+      setInstallationBusy(false)
     }
+  }
+
+  const retryInstallation = async () => {
+    setDownloadError('')
+    await triggerInstallation(true)
   }
 
   // ── Micro : Visualiseur live HD ──
@@ -392,6 +411,21 @@ export default function FirstRunWizard({ onDone }) {
                   <span className="text-[11px] font-mono text-slate-400">VersePro v2.0</span>
                 </div>
 
+                {downloadError && usageMode !== 'cloud' && (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-left">
+                    <p className="text-xs font-semibold text-rose-300">Téléchargement interrompu</p>
+                    <p className="mt-1 text-[11px] text-slate-300">{downloadError}</p>
+                    <button
+                      type="button"
+                      className="mt-2 rounded-lg border border-sky-400/40 px-3 py-1.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/10"
+                      onClick={retryInstallation}
+                      disabled={installationBusy}
+                    >
+                      {installationBusy ? 'Nouvel essai…' : 'Réessayer le téléchargement'}
+                    </button>
+                  </div>
+                )}
+
                 {/* 1. Bibles */}
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-3 text-white">
@@ -455,6 +489,16 @@ export default function FirstRunWizard({ onDone }) {
                 >
                   Continuer vers le Micro →
                 </button>
+                {downloadError && usageMode !== 'cloud' && (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs text-sky-300 hover:text-white underline"
+                    onClick={retryInstallation}
+                    disabled={installationBusy}
+                  >
+                    Réessayer le téléchargement
+                  </button>
+                )}
               </div>
             </div>
           )}
