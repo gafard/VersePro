@@ -43,6 +43,13 @@ def test_le_statut_repond(client):
     assert "downloading" in donnees
 
 
+def test_asr_prepare_accepte_un_corps_vide(client):
+    """L'onboarding peut déclencher la préparation sans payload obligatoire."""
+    reponse = client.post("/api/v1/asr/prepare")
+    assert reponse.status_code == 200, reponse.text
+    assert reponse.json().get("status") in {"preparing", "ready"}
+
+
 def test_le_telechargement_demarre_sans_lever(client):
     """Le test qui aurait attrapé le NameError.
 

@@ -34,6 +34,7 @@ export default function FirstRunWizard({ onDone }) {
   const [scanned, setScanned] = useState(false)
   const [backendDown, setBackendDown] = useState(false)
   const [downloadStarted, setDownloadStarted] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
 
   const pollStatuses = async () => {
     const controller = new AbortController()
@@ -70,18 +71,47 @@ export default function FirstRunWizard({ onDone }) {
   const semPct = semReady ? 100 : (sem?.downloading ? Math.round((sem?.download_progress || 0) * 100)
     : (sem?.indexing && sem?.verses_total ? Math.round((sem.verses_indexed / sem.verses_total) * 100) : 0))
 
-  // Lancement automatique du téléchargement de Nemotron dès le choix du mode
+  const startPreparation = async (url, body = {}) => {
+    let lastError = null
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          throw new Error(data?.detail || `Erreur serveur ${response.status}`)
+        }
+        return data
+      } catch (error) {
+        lastError = error
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 800 * (attempt + 1)))
+      }
+    }
+    throw lastError || new Error('Serveur local indisponible')
+  }
+
+  // Lancement du téléchargement de Nemotron dès la validation du mode.
   const triggerInstallation = async () => {
     if (usageMode !== 'cloud' && !nemoReady && !downloadStarted) {
       setDownloadStarted(true)
+      setDownloadError('')
       try {
-        await fetch(`${BACKEND_BASE}/api/v1/asr/prepare`, { method: 'POST' })
-        await fetch(`${BACKEND_BASE}/api/v1/semantic/prepare`, { method: 'POST' })
-      } catch {
-        setBackendDown(true)
+        // L'ASR est prioritaire : l'onboarding peut continuer dès que le
+        // backend a accepté le téléchargement. L'index sémantique démarre en
+        // parallèle et ne doit pas bloquer les 716 Mo de Nemotron.
+        await startPreparation(`${BACKEND_BASE}/api/v1/asr/prepare`, { model: 'nemotron' })
+        startPreparation(`${BACKEND_BASE}/api/v1/semantic/prepare`).catch(() => {})
+        go(1)
+      } catch (error) {
+        setDownloadStarted(false)
+        setDownloadError(error?.message || 'Le téléchargement du moteur local a échoué.')
       }
+    } else {
+      go(1)
     }
-    go(1)
   }
 
   // ── Micro : Visualiseur live HD ──
@@ -306,6 +336,11 @@ export default function FirstRunWizard({ onDone }) {
 
               {/* Action Button */}
               <div className="text-center pt-2">
+                {downloadError && (
+                  <p className="mb-3 text-xs text-rose-300" role="alert">
+                    {downloadError} Vous pouvez réessayer.
+                  </p>
+                )}
                 <button
                   className="px-8 py-3 rounded-2xl bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 text-slate-950 font-bold text-sm shadow-[0_0_30px_rgba(56,189,248,0.4)] hover:shadow-[0_0_45px_rgba(56,189,248,0.7)] transition-all hover:scale-[1.02] active:scale-[0.98]"
                   onClick={triggerInstallation}

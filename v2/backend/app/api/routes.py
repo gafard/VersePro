@@ -880,7 +880,7 @@ async def get_asr_status():
 
 
 @router.post("/asr/prepare")
-async def prepare_local_asr(request: PrepareModelRequest):
+async def prepare_local_asr(request: Optional[PrepareModelRequest] = None):
     """Prépare explicitement le moteur local; rien n'est téléchargé au démarrage."""
     from ..main import nemotron_service
     if not nemotron_service:
