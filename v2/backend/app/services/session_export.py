@@ -318,6 +318,37 @@ def vers_pptx(session: Dict[str, Any], versets: List[Dict[str, Any]]) -> bytes:
     return tampon.getvalue()
 
 
+def recap_pptx(session: Dict[str, Any], summary: str,
+               versets: Optional[List[Dict[str, Any]]] = None) -> bytes:
+    """Produit un mini-deck de synthèse sans appel réseau.
+
+    Le résumé peut venir d'Ollama (hors ligne) ou de Gemini/OpenRouter. Le
+    deck reste volontairement déterministe : titres Markdown et paragraphes
+    deviennent des diapositives, ce qui permet de l'exporter même après le
+    culte, sans relancer le modèle.
+    """
+    sections: List[Dict[str, str]] = []
+    titre = str(session.get("name") or "Synthèse du culte")
+    courant = {"reference": titre, "text": ""}
+    for ligne in str(summary or "").splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        if ligne.startswith("#"):
+            if courant["text"].strip():
+                sections.append(courant)
+            courant = {"reference": ligne.lstrip("# ").strip() or titre, "text": ""}
+        else:
+            texte = ligne.lstrip("-* ").replace("**", "")
+            courant["text"] = (courant["text"] + " " + texte).strip()
+    if courant["text"].strip() or not sections:
+        sections.append(courant)
+    # Un deck de synthèse doit rester court ; les versets sont déjà disponibles
+    # dans l'export PPTX classique.
+    sections = sections[:12]
+    return vers_pptx(session, sections)
+
+
 def nom_fichier(session: Dict[str, Any], extension: str) -> str:
     """« culte-2026-07-28.pptx » — sûr pour un en-tête HTTP et un disque."""
     base = str(session.get("name") or "culte").lower()

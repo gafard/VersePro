@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useStore } from '../store.js'
 import { shallow } from 'zustand/shallow'
 import { Icon, SkeletonRows, EmptyState } from './ui.jsx'
+import { BACKEND_BASE } from '../env.js'
 
 export default function History() {
   const {
@@ -238,9 +239,21 @@ export default function History() {
                       </span>
 
                       {hasSummary ? (
-                        <span className="vp-chip is-ok flex items-center gap-1">
-                          Résumé IA prêt
-                        </span>
+                        <>
+                          <span className="vp-chip is-ok flex items-center gap-1">
+                            Résumé IA prêt
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.open(`${BACKEND_BASE}/api/v1/history/sessions/${session.id}/export-recap.pptx`, '_blank')
+                            }}
+                            className="vp-btn vp-btn--sm flex items-center gap-1"
+                            title="Exporter les slides de synthèse hors ligne"
+                          >
+                            Slides IA
+                          </button>
+                        </>
                       ) : (
                         aiActive && hasTranscript && (
                           <button

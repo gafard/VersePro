@@ -95,6 +95,12 @@ export default function FirstRunWizard({ onDone }) {
 
   // Lancement du téléchargement de Nemotron dès la validation du mode.
   const triggerInstallation = async () => {
+    try {
+      localStorage.setItem('versepro_usage_mode', usageMode)
+      // Le choix d'onboarding doit survivre au wizard : sinon le moteur
+      // revenait au réglage précédent au redémarrage.
+      await updateSettings({ asr_default_engine: usageMode === 'cloud' ? 'deepgram' : 'nemotron' })
+    } catch { /* le wizard reste utilisable si la base n'est pas encore prête */ }
     if (usageMode !== 'cloud' && !nemoReady && !downloadStarted) {
       setDownloadStarted(true)
       setDownloadError('')
@@ -117,6 +123,7 @@ export default function FirstRunWizard({ onDone }) {
   // ── Micro : Visualiseur live HD ──
   const [micState, setMicState] = useState('idle')
   const [bars, setBars] = useState(() => new Array(36).fill(6))
+  const [micMetrics, setMicMetrics] = useState({ db: -60, peak: 0, clipped: false })
   const micRefs = useRef({ stream: null, ctx: null, raf: null })
 
   const stopMicTest = () => {
@@ -136,10 +143,20 @@ export default function FirstRunWizard({ onDone }) {
       analyser.fftSize = 128
       ctx.createMediaStreamSource(stream).connect(analyser)
       const data = new Uint8Array(analyser.frequencyBinCount)
+      const waveform = new Uint8Array(analyser.fftSize)
       micRefs.current = { stream, ctx, raf: null }
 
       const tick = () => {
         analyser.getByteFrequencyData(data)
+        analyser.getByteTimeDomainData(waveform)
+        let sum = 0; let peak = 0
+        waveform.forEach((sample) => {
+          const normalized = (sample - 128) / 128
+          sum += normalized * normalized
+          peak = Math.max(peak, Math.abs(normalized))
+        })
+        const rms = Math.sqrt(sum / waveform.length)
+        setMicMetrics({ db: Math.max(-60, Math.round(20 * Math.log10(Math.max(rms, 0.001)))), peak: Math.round(peak * 100), clipped: peak > 0.98 })
         const next = new Array(36).fill(0).map((_, i) => {
           const v = data[Math.floor(i / 36 * data.length)] || 0
           return 6 + Math.round((v / 255) * 60)
@@ -491,6 +508,14 @@ export default function FirstRunWizard({ onDone }) {
                 >
                   {micState === 'asking' ? 'Autorisation en cours…' : 'Activer le Micro'}
                 </button>
+              )}
+
+              {micState === 'live' && (
+                <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+                  <span>Niveau {micMetrics.db} dB</span>
+                  <span>Crête {micMetrics.peak}%</span>
+                  {micMetrics.clipped && <span className="text-rose-300">Saturation — baissez le gain</span>}
+                </div>
               )}
 
               {micState === 'denied' && (

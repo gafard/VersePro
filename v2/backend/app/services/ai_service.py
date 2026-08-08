@@ -22,6 +22,7 @@ class AIService:
         self.ollama_reachable = False
         # Dernière raison d'échec d'un résumé, remontée telle quelle à l'écran.
         self.last_summary_error = ""
+        self.last_summary_provider = ""
         self.ollama_model_available = False
         # Caches bornés (FIFO) : sans plafond, un culte de 2h avec traduction simultanée
         # ferait croître la mémoire indéfiniment (une entrée par phrase finale)
@@ -604,6 +605,11 @@ class AIService:
         Génère un résumé structuré en Markdown d'une transcription de sermon complet (en texte brut).
         """
         self.last_summary_error = ""
+        self.last_summary_provider = ""
+        # L'état Ollama peut changer après l'initialisation asynchrone ;
+        # recalculer ici évite qu'un modèle local prêt soit encore considéré
+        # comme « IA désactivée » au premier clic sur Résumer.
+        self.refresh_availability()
         if not self.enabled:
             self.last_summary_error = (
                 "Aucun moteur IA disponible : renseignez une clé OpenRouter ou Gemini "
@@ -640,7 +646,61 @@ class AIService:
             "Réponds en écrivant uniquement le texte rédigé en Markdown standard, sans encapsuler dans du JSON."
         )
 
-        # 1. Utilisation de l'API OpenRouter (si active)
+        # 1. Moteur local en priorité : une clé cloud ne doit pas faire sortir
+        #    une transcription du poste lorsqu'Ollama est prêt. Gemini et
+        #    OpenRouter restent des replis explicites, utiles quand l'utilisateur
+        #    a choisi le cloud ou quand le modèle local est indisponible.
+        if self.ollama_active:
+            url = f"{self.ollama_url}/api/generate"
+            payload = {
+                "model": self.ollama_model,
+                "prompt": prompt,
+                "system": "Tu es un théologien et rédacteur d'église. Rédige un résumé d'un sermon sous forme de Markdown.",
+                "stream": False,
+            }
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    response = await client.post(url, json=payload)
+                    if response.status_code == 200:
+                        response_text = response.json().get("response", "")
+                        if response_text:
+                            summary = response_text.strip()
+                            self.last_summary_provider = "ollama"
+                            self._cache_put(self._summary_cache, cache_key, summary)
+                            return summary
+                        echecs.append("Ollama : réponse vide")
+                    else:
+                        echecs.append(f"Ollama : HTTP {response.status_code}")
+            except Exception as e:
+                logger.error(f"❌ Erreur résumé Ollama: {e}")
+                echecs.append(f"Ollama : {type(e).__name__}")
+
+        # 2. Utilisation de Gemini Direct (si une clé est renseignée).
+        if self.api_key:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
+            headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "systemInstruction": {"parts": [{"text": "Tu es un théologien et rédacteur d'église. Rédige un résumé édifiant et structuré d'un sermon sous forme de Markdown."}]}
+            }
+            try:
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    response = await client.post(url, json=payload, headers=headers)
+                    if response.status_code == 200:
+                        text_res = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                        if text_res:
+                            summary = text_res.strip()
+                            self.last_summary_provider = "gemini"
+                            self._cache_put(self._summary_cache, cache_key, summary)
+                            return summary
+                        echecs.append("Gemini : réponse vide")
+                    else:
+                        echecs.append(f"Gemini : HTTP {response.status_code}")
+            except Exception as e:
+                logger.error(f"❌ Erreur résumé Gemini Direct: {e}")
+                echecs.append(f"Gemini : {type(e).__name__}")
+
+        # 3. OpenRouter (dernier recours cloud).
         if self.openrouter_key:
             url = "https://openrouter.ai/api/v1/chat/completions"
             headers = {
@@ -666,6 +726,7 @@ class AIService:
                         content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                         if content:
                             summary = content.strip()
+                            self.last_summary_provider = "openrouter"
                             self._cache_put(self._summary_cache, cache_key, summary)
                             return summary
                         echecs.append("OpenRouter : réponse vide")
@@ -674,57 +735,6 @@ class AIService:
             except Exception as e:
                 logger.error(f"❌ Erreur résumé OpenRouter: {e}")
                 echecs.append(f"OpenRouter : {type(e).__name__}")
-
-        # 2. Utilisation de l'API Gemini directe
-        if self.api_key:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent"
-            headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "systemInstruction": {"parts": [{"text": "Tu es un théologien et rédacteur d'église. Rédige un résumé édifiant et structuré d'un sermon sous forme de Markdown."}]}
-            }
-            try:
-                async with httpx.AsyncClient(timeout=90.0) as client:
-                    response = await client.post(url, json=payload, headers=headers)
-                    if response.status_code == 200:
-                        text_res = response.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                        if text_res:
-                            summary = text_res.strip()
-                            self._cache_put(self._summary_cache, cache_key, summary)
-                            return summary
-                        echecs.append("Gemini : réponse vide")
-                    else:
-                        echecs.append(f"Gemini : HTTP {response.status_code}")
-            except Exception as e:
-                logger.error(f"❌ Erreur résumé Gemini Direct: {e}")
-                echecs.append(f"Gemini : {type(e).__name__}")
-
-        # 3. Fallback sur Ollama local
-        if self.ollama_active:
-            url = f"{self.ollama_url}/api/generate"
-            payload = {
-                "model": self.ollama_model,
-                "prompt": prompt,
-                "system": "Tu es un théologien et rédacteur d'église. Rédige un résumé d'un sermon sous forme de Markdown.",
-                "stream": False
-            }
-            try:
-                # Un modèle local sur le processeur d'un poste d'église met
-                # plusieurs minutes à rédiger un résumé complet.
-                async with httpx.AsyncClient(timeout=300.0) as client:
-                    response = await client.post(url, json=payload)
-                    if response.status_code == 200:
-                        response_text = response.json().get("response", "")
-                        if response_text:
-                            summary = response_text.strip()
-                            self._cache_put(self._summary_cache, cache_key, summary)
-                            return summary
-                        echecs.append("Ollama : réponse vide")
-                    else:
-                        echecs.append(f"Ollama : HTTP {response.status_code}")
-            except Exception as e:
-                logger.error(f"❌ Erreur résumé Ollama: {e}")
-                echecs.append(f"Ollama : {type(e).__name__}")
 
         # Aucun échec n'est mis en cache : la panne d'aujourd'hui ne doit pas
         # interdire la tentative de demain.

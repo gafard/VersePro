@@ -973,6 +973,12 @@
             // depuis le début du passage, la page ne connaît que les siens.
             let motsAvantPage = 0;
 
+            // Le texte d'un habillage personnalisé suit exactement la même
+            // pagination que le rendu plein écran. Sans cet état, un passage
+            // long était bien paginé dans #text mais restait collé en entier
+            // dans le bandeau importé.
+            let overlayData = null, overlayPages = [], overlayPageIndex = 0;
+
             function decouperEnPhrases(texte) {
                 // Le point d'une abréviation ne termine pas une phrase : on
                 // exige une majuscule ou un guillemet derrière.
@@ -1019,6 +1025,7 @@
                 // où elle en est au troisième écran.
                 renderWords(pages[index], numerosPages[index] ?? (index === 0 ? numVersetPage : null));
                 appliquerAnnotations();
+                synchroniserOverlayPage(index);
                 const compteur = document.getElementById('page-compteur');
                 if (compteur) {
                     compteur.textContent = pages.length > 1
@@ -1118,6 +1125,7 @@
                 // La taille suit la HAUTEUR du cadre : c'est ce qui garde les
                 // proportions identiques d'un 720p à un 4K.
                 el.style.fontSize = zone.size + 'vh';
+                el.dataset.baseFontSize = String(zone.size);
                 el.style.lineHeight = zone.line;
                 el.style.color = zone.color;
                 el.style.fontWeight = zone.weight;
@@ -1127,6 +1135,53 @@
                 el.style.alignItems =
                     zone.valign === 'middle' ? 'center' : zone.valign === 'bottom' ? 'flex-end' : 'flex-start';
                 el.className = 'overlay-zone font-' + zone.font;
+            }
+
+            // Réduit uniquement la taille de la zone qui déborde. Les cadres
+            // importés restent donc intacts et chaque verset reste lisible,
+            // même si sa longueur varie fortement d'une page à l'autre.
+            function ajusterZonesOverlay() {
+                [overlayZones.text, overlayZones.reference].forEach((zone) => {
+                    if (!zone || !zone.isConnected) return;
+                    const inner = zone.querySelector('.overlay-inner');
+                    if (!inner) return;
+                    const base = Number(zone.dataset.baseFontSize) || 5;
+                    let taille = base;
+                    inner.style.fontSize = taille + 'vh';
+                    // Deux mesures suffisent dans la majorité des cas. La
+                    // borne basse évite un texte microscopique sur un cadre
+                    // mal dimensionné et laisse l'opérateur corriger la zone.
+                    for (let i = 0; i < 12 && taille > 0.72; i += 1) {
+                        if (inner.scrollHeight <= zone.clientHeight + 1
+                            && inner.scrollWidth <= zone.clientWidth + 1) break;
+                        taille *= 0.88;
+                        inner.style.fontSize = taille + 'vh';
+                    }
+                });
+            }
+
+            function synchroniserOverlayPage(index) {
+                if (!overlayData || !overlayPages.length) return;
+                overlayPageIndex = Math.max(0, Math.min(index, overlayPages.length - 1));
+                const page = overlayPages[overlayPageIndex] || {};
+                const dedansTexte = overlayZones.text?.querySelector('.overlay-inner');
+                const dedansRef = overlayZones.reference?.querySelector('.overlay-inner');
+                if (!dedansTexte || !dedansRef) return;
+                dedansTexte.textContent = '';
+                const numero = page.n ?? (overlayData.verse_start ?? null);
+                if (numero !== null && numero !== undefined) {
+                    const sup = document.createElement('sup');
+                    sup.className = 'vnum';
+                    sup.textContent = numero;
+                    dedansTexte.appendChild(sup);
+                }
+                dedansTexte.appendChild(document.createTextNode(page.text || overlayData.text || ''));
+                // Pendant un passage, afficher le verset actif est plus utile
+                // que répéter « 4-9 » sur chaque écran.
+                dedansRef.textContent = overlayPages.length > 1 && numero !== null
+                    ? getFullReference({ ...overlayData, verse_start: numero, verse_end: null })
+                    : getFullReference(overlayData);
+                ajusterZonesOverlay();
             }
 
             // Contour d'une forme, coin par coin. Doit rester le jumeau exact de
@@ -1198,6 +1253,7 @@
             let dernieresFormes = null;
             window.addEventListener('resize', () => {
                 if (dernieresFormes) renderShapes(dernieresFormes);
+                if (overlayData) requestAnimationFrame(ajusterZonesOverlay);
             });
 
             function renderOverlay(data) {
@@ -1211,6 +1267,8 @@
                 // que si un habillage spécifique est sélectionné dans le menu.
                 if ((modeDemo && !estHabillageStyle) || !info || (!info.image_url && !formes.length)) {
                     document.body.classList.remove('has-overlay');
+                    overlayData = null;
+                    overlayPages = [];
                     return false;
                 }
                 // L'URL vient du serveur : elle désigne l'habillage courant ou
@@ -1226,18 +1284,14 @@
                 const zones = info.zones || {};
                 applyZone(overlayZones.text, zones.text);
                 applyZone(overlayZones.reference, zones.reference);
-                const dedansRef = overlayZones.reference.querySelector('.overlay-inner');
-                const dedansTexte = overlayZones.text.querySelector('.overlay-inner');
-                dedansRef.textContent = getFullReference(data);
-                dedansTexte.textContent = '';
-                if (data.verse_start !== undefined && data.verse_start !== null) {
-                    const sup = document.createElement('sup');
-                    sup.className = 'vnum';
-                    sup.textContent = data.verse_start;
-                    dedansTexte.appendChild(sup);
-                }
-                dedansTexte.appendChild(document.createTextNode(data.text || ''));
+                overlayData = data;
+                overlayPages = Array.isArray(data.verses) && data.verses.length > 1
+                    ? data.verses.map((v) => ({ n: v.n, text: v.text || '' }))
+                    : [{ n: data.verse_start, text: data.text || '' }];
+                overlayPageIndex = 0;
+                synchroniserOverlayPage(0);
                 document.body.classList.add('has-overlay');
+                requestAnimationFrame(ajusterZonesOverlay);
                 return true;
             }
 

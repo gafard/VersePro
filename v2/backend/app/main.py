@@ -120,7 +120,11 @@ async def _lookup_next_verse(reference: str) -> tuple[str, str]:
         parsed = await verse_parser.parse(reference, skip_text_search=True)
         if not parsed or parsed.get("verse_start") is None:
             return "", ""
-        next_v = (parsed.get("verse_end") or parsed["verse_start"]) + 1
+        # Pour un passage (ex. Jean 3:16-18), « suivant » désigne le
+        # deuxième verset du passage, pas le verset 19. L'écran de sortie
+        # pagine ensuite le reste ; la télécommande et la commande vocale
+        # doivent suivre le même ordre.
+        next_v = parsed["verse_start"] + 1
         text = verse_parser.bible_loader.get_verse_text(parsed["book_abbr"], parsed["chapter"], next_v)
         if not text:
             return "", ""

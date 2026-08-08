@@ -99,14 +99,24 @@
                 lastSlide = data;
                 const wanted = versionEl.value;
                 const translations = data.translations || {};
-                const text = (wanted && translations[wanted]) || data.text || '';
-                refEl.textContent = data.reference || '';
+                // Un passage long arrive découpé par le serveur. Le suivi
+                // mobile montre le premier verset, comme /output, au lieu de
+                // coller toute la plage dans une seule carte étroite.
+                const page = Array.isArray(data.verses) && data.verses.length
+                    ? data.verses[0] : null;
+                const text = (wanted && translations[wanted]) || page?.text || data.text || '';
+                let reference = data.reference || '';
+                if (page && data.book && data.chapter) reference = `${data.book} ${data.chapter}:${page.n}`;
+                refEl.textContent = reference;
                 if (data.reference || text) {
                     textEl.classList.remove('waiting');
                     textEl.textContent = text;
+                    const total = data.verses?.length || 0;
+                    document.getElementById('count').textContent = total > 1 ? `1 / ${total}` : '';
                 } else {
                     textEl.classList.add('waiting');
                     textEl.textContent = 'En attente du prochain verset projeté…';
+                    document.getElementById('count').textContent = '';
                 }
             }
 

@@ -1338,12 +1338,34 @@ async def export_session_pptx(session_id: int):
     )
 
 
+@router.get("/history/sessions/{session_id}/export-recap.pptx")
+async def export_session_recap_pptx(session_id: int):
+    """Export du deck de synthèse, entièrement local une fois le résumé créé."""
+    from fastapi.responses import Response
+    from ..services.session_export import recap_pptx, nom_fichier
+
+    session, versets = await _session_et_versets(session_id)
+    resume = (session.get("summary") or "").strip()
+    if not resume:
+        raise HTTPException(status_code=409, detail="Générez d'abord le résumé de cette session.")
+    archive = recap_pptx(session, resume, versets)
+    nom = nom_fichier(session, "recap.pptx")
+    return Response(
+        content=archive,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".presentationml.presentation"),
+        headers={"Content-Disposition": f'attachment; filename="{nom}"'},
+    )
+
+
 @router.post("/history/sessions/{session_id}/summary")
 async def generate_session_summary(session_id: int):
     """Génère le résumé d'une session par l'IA et l'enregistre"""
     from ..services.database import get_database
     from ..main import ai_service
 
+    if ai_service and hasattr(ai_service, "refresh_availability"):
+        ai_service.refresh_availability()
     if not ai_service or not ai_service.enabled:
          raise HTTPException(status_code=503, detail="Agent IA non configuré ou inactif")
 
@@ -1367,7 +1389,12 @@ async def generate_session_summary(session_id: int):
     # Enregistrement
     await db.update_session_summary(session_id, summary)
 
-    return {"success": True, "summary": summary}
+    return {
+        "success": True,
+        "summary": summary,
+        "provider": getattr(ai_service, "last_summary_provider", "") or "ia",
+        "offline": getattr(ai_service, "last_summary_provider", "") == "ollama",
+    }
 
 
 @router.get("/statistics")

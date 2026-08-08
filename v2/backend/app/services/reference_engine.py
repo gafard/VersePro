@@ -58,7 +58,36 @@ class BibleReferenceEngine:
         return " ".join(words[-word_limit:])
 
     def _retrieval_windows(self, text: str) -> list[str]:
-        return [" ".join(text.split()[-self.settings.HYBRID_WINDOW_WORDS:])]
+        """Construit plusieurs vues courtes de la phrase pour la recherche.
+
+        Une seule fenêtre de 22 mots est rapide, mais elle coupe parfois le
+        début d'une paraphrase (« il a promis que… ») ou conserve la fin d'une
+        phrase logistique. On interroge donc trois vues complémentaires puis
+        la fusion choisit le candidat qui reçoit le meilleur accord lexical /
+        sémantique. Cela améliore le rappel sans transformer le contexte entier
+        du culte en requête (source classique de faux positifs).
+        """
+        mots = text.split()
+        limite = max(8, int(self.settings.HYBRID_WINDOW_WORDS))
+        vues = []
+
+        def ajouter(valeur: str):
+            valeur = " ".join(valeur.split()).strip()
+            if len(valeur.split()) >= 4 and valeur not in vues:
+                vues.append(valeur)
+
+        # Vue principale : le segment le plus récent, celui qui porte le sens.
+        ajouter(" ".join(mots[-limite:]))
+        # Vue élargie : récupère le sujet quand l'ASR l'a placé juste avant la
+        # fenêtre courte (fréquent avec les phrases longues de prédication).
+        ajouter(" ".join(mots[-min(len(mots), limite + 14):]))
+        # Dernière phrase ponctuée : évite qu'une phrase de transition accolée
+        # au texte sacré dilue l'embedding.
+        import re
+        phrases = [p.strip() for p in re.split(r"[.!?;\n]+", text) if p.strip()]
+        if phrases:
+            ajouter(" ".join(phrases[-1].split()[-limite:]))
+        return vues or [" ".join(mots[-limite:])]
 
     async def _run_detection_cascade(self, analysis_text: str, final_state: bool) -> Optional[Dict[str, Any]]:
         if not self.verse_parser:
