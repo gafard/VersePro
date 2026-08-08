@@ -331,9 +331,15 @@ class BibleReferenceEngine:
     def _is_direct_projection_allowed(self, ref: dict) -> bool:
         method = ref.get("detection_method")
         confidence = float(ref.get("confidence") or 0)
+        # Les citations textuelles vérifiées par l'index local sont aussi des
+        # matchs exacts. Elles ne doivent pas rester dans « À valider » quand
+        # la diffusion directe est activée. Le fuzzy et les propositions IA
+        # restent manuels, car ils peuvent viser un mauvais verset.
+        exact_methods = {"explicit", "text_phrase", "text_index"}
+        minimum = 0.90 if method == "text_index" else 0.95
         return (
-            method == "explicit"
-            and confidence >= 0.95
+            method in exact_methods
+            and confidence >= minimum
             and ref.get("verse_start") is not None
             and not ref.get("requires_review")
         )

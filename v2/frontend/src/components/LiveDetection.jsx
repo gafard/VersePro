@@ -630,8 +630,29 @@ export default function LiveDetection({ setActiveTab }) {
     || ['ai_semantic', 'semantic_local'].includes(item.detectionMethod)
   )
   const displayQueue = useMemo(() => {
-    return projectionQueue.filter((item) => item.status === 'pending')
-  }, [projectionQueue])
+    const pending = projectionQueue.filter((item) => item.status === 'pending')
+    // Les éléments projetés étaient auparavant filtrés entièrement : la carte
+    // « À l'antenne » n'était donc jamais rendue et ses commandes
+    // d'annotation restaient invisibles. On conserve le dernier élément
+    // projeté, ou crée une carte légère quand l'envoi a été fait manuellement.
+    const projected = [...projectionQueue].reverse().find((item) => (
+      item.status === 'projected' && (!onAir?.reference || item.reference === onAir.reference)
+    ))
+    const active = projected || (onAir?.reference ? {
+      queueId: `onair_${onAir.reference}`,
+      reference: onAir.reference,
+      text: onAir.text || '',
+      version: onAir.version || activeBible,
+      detectedAt: onAir.at || new Date().toISOString(),
+      source: 'local',
+      detectionMethod: 'manual',
+      status: 'projected'
+    } : null)
+    const pendingWithoutActive = active
+      ? pending.filter((item) => item.reference !== active.reference)
+      : pending
+    return active ? [...pendingWithoutActive, active] : pending
+  }, [projectionQueue, onAir, activeBible])
   
   const projectedHistory = projectionQueue.filter((item) => item.status === 'projected')
   const canShift = Boolean(shiftVerse(onAirDisplay?.reference, 1))
@@ -646,7 +667,7 @@ export default function LiveDetection({ setActiveTab }) {
 
     const isLoading = projectingIds.has(item.queueId)
     const isFailed = failedIds.has(item.queueId)
-    const isProjected = item.status === 'projected'
+    const isProjected = item.status === 'projected' || item.reference === onAir?.reference
     const prevRef = shiftVerse(item.reference, -1)
     const nextRef = shiftVerse(item.reference, 1)
 

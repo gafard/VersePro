@@ -50,6 +50,28 @@ def test_le_parseur_incremental_reste_disponible_mais_trop_large(parser_service)
     # La raison du retrait, figée noir sur blanc :
     assert parser_service.parse_incremental("je vais au marché")["book_abbr"] == "Jér"
 
+
+def test_match_textuel_exact_peut_etre_projete_en_diffusion_directe(reference_engine):
+    """Les phrases vérifiées localement ne doivent pas rester en validation."""
+    assert reference_engine._is_direct_projection_allowed({
+        "detection_method": "text_phrase",
+        "confidence": 0.96,
+        "verse_start": 16,
+        "requires_review": False,
+    }) is True
+    assert reference_engine._is_direct_projection_allowed({
+        "detection_method": "text_index",
+        "confidence": 0.90,
+        "verse_start": 16,
+        "requires_review": False,
+    }) is True
+    assert reference_engine._is_direct_projection_allowed({
+        "detection_method": "text_fuzzy",
+        "confidence": 0.99,
+        "verse_start": 16,
+        "requires_review": False,
+    }) is False
+
 @pytest.mark.anyio
 async def test_livre_et_chapitre_sont_une_VRAIE_detection(reference_engine):
     """« Jean chapitre 3 » n'est pas une piste : c'est un passage ouvert.

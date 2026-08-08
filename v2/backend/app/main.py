@@ -1156,9 +1156,17 @@ async def websocket_audio(websocket: WebSocket):
         def is_direct_projection_allowed(ref: dict) -> bool:
             method = ref.get("detection_method")
             confidence = float(ref.get("confidence") or 0)
+            # Un texte retrouvé par l'index exact est aussi fiable qu'une
+            # référence explicitement structurée. Seules les recherches
+            # floues, sémantiques ou IA restent soumises à validation.
+            exact_methods = {"explicit", "text_phrase", "text_index"}
+            minimum = 0.90 if method == "text_index" else (0.95 if method in exact_methods else 0.75)
             return (
-                method in ("explicit", "chapter_contextual_text", "relative_jump")
-                and confidence >= 0.75
+                (
+                    method in exact_methods
+                    or method in ("chapter_contextual_text", "relative_jump")
+                )
+                and confidence >= minimum
                 and ref.get("verse_start") is not None
                 and not ref.get("requires_review")
             )
