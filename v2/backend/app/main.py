@@ -1229,6 +1229,12 @@ async def websocket_audio(websocket: WebSocket):
             generation: int,
         ) -> None:
             try:
+                # Le flux audio doit rester opérationnel même si le moteur de
+                # détection n'a pas encore fini son initialisation (notamment
+                # pendant le démarrage local ou dans un profil ASR minimal).
+                if reference_engine is None:
+                    logger.debug("Détection biblique indisponible : moteur non initialisé.")
+                    return
                 result = await reference_engine.process(
                     analysis_text, final_state, generation, session_id=current_session_id
                 )
