@@ -57,3 +57,21 @@ test('la file passe à projeté après accusé du moteur navigateur', async () =
   globalThis.fetch = originalFetch
   globalThis.setTimeout = originalTimeout
 })
+
+test('vider les détections ne touche pas au déroulé préparé', () => {
+  const prepared = {
+    id: 'prepared-1',
+    reference: 'Romains 8:28',
+    text: 'Toutes choses concourent au bien',
+  }
+  useStore.setState({
+    projectionQueue: [{ ...pending }],
+    preparedVerses: [prepared],
+    toasts: [],
+  })
+
+  useStore.getState().clearDetectedVerses()
+
+  assert.deepEqual(useStore.getState().projectionQueue, [])
+  assert.deepEqual(useStore.getState().preparedVerses, [prepared])
+})

@@ -112,7 +112,7 @@ export default function LiveDetection({ setActiveTab }) {
     aiActive,
     translationLang, currentTranslation, setTranslationLang,
     autoSend, setAutoSend,
-    projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearProjectionQueue,
+    projectionQueue, projectVerseFromQueue, rejectVerseFromQueue, clearDetectedVerses,
     previewSlide, previewBusy, previewReference, takePreview, clearPreview, fetchPreview,
     preparedVerses, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
     lastAiRejection,
@@ -131,7 +131,7 @@ export default function LiveDetection({ setActiveTab }) {
     aiActive: s.aiActive,
     translationLang: s.translationLang, currentTranslation: s.currentTranslation, setTranslationLang: s.setTranslationLang,
     autoSend: s.autoSend, setAutoSend: s.setAutoSend,
-    projectionQueue: s.projectionQueue, projectVerseFromQueue: s.projectVerseFromQueue, rejectVerseFromQueue: s.rejectVerseFromQueue, clearProjectionQueue: s.clearProjectionQueue,
+    projectionQueue: s.projectionQueue, projectVerseFromQueue: s.projectVerseFromQueue, rejectVerseFromQueue: s.rejectVerseFromQueue, clearDetectedVerses: s.clearDetectedVerses,
     previewSlide: s.previewSlide, previewBusy: s.previewBusy, previewReference: s.previewReference, takePreview: s.takePreview, clearPreview: s.clearPreview, fetchPreview: s.fetchPreview,
     preparedVerses: s.preparedVerses, prepareReference: s.prepareReference, projectPreparedVerse: s.projectPreparedVerse, removePreparedVerse: s.removePreparedVerse, clearPreparedVerses: s.clearPreparedVerses,
     lastAiRejection: s.lastAiRejection,
@@ -1047,8 +1047,8 @@ export default function LiveDetection({ setActiveTab }) {
                 {preparedVerses.length > 0 && <span className="count">{preparedVerses.length}</span>}
               </span>
               {preparedVerses.length > 0 && (
-                <button className="vp-btn vp-btn--ghost vp-btn--sm cult-timeline-clear" onClick={clearPreparedVerses}>
-                  Vider
+                <button className="vp-btn vp-btn--ghost vp-btn--sm cult-timeline-clear" onClick={clearPreparedVerses} title="Effacer uniquement le déroulé préparé">
+                  Effacer le déroulé
                 </button>
               )}
             </div>
@@ -1157,7 +1157,9 @@ export default function LiveDetection({ setActiveTab }) {
                   <span className="vp-kbd">/</span> recherche
                 </span>
                 {projectionQueue.length > 0 && (
-                  <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={clearProjectionQueue}>Vider</button>
+                  <button className="vp-btn vp-btn--ghost vp-btn--sm" onClick={clearDetectedVerses} title="Effacer uniquement les versets détectés, sans toucher au déroulé">
+                    Vider les détections
+                  </button>
                 )}
               </div>
             </div>

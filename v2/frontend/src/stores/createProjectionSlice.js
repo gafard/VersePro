@@ -155,16 +155,21 @@ export const createProjectionSlice = (set, get) => ({
     )
   })),
 
-  clearProjectionQueue: () => {
+  // Efface uniquement les détections de la file « À valider ». Le déroulé
+  // préparé est un état séparé et ne doit jamais être touché par cette action.
+  clearDetectedVerses: () => {
     const previous = get().projectionQueue
     if (previous.length === 0) return
     set({ projectionQueue: [] })
     get().addToast({
-      message: `File vidée (${previous.length} élément${previous.length > 1 ? 's' : ''})`,
+      message: `Détections vidées (${previous.length} élément${previous.length > 1 ? 's' : ''})`,
       kind: 'success',
       action: { label: 'Annuler', onClick: () => set({ projectionQueue: previous }) }
     })
   },
+
+  // Alias conservé pour les intégrations existantes.
+  clearProjectionQueue: () => get().clearDetectedVerses(),
 
   prepareReference: async (query) => {
     let requested = String(query || '').trim()
