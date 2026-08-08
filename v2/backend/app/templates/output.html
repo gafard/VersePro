@@ -111,6 +111,13 @@
             #text.karaoke .w.read { color: var(--read); }
             #text.karaoke .w.cur { text-shadow: 0 0 18px rgba(255, 255, 255, 0.55); }
 
+            /* Annotations opérateur : elles sont appliquées sur le même texte
+               que celui projeté, sans modifier le contenu biblique. */
+            #text .annotation-highlight { background: rgba(250, 204, 21, 0.72); color: inherit; border-radius: 0.16em; padding: 0 0.08em; }
+            #text .annotation-underline { text-decoration: underline 0.12em solid #ef4444; text-underline-offset: 0.12em; }
+            #annotation-layer { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; overflow: visible; }
+            #annotation-layer rect { fill: none; stroke: #38bdf8; stroke-width: 4; stroke-dasharray: 12 7; vector-effect: non-scaling-stroke; }
+
             /* ── Sous-titre : traduction simultanée IA ── */
             #subtitle {
                 position: fixed; left: 50%; bottom: 4vh; transform: translateX(-50%);
@@ -824,6 +831,7 @@
             </div>
         </div>
         <div id="subtitle"><span class="lang"></span><span class="txt"></span></div>
+        <svg id="annotation-layer" aria-hidden="true"></svg>
         <div id="signal"></div>
 
         <script>
@@ -834,6 +842,7 @@
             const splitCols = document.getElementById('split-cols');
             const subtitleEl = document.getElementById('subtitle');
             const signalEl = document.getElementById('signal');
+            const annotationLayer = document.getElementById('annotation-layer');
 
             const params = new URLSearchParams(window.location.search);
             const forcedBg = params.get('bg');
@@ -863,6 +872,58 @@
 
             let currentKey = null;
             let subtitleTimer = null;
+            let currentAnnotations = [];
+
+            function normaliserMot(mot) {
+                return (mot || '').toLocaleLowerCase('fr-FR').replace(/[\u00ad.,;:!?()[\]{}«»\"']/g, '');
+            }
+
+            // Les annotations arrivent par événement WebSocket, séparément de
+            // la scène. On les recalcule après chaque changement de page pour
+            // qu'elles restent visibles sur les longs passages paginés.
+            function appliquerAnnotations() {
+                textEl.querySelectorAll('.annotation-highlight, .annotation-underline').forEach((el) => {
+                    el.classList.remove('annotation-highlight', 'annotation-underline');
+                });
+                annotationLayer.textContent = '';
+                if (!currentAnnotations.length) return;
+
+                const mots = Array.from(textEl.querySelectorAll('.w'));
+                const normalises = mots.map((el) => normaliserMot(el.textContent));
+                currentAnnotations.forEach((annotation) => {
+                    const cible = String(annotation.text || '').trim();
+                    const recherche = cible.split(/\s+/).map(normaliserMot).filter(Boolean);
+                    let debut = -1;
+                    if (recherche.length) {
+                        for (let i = 0; i <= normalises.length - recherche.length; i += 1) {
+                            if (recherche.every((mot, j) => normalises[i + j] === mot)) { debut = i; break; }
+                        }
+                    }
+                    // Une référence (« Jean 3:16 ») n'est pas dans le corps du
+                    // verset : dans ce cas l'intention est d'annoter le verset
+                    // actuellement à l'antenne en entier.
+                    const indices = debut >= 0
+                        ? mots.slice(debut, debut + recherche.length)
+                        : mots;
+                    if (!indices.length) return;
+                    if (annotation.type === 'highlight' || annotation.type === 'underline') {
+                        indices.forEach((el) => el.classList.add('annotation-' + annotation.type));
+                    }
+                    if (annotation.type === 'circle') {
+                        const rects = indices.flatMap((el) => Array.from(el.getClientRects()));
+                        rects.forEach((r) => {
+                            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            rect.setAttribute('x', Math.max(0, r.left - 7));
+                            rect.setAttribute('y', Math.max(0, r.top - 6));
+                            rect.setAttribute('width', r.width + 14);
+                            rect.setAttribute('height', r.height + 12);
+                            rect.setAttribute('rx', Math.min(18, (r.height + 12) / 2));
+                            rect.setAttribute('stroke', annotation.color || '#38bdf8');
+                            annotationLayer.appendChild(rect);
+                        });
+                    }
+                });
+            }
 
             // Rendu du texte en mots individuels (Lecture vivante) — DOM sûr, pas d'innerHTML
             function renderWords(text, verseNum) {
@@ -957,6 +1018,7 @@
                 // découpé verset par verset — sinon l'assemblée ne saurait plus
                 // où elle en est au troisième écran.
                 renderWords(pages[index], numerosPages[index] ?? (index === 0 ? numVersetPage : null));
+                appliquerAnnotations();
                 const compteur = document.getElementById('page-compteur');
                 if (compteur) {
                     compteur.textContent = pages.length > 1
@@ -1371,6 +1433,11 @@
                     const data = JSON.parse(event.data);
                     if (data.type === 'reading_progress') { applyProgress(data.matched); return; }
                     if (data.type === 'live_translation') { showSubtitle(data); return; }
+                    if (data.type === 'annotation') {
+                        currentAnnotations = Array.isArray(data.annotations) ? data.annotations : [];
+                        appliquerAnnotations();
+                        return;
+                    }
                     if (data.type && data.type !== 'scripture') return;
                     // En aperçu, tant qu'aucun verset n'est projeté on montre
                     // l'exemple ; l'habillage et les réglages restent ceux du

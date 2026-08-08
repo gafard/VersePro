@@ -761,7 +761,7 @@ export default function LiveDetection({ setActiveTab }) {
                       await fetch('/api/v1/projection/annotation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: item.reference }] }),
+                        body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: item.text || item.reference }] }),
                       })
                       addToast?.({ message: '🟡 Surlignage appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
@@ -777,13 +777,29 @@ export default function LiveDetection({ setActiveTab }) {
                       await fetch('/api/v1/projection/annotation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: item.reference }] }),
+                        body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: item.text || item.reference }] }),
                       })
                       addToast?.({ message: '🔴 Soulignage appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
                   }}
                 >
                   🔴 Rouge
+                </button>
+                <button
+                  className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-sky-500/20 hover:bg-sky-500/40 text-sky-300 border border-sky-500/30 transition-all"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    try {
+                      await fetch('/api/v1/projection/annotation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ annotations: [{ type: 'circle', color: '#38bdf8', text: item.text || item.reference }] }),
+                      })
+                      addToast?.({ message: '🔵 Cercle appliqué à la projection', kind: 'success' })
+                    } catch (err) { console.error(err) }
+                  }}
+                >
+                  🔵 Cercle
                 </button>
                 <button
                   className="px-1.5 py-0.5 rounded text-[9.5px] font-medium bg-surface-3 hover:bg-surface-2 text-text-dim transition-all"
