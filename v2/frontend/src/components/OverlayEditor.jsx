@@ -84,6 +84,7 @@ const DEFAUT_ZONES = {
 
 export default function OverlayEditor() {
   const addToast = useStore(s => s.addToast)
+  const updateSettings = useStore(s => s.updateSettings)
   const [etat, setEtat] = useState(null)
   const [zones, setZones] = useState(DEFAUT_ZONES)
   const [formes, setFormes] = useState([])
@@ -142,7 +143,7 @@ export default function OverlayEditor() {
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
       setEtat((e) => ({ ...(e || {}), ...d }))
-      addToast({ message: `Habillage importé (${d.width}×${d.height})`, kind: 'success' })
+      addToast({ message: `Habillage importé (${d.width}×${d.height}) — donnez-lui un nom pour l'ajouter aux styles`, kind: 'success' })
     } catch (err) {
       addToast({ message: `Import impossible : ${err.message}`, kind: 'error', duration: 7000 })
     } finally {
@@ -298,11 +299,12 @@ export default function OverlayEditor() {
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
-      // On boucle explicitement : enregistrer ne projette pas, il faut encore
-      // choisir l'habillage dans la liste des styles. Sans ce rappel,
-      // l'opérateur croit avoir terminé et ne voit rien changer à l'écran.
+      // La bibliothèque est la source de vérité de la sortie : le preset
+      // enregistré devient immédiatement le style actif, exactement comme un
+      // style natif (agoe-logope, bandeau, etc.).
+      await updateSettings({ projection_theme: 'broadcast', projection_style: `habillage:${d.slug}` })
       addToast({
-        message: `« ${d.name} » enregistré dans ${d.category} — choisissez-le dans « Style de Lower-Third » pour le projeter`,
+        message: `« ${d.name} » enregistré dans ${d.category} et activé comme style de Lower-Third`,
         kind: 'success',
         duration: 8000
       })
@@ -318,7 +320,7 @@ export default function OverlayEditor() {
     try {
       const r = await fetch(`${BACKEND_BASE}/api/v1/overlay/library/${slug}/apply`, { method: 'POST' })
       if (!r.ok) throw new Error(`Erreur ${r.status}`)
-      addToast({ message: `« ${nom} » chargé dans l'éditeur`, kind: 'success' })
+      addToast({ message: `« ${nom} » chargé et sélectionné comme style actif`, kind: 'success' })
       charger()
     } catch (err) {
       addToast({ message: `Chargement impossible : ${err.message}`, kind: 'error' })

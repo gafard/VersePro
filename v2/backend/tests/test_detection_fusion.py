@@ -102,6 +102,9 @@ PARAPHRASES = [
     ("aimez vos ennemis et priez pour ceux qui vous persécutent", ("mt", 5)),
     ("si quelqu'un a soif qu'il vienne à moi et qu'il boive", ("jn", 7)),
     ("toutes choses concourent au bien de ceux qui aiment dieu", ("rm", 8)),
+    # Cas réel signalé en régie : paraphrase longue de « l'homme nouveau,
+    # créé selon Dieu dans la justice et la sainteté ».
+    ("à la nouvelle naissance vous avez reçu une nouvelle nature en christ jésus vous êtes une personne entièrement nouvelle créé selon dieu dans la justice et la sainteté cet homme nouveau parle de votre esprit", ("éph", 4)),
     ("heureux les pauvres en esprit car le royaume des cieux est à eux", ("mt", 5)),
     # Encadrement d'attribution (« Paul dit… », « le roi David a écrit… »).
     ("l'apôtre paul nous dit je peux tout par celui qui me fortifie", ("ph", 4)),

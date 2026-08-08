@@ -825,8 +825,16 @@ async def apply_overlay_preset(slug: str):
     db = get_database()
     settings.OVERLAY_ZONES = overlay_store.dump_zones(preset["zones"])
     settings.OVERLAY_SHAPES = overlay_store.dump_shapes(preset["shapes"])
+    # Un preset chargé est un style à part entière, comme « bandeau » ou
+    # « filet ». Avant cette affectation, il était copié dans l'atelier mais
+    # la sortie restait sur l'ancien style : l'habillage semblait enregistré
+    # puis ne réapparaissait jamais dans le rendu.
+    settings.PROJECTION_THEME = "broadcast"
+    settings.PROJECTION_STYLE = f"habillage:{preset['slug']}"
     await db.set_setting("overlay_zones", settings.OVERLAY_ZONES)
     await db.set_setting("overlay_shapes", settings.OVERLAY_SHAPES)
+    await db.set_setting("projection_theme", settings.PROJECTION_THEME)
+    await db.set_setting("projection_style", settings.PROJECTION_STYLE)
     if preset["image_path"]:
         overlay_store.OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(preset["image_path"], overlay_store.IMAGE_PATH)

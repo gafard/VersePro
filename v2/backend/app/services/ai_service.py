@@ -315,14 +315,16 @@ class AIService:
 
         res = None
         logger.info(f"🔍 [Intent Extractor] Keys: openrouter={bool(self.openrouter_key)}, gemini={bool(self.api_key)}, ollama={self.ollama_active}")
-        # 1. OpenRouter
+        # 1. OpenRouter. Une clé configurée ne doit pas bloquer les moteurs de
+        # secours : les crédits OpenRouter peuvent être épuisés, ou le réseau
+        # indisponible, alors que Gemini/Ollama sont parfaitement utilisables.
         if self.openrouter_key:
             res = await self._call_openrouter(text, None, contexte, prompt_override=prompt, system_override=system_prompt)
         # 2. Gemini Direct
-        elif self.api_key:
+        if not res and self.api_key:
             res = await self._call_gemini_direct(text, None, contexte, prompt_override=prompt, system_override=system_prompt)
         # 3. Ollama Local
-        elif self.ollama_active:
+        if not res and self.ollama_active:
             res = await self._call_ollama_local(text, None, contexte, prompt_override=prompt, system_override=system_prompt)
 
         logger.info(f"🤖 [Intent Extractor] Résultat brut IA : {res}")
@@ -364,7 +366,7 @@ class AIService:
             # Sans cette borne, OpenRouter réserve le MAXIMUM du modèle (65 535
             # jetons) : le contrôle de crédit refusait la requête (HTTP 402) alors
             # qu'il n'y avait rien à générer, et chaque appel était facturé large.
-            "max_tokens": 200,
+            "max_tokens": 96,
         }
 
         try:

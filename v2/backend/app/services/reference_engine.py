@@ -170,6 +170,9 @@ class BibleReferenceEngine:
                 top_n=self.settings.HYBRID_TOP_K,
             )
 
+        # Plusieurs fenêtres complémentaires améliorent le rappel sans injecter
+        # les énoncés précédents dans le score lexical : le verset proposé doit
+        # réellement correspondre à la phrase qui vient d'être prononcée.
         windows = self._retrieval_windows(query)
         found = [d for d in await asyncio.gather(*[_decide(w) for w in windows]) if d]
         if found:

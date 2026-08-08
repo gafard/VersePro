@@ -154,7 +154,10 @@ class Settings(BaseSettings):
     # La récupération des paraphrases se concentre sur les derniers mots : une
     # paraphrase tient dans une phrase, et cela empêche un verset précédent encore
     # présent dans le buffer de masquer celui que le prédicateur cite maintenant.
-    HYBRID_WINDOW_WORDS: int = 22
+    # Fenêtre assez large pour conserver une paraphrase complète lorsque l'ASR
+    # coupe une phrase longue en plusieurs segments, sans envoyer tout le culte
+    # au moteur sémantique.
+    HYBRID_WINDOW_WORDS: int = 32
 
     # Barrière vocale (Silero VAD local) : filtre musique/silences avant transcription
     VOICE_GATE_ENABLED: bool = False

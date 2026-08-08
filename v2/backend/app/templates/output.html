@@ -978,6 +978,7 @@
             // long était bien paginé dans #text mais restait collé en entier
             // dans le bandeau importé.
             let overlayData = null, overlayPages = [], overlayPageIndex = 0;
+            let overlayBaseShapes = [];
 
             function decouperEnPhrases(texte) {
                 // Le point d'une abréviation ne termine pas une phrase : on
@@ -1122,6 +1123,10 @@
                 el.style.top = zone.y + '%';
                 el.style.width = zone.w + '%';
                 el.style.height = zone.h + '%';
+                el.dataset.baseX = String(zone.x);
+                el.dataset.baseY = String(zone.y);
+                el.dataset.baseW = String(zone.w);
+                el.dataset.baseH = String(zone.h);
                 // La taille suit la HAUTEUR du cadre : c'est ce qui garde les
                 // proportions identiques d'un 720p à un 4K.
                 el.style.fontSize = zone.size + 'vh';
@@ -1137,25 +1142,67 @@
                 el.className = 'overlay-zone font-' + zone.font;
             }
 
-            // Réduit uniquement la taille de la zone qui déborde. Les cadres
-            // importés restent donc intacts et chaque verset reste lisible,
-            // même si sa longueur varie fortement d'une page à l'autre.
+            // Adapte la zone et le panneau personnalisé au contenu courant,
+            // comme un lower-third natif : le cadre grandit d'abord, au lieu de
+            // réduire immédiatement le verset. Une réduction de secours reste
+            // appliquée uniquement si l'écran ne peut réellement pas grandir.
             function ajusterZonesOverlay() {
-                [overlayZones.text, overlayZones.reference].forEach((zone) => {
+                const zoneTexte = overlayZones.text;
+                if (zoneTexte && zoneTexte.isConnected) {
+                    const inner = zoneTexte.querySelector('.overlay-inner');
+                    const baseY = Number(zoneTexte.dataset.baseY) || 0;
+                    const baseH = Number(zoneTexte.dataset.baseH) || 13.5;
+                    if (inner) {
+                        zoneTexte.style.top = baseY + '%';
+                        zoneTexte.style.height = baseH + '%';
+                        inner.style.fontSize = (Number(zoneTexte.dataset.baseFontSize) || 5) + 'vh';
+                        const marge = 1.8;
+                        const besoin = Math.max(baseH, (inner.scrollHeight / Math.max(1, window.innerHeight)) * 100 + marge);
+                        const bas = baseY + baseH;
+                        const hauteur = Math.min(42, besoin);
+                        const haut = Math.max(0, bas - hauteur);
+                        zoneTexte.style.top = haut + '%';
+                        zoneTexte.style.height = hauteur + '%';
+
+                        // Le premier panneau qui contient la zone de texte est
+                        // le cadre à redimensionner. Les autres formes (logo,
+                        // étiquette de référence) restent inchangées.
+                        let panneau = -1;
+                        let meilleur = -1;
+                        overlayBaseShapes.forEach((forme, index) => {
+                            const zoneX = Number(zoneTexte.dataset.baseX) || 0;
+                            const zoneW = Number(zoneTexte.dataset.baseW) || 87;
+                            const contient = forme.x <= zoneX
+                                && forme.x + forme.w >= zoneX + zoneW
+                                && forme.y < bas && forme.y + forme.h > baseY;
+                            const aire = contient ? forme.w * forme.h : -1;
+                            if (aire > meilleur) { meilleur = aire; panneau = index; }
+                        });
+                        const formes = overlayBaseShapes.map((forme, index) => {
+                            if (index !== panneau || hauteur <= baseH + 0.1) return { ...forme };
+                            const margeCadre = 1.2;
+                            const fond = Math.max(0, haut - margeCadre);
+                            return { ...forme, y: fond, h: Math.min(100 - fond, hauteur + margeCadre * 2) };
+                        });
+                        dernieresFormes = formes;
+                        renderShapes(formes);
+                        if (inner.scrollHeight > zoneTexte.clientHeight + 1) {
+                            let taille = Number(zoneTexte.dataset.baseFontSize) || 5;
+                            for (let i = 0; i < 10 && taille > 0.72; i += 1) {
+                                taille *= 0.9;
+                                inner.style.fontSize = taille + 'vh';
+                                if (inner.scrollHeight <= zoneTexte.clientHeight + 1) break;
+                            }
+                        }
+                    }
+                }
+                [overlayZones.reference].forEach((zone) => {
                     if (!zone || !zone.isConnected) return;
                     const inner = zone.querySelector('.overlay-inner');
                     if (!inner) return;
-                    const base = Number(zone.dataset.baseFontSize) || 5;
-                    let taille = base;
-                    inner.style.fontSize = taille + 'vh';
-                    // Deux mesures suffisent dans la majorité des cas. La
-                    // borne basse évite un texte microscopique sur un cadre
-                    // mal dimensionné et laisse l'opérateur corriger la zone.
-                    for (let i = 0; i < 12 && taille > 0.72; i += 1) {
-                        if (inner.scrollHeight <= zone.clientHeight + 1
-                            && inner.scrollWidth <= zone.clientWidth + 1) break;
-                        taille *= 0.88;
-                        inner.style.fontSize = taille + 'vh';
+                    inner.style.fontSize = (Number(zone.dataset.baseFontSize) || 2.8) + 'vh';
+                    if (inner.scrollHeight > zone.clientHeight + 1) {
+                        inner.style.fontSize = Math.max(0.72, (Number(zone.dataset.baseFontSize) || 2.8) * 0.86) + 'vh';
                     }
                 });
             }
@@ -1269,6 +1316,8 @@
                     document.body.classList.remove('has-overlay');
                     overlayData = null;
                     overlayPages = [];
+                    overlayBaseShapes = [];
+                    dernieresFormes = null;
                     return false;
                 }
                 // L'URL vient du serveur : elle désigne l'habillage courant ou
@@ -1279,8 +1328,9 @@
                     overlayVersion = urlImage;
                     overlayImage.src = urlImage;
                 }
-                dernieresFormes = formes;
-                renderShapes(formes);
+                overlayBaseShapes = formes.map((forme) => ({ ...forme }));
+                dernieresFormes = overlayBaseShapes.map((forme) => ({ ...forme }));
+                renderShapes(dernieresFormes);
                 const zones = info.zones || {};
                 applyZone(overlayZones.text, zones.text);
                 applyZone(overlayZones.reference, zones.reference);
