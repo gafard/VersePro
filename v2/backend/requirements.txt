@@ -56,3 +56,4 @@ loguru>=0.7.2
 
 # Tests
 pytest>=8.0.0
+pytest-timeout>=2.3.1

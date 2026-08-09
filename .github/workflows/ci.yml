@@ -33,7 +33,9 @@ jobs:
           # pas distribué sous Linux. Le workflow Release exécute ce test sur
           # les deux plateformes réellement livrées : macOS et Windows.
           VERSEPRO_SKIP_NATIVE_VAD_TEST: "1"
-        run: python -m pytest tests/ test_parser.py -q
+        # Le timeout évite qu'une bibliothèque native bloque un runner pendant
+        # six heures et donne le nom précis du test fautif dans les logs.
+        run: python -m pytest tests/ test_parser.py -vv --timeout=30
 
       - name: Audit des dépendances Python
         run: |
