@@ -26,6 +26,7 @@ class FauxProPresenter:
         self.recu = []
         self.server = None
         self.port = None
+        self.clients = set()
 
     async def start(self):
         self.server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
@@ -35,32 +36,53 @@ class FauxProPresenter:
     async def stop(self):
         self.server.close()
         await self.server.wait_closed()
+        # `Server.wait_closed()` ferme seulement le socket d'écoute, pas les
+        # connexions déjà acceptées. Sous Linux/Python 3.12, laisser le handler
+        # bloqué sur `readline()` empêche ensuite `asyncio.run()` de terminer.
+        # Fermer explicitement les clients rend le test fidèle à l'arrêt réel
+        # de ProPresenter et portable sur macOS comme sur Windows/Linux.
+        for writer in list(self.clients):
+            writer.close()
+        for writer in list(self.clients):
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     async def _handle(self, reader, writer):
-        while True:
-            raw = await reader.readline()
-            if not raw:
-                break
-            requete = json.loads(raw.decode())
-            self.recu.append(requete)
-            if self.muet:  # imite un service qui écoute mais ne répond pas
-                continue
-            url = requete.get("url", "")
-            if url == "v1/version":
-                data = {"name": "ProPresenter", "api_version": "v1"}
-            elif url == "v1/messages":
-                data = [{
-                    "id": {"uuid": "UUID-42", "name": self.message_name, "index": 0},
-                    "tokens": [{"name": t} for t in self.tokens],
-                }]
-            elif "/trigger" in url or "/clear" in url:
-                data = {}
-            else:
-                writer.write((json.dumps({"url": url, "error": "not found"}) + "\r\n").encode())
+        self.clients.add(writer)
+        try:
+            while True:
+                raw = await reader.readline()
+                if not raw:
+                    break
+                requete = json.loads(raw.decode())
+                self.recu.append(requete)
+                if self.muet:  # imite un service qui écoute mais ne répond pas
+                    continue
+                url = requete.get("url", "")
+                if url == "v1/version":
+                    data = {"name": "ProPresenter", "api_version": "v1"}
+                elif url == "v1/messages":
+                    data = [{
+                        "id": {"uuid": "UUID-42", "name": self.message_name, "index": 0},
+                        "tokens": [{"name": t} for t in self.tokens],
+                    }]
+                elif "/trigger" in url or "/clear" in url:
+                    data = {}
+                else:
+                    writer.write((json.dumps({"url": url, "error": "not found"}) + "\r\n").encode())
+                    await writer.drain()
+                    continue
+                writer.write((json.dumps({"url": url, "data": data}) + "\r\n").encode())
                 await writer.drain()
-                continue
-            writer.write((json.dumps({"url": url, "data": data}) + "\r\n").encode())
-            await writer.drain()
+        finally:
+            self.clients.discard(writer)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
 
 async def _driver(faux, **kwargs):
