@@ -13,6 +13,9 @@ on:
         default: true
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: ${{ matrix.label }}
@@ -24,18 +27,24 @@ jobs:
             label: macOS (Apple Silicon)
             bundles: |
               v2/frontend/src-tauri/target/release/bundle/dmg/*.dmg
-              v2/frontend/src-tauri/target/release/bundle/macos/*.app
+              v2/frontend/src-tauri/target/release/bundle/macos/*.app.tar.gz
+              v2/frontend/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
           - os: windows-latest
             label: Windows (x64)
             bundles: |
               v2/frontend/src-tauri/target/release/bundle/msi/*.msi
+              v2/frontend/src-tauri/target/release/bundle/msi/*.msi.sig
               v2/frontend/src-tauri/target/release/bundle/nsis/*.exe
+              v2/frontend/src-tauri/target/release/bundle/nsis/*.exe.sig
     runs-on: ${{ matrix.os }}
     env:
       HAS_WIN_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
       # Un lancement manuel sert aussi à fabriquer des builds de validation.
-      # Les publications par tag restent, elles, obligatoirement signées.
+      # La signature Updater reste obligatoire pour une publication par tag ;
+      # les certificats OS, eux, améliorent la réputation Gatekeeper/SmartScreen
+      # mais leur absence ne doit plus empêcher de livrer une version récente.
       ALLOW_UNSIGNED: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_unsigned }}
     defaults:
       run:
@@ -43,21 +52,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Vérifier la version du tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('v2/frontend/src-tauri/tauri.conf.json'))['version'])")
+          if [ "v$VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Le tag ${GITHUB_REF_NAME} ne correspond pas à la version v${VERSION} de tauri.conf.json"
+            exit 1
+          fi
+
       - name: Vérifier la politique de signature
         run: |
           if [ "$RUNNER_OS" = "macOS" ] && [ "$HAS_APPLE_CERT" != "true" ]; then
-            if [ "$ALLOW_UNSIGNED" = "true" ]; then
-              echo "::warning::Certificat Apple Developer ID absent : le DMG de test sera non signé et non notarialisé."
-            else
-              echo "::error::Certificat Apple Developer ID absent. Une publication par tag doit être signée."
-              exit 1
-            fi
+            echo "::warning::Certificat Apple Developer ID absent : le DMG sera non signé et non notarialisé."
           fi
           if [ "$RUNNER_OS" = "Windows" ] && [ "$HAS_WIN_CERT" != "true" ]; then
+            echo "::warning::Certificat Windows absent : les installateurs déclencheront probablement SmartScreen."
+          fi
+          if [ "$HAS_UPDATER_KEY" != "true" ]; then
             if [ "$ALLOW_UNSIGNED" = "true" ]; then
-              echo "::warning::Certificat Windows absent : les installateurs de test seront non signés."
+              echo "::warning::Clé Updater absente : ce build de test ne produira pas d'artefact de mise à jour."
             else
-              echo "::error::Certificat Windows absent. Une publication par tag doit être signée."
+              echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY absent. Une release auto-installable doit être signée."
               exit 1
             fi
           fi
@@ -189,8 +205,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           npm ci
+          # Les builds manuels de diagnostic restent possibles sans clé.
+          # Une release par tag, elle, a déjà été refusée plus haut si la clé
+          # cryptographique manque.
+          if [ "$HAS_UPDATER_KEY" != "true" ]; then
+            python3 -c "import json; p='src-tauri/tauri.conf.json'; d=json.load(open(p)); d['bundle']['createUpdaterArtifacts']=False; open(p,'w').write(json.dumps(d))"
+          fi
           if [ "$RUNNER_OS" = "macOS" ]; then
             # Une variable APPLE_CERTIFICATE présente mais vide suffit à faire
             # croire au bundler Tauri qu'il doit importer un certificat. Pour
@@ -229,3 +253,85 @@ jobs:
           name: versepro-${{ matrix.os }}
           if-no-files-found: error
           path: ${{ matrix.bundles }}
+
+  publish:
+    name: Publier la release et latest.json
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: versepro-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Construire le manifeste Updater multi-plateforme
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          import urllib.parse
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('release-assets')
+          publish = Path('publish')
+          publish.mkdir()
+
+          def exactly(pattern):
+              matches = sorted(path for path in root.rglob(pattern) if path.is_file())
+              if len(matches) != 1:
+                  raise SystemExit(f"Attendu exactement un fichier {pattern}, trouvé: {matches}")
+              return matches[0]
+
+          mac = exactly('*.app.tar.gz')
+          mac_sig = Path(f'{mac}.sig')
+          win = exactly('*-setup.exe')
+          win_sig = Path(f'{win}.sig')
+          for signature in (mac_sig, win_sig):
+              if not signature.is_file() or not signature.read_text().strip():
+                  raise SystemExit(f'Signature Updater absente ou vide: {signature}')
+
+          tag = os.environ['RELEASE_TAG']
+          version = tag.removeprefix('v')
+          base = f"https://github.com/{os.environ['REPOSITORY']}/releases/download/{tag}"
+
+          def url(path):
+              return f"{base}/{urllib.parse.quote(path.name)}"
+
+          manifest = {
+              'version': version,
+              'notes': f'VersePro {version}',
+              'pub_date': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+              'platforms': {
+                  'darwin-aarch64': {
+                      'url': url(mac),
+                      'signature': mac_sig.read_text().strip(),
+                  },
+                  'windows-x86_64': {
+                      'url': url(win),
+                      'signature': win_sig.read_text().strip(),
+                  },
+              },
+          }
+          (publish / 'latest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+
+          for pattern in ('*.dmg', '*.app.tar.gz', '*.app.tar.gz.sig', '*.exe', '*.exe.sig', '*.msi', '*.msi.sig'):
+              for source in root.rglob(pattern):
+                  if source.is_file():
+                      shutil.copy2(source, publish / source.name)
+
+          print((publish / 'latest.json').read_text())
+          PY
+
+      - name: Publier les installateurs signés
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: publish/*

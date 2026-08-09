@@ -3,6 +3,7 @@
 
 use rand::rngs::OsRng;
 use rand::RngCore;
+use serde::Serialize;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -11,6 +12,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
 use tauri::{Emitter, Manager};
+use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Clone)]
 struct BackendConfig {
@@ -46,8 +48,18 @@ fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
     cmd.spawn()
 }
 
-/// Vrai quand la régie est en direct (micro ouvert). Renseigné par l'interface,
-/// lu au moment où l'on tente de fermer la fenêtre.
+fn arreter_backend(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<BackendProcess>() {
+        state.shutting_down.store(true, Ordering::SeqCst);
+        if let Some(mut child) = state.child.lock().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Vrai quand le micro ou la sortie à l'antenne est actif. Renseigné par
+/// l'interface, lu avant une fermeture ou une installation.
 struct EtatDirect(AtomicBool);
 
 struct SessionToken(String);
@@ -75,14 +87,125 @@ fn fermer_vraiment(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[derive(Clone, Serialize)]
+struct InfosMiseAJour {
+    current: String,
+    latest: Option<String>,
+    update_available: bool,
+    notes: Option<String>,
+    date: Option<String>,
+    checked: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct ProgressionMiseAJour {
+    phase: String,
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+/// Interroge le manifeste Tauri signé. Une absence de réseau est renvoyée à
+/// l'interface, qui reste silencieuse lors du contrôle automatique.
+#[tauri::command]
+async fn verifier_mise_a_jour(app: tauri::AppHandle) -> Result<InfosMiseAJour, String> {
+    let current = app.package_info().version.to_string();
+    let update = app
+        .updater()
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(match update {
+        Some(update) => InfosMiseAJour {
+            current,
+            latest: Some(update.version),
+            update_available: true,
+            notes: update.body,
+            date: update.date.map(|date| date.to_string()),
+            checked: true,
+        },
+        None => InfosMiseAJour {
+            current,
+            latest: None,
+            update_available: false,
+            notes: None,
+            date: None,
+            checked: true,
+        },
+    })
+}
+
+/// Télécharge, vérifie cryptographiquement, installe puis relance VersePro.
+/// Le verrou est aussi contrôlé côté Rust : un bouton frontend contourné ne
+/// peut donc pas remplacer l'application pendant un direct.
+#[tauri::command]
+async fn installer_mise_a_jour(
+    app: tauri::AppHandle,
+    etat: tauri::State<'_, EtatDirect>,
+) -> Result<(), String> {
+    if etat.0.load(Ordering::SeqCst) {
+        return Err(
+            "Mise à jour bloquée : arrêtez le micro et videz la sortie à l'antenne.".into(),
+        );
+    }
+
+    let handle_for_exit = app.clone();
+    let update = app
+        .updater_builder()
+        .on_before_exit(move || arreter_backend(&handle_for_exit))
+        .build()
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "VersePro est déjà à jour.".to_string())?;
+
+    let progress_app = app.clone();
+    let finished_app = app.clone();
+    let mut downloaded = 0_u64;
+    update
+        .download_and_install(
+            move |chunk_length, content_length| {
+                downloaded = downloaded.saturating_add(chunk_length as u64);
+                let _ = progress_app.emit(
+                    "versepro://mise-a-jour-progression",
+                    ProgressionMiseAJour {
+                        phase: "download".into(),
+                        downloaded,
+                        total: content_length,
+                    },
+                );
+            },
+            move || {
+                let _ = finished_app.emit(
+                    "versepro://mise-a-jour-progression",
+                    ProgressionMiseAJour {
+                        phase: "install".into(),
+                        downloaded: 0,
+                        total: None,
+                    },
+                );
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+    arreter_backend(&app);
+    app.restart();
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(EtatDirect(AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
             definir_direct,
             fermer_vraiment,
-            obtenir_jeton_session
+            obtenir_jeton_session,
+            verifier_mise_a_jour,
+            installer_mise_a_jour
         ])
         // Fermer la fenêtre pendant un culte coupait la projection sans un mot.
         // On intercepte donc la demande : hors direct on laisse fermer, en
@@ -206,13 +329,7 @@ fn main() {
         .expect("erreur au démarrage de l'application Tauri")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app_handle.try_state::<BackendProcess>() {
-                    state.shutting_down.store(true, Ordering::SeqCst);
-                    if let Some(mut child) = state.child.lock().unwrap().take() {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                    }
-                }
+                arreter_backend(app_handle);
             }
         });
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store.js'
 import { shallow } from 'zustand/shallow'
-import { BACKEND_BASE } from '../env.js'
+import { BACKEND_BASE, isTauri } from '../env.js'
 import OverlayEditor from './OverlayEditor.jsx'
 import BibleImport from './BibleImport.jsx'
 
@@ -282,7 +282,12 @@ export default function Settings() {
     refreshAudioDevices,
     audioFilterMode,
     setAudioFilterMode,
-    setSelectedEngine
+    setSelectedEngine,
+    desktopUpdateInfo,
+    desktopUpdateStatus,
+    desktopUpdateError,
+    checkDesktopUpdate,
+    openDesktopUpdate
   } = useStore(s => ({
     settings: s.settings,
     fetchSettings: s.fetchSettings,
@@ -306,7 +311,12 @@ export default function Settings() {
     refreshAudioDevices: s.refreshAudioDevices,
     audioFilterMode: s.audioFilterMode,
     setAudioFilterMode: s.setAudioFilterMode,
-    setSelectedEngine: s.setSelectedEngine
+    setSelectedEngine: s.setSelectedEngine,
+    desktopUpdateInfo: s.desktopUpdateInfo,
+    desktopUpdateStatus: s.desktopUpdateStatus,
+    desktopUpdateError: s.desktopUpdateError,
+    checkDesktopUpdate: s.checkDesktopUpdate,
+    openDesktopUpdate: s.openDesktopUpdate
   }), shallow)
 
   const prepareReference = useStore(s => s.prepareReference)
@@ -383,15 +393,22 @@ export default function Settings() {
   // Version installée et, si un manifeste est configuré, disponibilité d'une
   // mise à jour. L'appel échoue en silence : hors ligne, la section affiche
   // simplement la version installée.
-  const [versionInfo, setVersionInfo] = useState(null)
+  const [legacyVersionInfo, setLegacyVersionInfo] = useState(null)
   useEffect(() => {
+    if (isTauri) {
+      checkDesktopUpdate({ silent: true })
+      return undefined
+    }
     let vivant = true
     fetch(`${BACKEND_BASE}/api/v1/update/check`)
       .then((r) => r.json())
-      .then((d) => { if (vivant) setVersionInfo(d) })
+      .then((d) => { if (vivant) setLegacyVersionInfo(d) })
       .catch(() => {})
     return () => { vivant = false }
-  }, [])
+  }, [checkDesktopUpdate])
+  const versionInfo = isTauri
+    ? (desktopUpdateInfo.current ? desktopUpdateInfo : null)
+    : legacyVersionInfo
   const [rehearseText, setRehearseText] = useState('')
   const [rehearseResults, setRehearseResults] = useState(null)
   const [rehearsing, setRehearsing] = useState(false)
@@ -1411,11 +1428,30 @@ export default function Settings() {
                       ? 'Vous êtes à jour.'
                       : 'Le contrôle des mises à jour n\'est pas activé — rien n\'est envoyé sur internet.'}
                 </p>
-                {versionInfo.update_available && versionInfo.url && (
+                {versionInfo.notes && <p className="text-sm" style={{ marginTop: '8px' }}>{versionInfo.notes}</p>}
+                {isTauri ? (
+                  <div className="flex gap-2" style={{ marginTop: '12px' }}>
+                    <button
+                      type="button"
+                      className="vp-btn vp-btn--sm"
+                      onClick={() => checkDesktopUpdate({ silent: false })}
+                      disabled={desktopUpdateStatus === 'checking'}
+                    >
+                      {desktopUpdateStatus === 'checking' ? 'Vérification…' : 'Rechercher une mise à jour'}
+                    </button>
+                    {versionInfo.update_available && (
+                      <button type="button" className="vp-btn vp-btn--primary vp-btn--sm" onClick={openDesktopUpdate}>
+                        Installer {versionInfo.latest}
+                      </button>
+                    )}
+                  </div>
+                ) : versionInfo.update_available && versionInfo.url ? (
                   <p className="text-sm" style={{ marginTop: '8px' }}>
-                    {versionInfo.notes ? <span>{versionInfo.notes} </span> : null}
                     <a href={versionInfo.url} target="_blank" rel="noreferrer">Télécharger la mise à jour</a>
                   </p>
+                ) : null}
+                {desktopUpdateError && isTauri && (
+                  <p className="text-sm" style={{ marginTop: '8px', color: 'var(--danger)' }}>{desktopUpdateError}</p>
                 )}
               </Accordion>
             )}

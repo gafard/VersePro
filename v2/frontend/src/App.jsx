@@ -11,6 +11,7 @@ import FirstRunWizard from './components/FirstRunWizard.jsx'
 import LaunchIntro from './components/LaunchIntro.jsx'
 import CloseGuard from './components/CloseGuard.jsx'
 import MicButton from './components/MicButton.jsx'
+import UpdateManager from './components/UpdateManager.jsx'
 
 const NAV_ITEMS = [
   {
@@ -326,6 +327,7 @@ function App() {
       {firstRun && <FirstRunWizard onDone={() => { setFirstRun(false); setActiveTab('live') }} />}
       {showLaunchIntro && <LaunchIntro onDone={closeLaunchIntro} />}
       <CloseGuard />
+      <UpdateManager enabled={!firstRun && !showLaunchIntro} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "VersePro",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "identifier": "app.versepro.regie",
   "build": {
     "beforeBuildCommand": "npm run build",
@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "category": "Productivity",
     "copyright": "© 2026 Selah Studios",
     "targets": "all",
@@ -60,6 +61,17 @@
       "timestampUrl": "",
       "nsis": {
         "installerHooks": "./installer-hooks.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZCQTc3QUNDNjZBQjI5RjgKUldUNEthdG16SHFuKy9kMEF1dTh3Mmx5N1pmdUtBYUdjT29iQ2k3ZnE2b0h1TUxXRGJYak5UbjUK",
+      "endpoints": [
+        "https://github.com/gafard/VersePro/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

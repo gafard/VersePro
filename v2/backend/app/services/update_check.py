@@ -1,9 +1,9 @@
-"""Contrôle de mise à jour — volontairement minimal et silencieux.
+"""Contrôle de mise à jour de secours pour l'interface navigateur.
 
-VersePro n'a pas de mise à jour automatique : l'application ne se remplace pas
-toute seule pendant qu'un culte se prépare. Elle se contente, si une URL est
-renseignée, de comparer sa version à celle d'un manifeste distant et de le
-signaler. L'utilisateur décide et télécharge.
+L'application de bureau utilise l'Updater Tauri signé et installe la nouvelle
+version après confirmation. Ce service reste utile en développement navigateur :
+si une URL est renseignée, il compare la version à un manifeste simplifié et
+affiche un lien de téléchargement.
 
 Sans URL configurée, aucun appel réseau n'est émis. C'est le défaut : un outil
 d'église doit pouvoir tourner sans jamais sortir du bâtiment.

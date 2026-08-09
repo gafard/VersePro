@@ -4,6 +4,7 @@ import { shallow } from 'zustand/shallow'
 import TranscriptTicker from './TranscriptTicker.jsx'
 import ChapterModal from './ChapterModal.jsx'
 import BibleVersionsModal from './BibleVersionsModal.jsx'
+import LiveHighlightIcon from './LiveHighlightIcons.jsx'
 import { BACKEND_BASE, BACKEND_WS_BASE, openExternal } from '../env.js'
 
 const BIBLE_NAMES = {
@@ -853,19 +854,20 @@ export default function LiveDetection({ setActiveTab }) {
 
           {/* Surligneur Live pour le verset à l'antenne */}
           {isProjected && (
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-emerald-500/20 bg-emerald-500/5 px-2 py-1 rounded">
-              <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
-                <span>🖊️</span>
+            <div className="live-annotation-toolbar">
+              <span className="live-annotation-heading">
+                <LiveHighlightIcon type="highlight" size={14} />
                 <span>Surlignage Live :</span>
               </span>
-              <span className={`text-[9px] truncate max-w-[230px] ${selectedText ? 'text-emerald-200' : 'text-text-faint'}`} title={selectedText || undefined}>
+              <span className={`live-annotation-selection ${selectedText ? 'has-selection' : ''}`} title={selectedText || undefined}>
                 {selectedText ? `Sélection : « ${selectedText} »` : 'Sélectionnez une phrase dans le verset'}
               </span>
-              <div className="flex items-center gap-1 flex-wrap">
+              <div className="live-annotation-actions" role="group" aria-label="Annoter la sélection à l'antenne">
                 <button
                   type="button"
-                  className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-amber-400/20 hover:bg-amber-400/40 text-amber-300 border border-amber-400/30 transition-all"
+                  className="live-annotation-button is-highlight"
                   disabled={!selectedText}
+                  aria-label="Surligner la sélection en jaune"
                   title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Surligner la sélection'}
                   onClick={async (e) => {
                     e.stopPropagation()
@@ -875,16 +877,18 @@ export default function LiveDetection({ setActiveTab }) {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: annotationText, bold: true }] }),
                       })
-                      addToast?.({ message: '🟡 Surlignage appliqué à la projection', kind: 'success' })
+                      addToast?.({ message: 'Surlignage appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
                   }}
                 >
-                  🟡 Jaune
+                  <LiveHighlightIcon type="highlight" />
+                  <span>Surligner</span>
                 </button>
                 <button
                   type="button"
-                  className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 border border-rose-500/30 transition-all"
+                  className="live-annotation-button is-underline"
                   disabled={!selectedText}
+                  aria-label="Souligner la sélection en rouge"
                   title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Souligner la sélection'}
                   onClick={async (e) => {
                     e.stopPropagation()
@@ -894,16 +898,18 @@ export default function LiveDetection({ setActiveTab }) {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: annotationText, bold: true }] }),
                       })
-                      addToast?.({ message: '🔴 Soulignage appliqué à la projection', kind: 'success' })
+                      addToast?.({ message: 'Soulignage appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
                   }}
                 >
-                  🔴 Rouge
+                  <LiveHighlightIcon type="underline" />
+                  <span>Souligner</span>
                 </button>
                 <button
                   type="button"
-                  className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-sky-500/20 hover:bg-sky-500/40 text-sky-300 border border-sky-500/30 transition-all"
+                  className="live-annotation-button is-circle"
                   disabled={!selectedText}
+                  aria-label="Entourer la sélection en bleu"
                   title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Entourer la sélection'}
                   onClick={async (e) => {
                     e.stopPropagation()
@@ -913,15 +919,18 @@ export default function LiveDetection({ setActiveTab }) {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ annotations: [{ type: 'circle', color: '#38bdf8', text: annotationText, bold: true }] }),
                       })
-                      addToast?.({ message: '🔵 Cercle appliqué à la projection', kind: 'success' })
+                      addToast?.({ message: 'Cercle appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
                   }}
                 >
-                  🔵 Cercle
+                  <LiveHighlightIcon type="circle" />
+                  <span>Entourer</span>
                 </button>
                 <button
                   type="button"
-                  className="px-1.5 py-0.5 rounded text-[9.5px] font-medium bg-surface-3 hover:bg-surface-2 text-text-dim transition-all"
+                  className="live-annotation-button is-clear"
+                  aria-label="Effacer les annotations à l'antenne"
+                  title="Effacer les annotations à l'antenne"
                   onClick={async (e) => {
                     e.stopPropagation()
                     try {
@@ -931,11 +940,12 @@ export default function LiveDetection({ setActiveTab }) {
                         body: JSON.stringify({ annotations: [] }),
                       })
                       clearTextSelection(item.queueId)
-                      addToast?.({ message: '🧹 Annotations effacées', kind: 'info' })
+                      addToast?.({ message: 'Annotations effacées', kind: 'info' })
                     } catch (err) { console.error(err) }
                   }}
                 >
-                  🧹 Effacer
+                  <LiveHighlightIcon type="clear" />
+                  <span>Effacer</span>
                 </button>
               </div>
             </div>

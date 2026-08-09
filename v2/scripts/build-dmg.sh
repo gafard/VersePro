@@ -19,6 +19,12 @@ BUNDLE="$FRONTEND/src-tauri/target/release/bundle"
 VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$FRONTEND/src-tauri/tauri.conf.json" | head -1)"
 ARCH="$(uname -m)"
 DMG="VersePro_${VERSION}_${ARCH}.dmg"
+UPDATER_KEY="$RACINE/.secrets/versepro-updater.key"
+
+if [ -f "$UPDATER_KEY" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY_PATH="$UPDATER_KEY"
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+fi
 
 etape() { printf "\n\033[1m▸ %s\033[0m\n" "$1"; }
 

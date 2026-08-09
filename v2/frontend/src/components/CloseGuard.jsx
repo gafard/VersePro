@@ -15,14 +15,15 @@ import { useStore } from '../store.js'
  */
 export default function CloseGuard() {
   const isListening = useStore(s => s.isListening)
+  const onAir = useStore(s => s.onAir)
   const [demandee, setDemandee] = useState(false)
 
   // Le processus Rust ne peut pas deviner l'état du direct : on le lui dit.
   useEffect(() => {
     if (!isTauri) return
-    window.__TAURI__?.core?.invoke('definir_direct', { actif: Boolean(isListening) })
+    window.__TAURI__?.core?.invoke('definir_direct', { actif: Boolean(isListening || onAir) })
       .catch(() => { /* commande absente : la fermeture reste libre */ })
-  }, [isListening])
+  }, [isListening, onAir])
 
   useEffect(() => {
     if (!isTauri) return
@@ -47,7 +48,7 @@ export default function CloseGuard() {
           <h2 id="close-guard-titre" className="text-lg font-bold text-text-primary mt-0.5">Fermer VersePro maintenant ?</h2>
         </div>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Le micro est ouvert et la régie est en service. Fermer l'application
+          Le micro ou la sortie à l'antenne est actif. Fermer l'application
           coupe la projection : l'écran de l'assemblée deviendra noir.
         </p>
         <div className="flex gap-2.5 justify-end pt-2">

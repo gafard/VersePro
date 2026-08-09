@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Application
     DEBUG: bool = True
     APP_NAME: str = "VersePro v2"
-    VERSION: str = "2.0.0"
+    VERSION: str = "2.1.0"
     API_TOKEN: str = ""
     # Origines de la fenêtre applicative. Tauri 2 sert la fenêtre depuis
     # « http://tauri.localhost » sous Windows — en HTTP, là où Tauri 1 utilisait
@@ -84,12 +84,10 @@ class Settings(BaseSettings):
     VALIDATE_REFERENCES: bool = True  # Valider les références (chapitres/versets existants)
     
     # Projection & Themes
-    # Version de l'application et contrôle de mise à jour.
-    # URL VIDE = contrôle désactivé, aucun appel réseau. VersePro ne téléphone
-    # nulle part par défaut : c'est un outil d'église, il doit pouvoir tourner
-    # sans jamais sortir du bâtiment. Renseigner l'URL d'un manifeste JSON
-    # {"version": "2.1.0", "url": "https://…", "notes": "…"} pour l'activer.
-    APP_VERSION: str = "2.0.0"
+    # Version de l'application et contrôle de secours pour le mode navigateur.
+    # L'application Tauri utilise son Updater signé ; cette URL simplifiée ne
+    # sert que lorsque l'interface tourne hors du conteneur de bureau.
+    APP_VERSION: str = "2.1.0"
     UPDATE_CHECK_URL: str = ""
     UPDATE_CHECK_TIMEOUT: float = 6.0
 

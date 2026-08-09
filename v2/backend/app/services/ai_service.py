@@ -608,6 +608,17 @@ class AIService:
         """
         self.last_summary_error = ""
         self.last_summary_provider = ""
+        if not transcript or len(transcript.strip()) < 50:
+            self.last_summary_error = "Transcription trop courte pour être résumée."
+            return None
+
+        cache_key = self._normalize_cache_key(transcript, "summary")
+        # Le cache est utilisable même si aucun fournisseur n'est joignable :
+        # un résumé déjà généré doit rester disponible hors ligne.
+        cached = self._summary_cache.get(cache_key)
+        if cached:
+            return cached
+
         # L'état Ollama peut changer après l'initialisation asynchrone ;
         # recalculer ici évite qu'un modèle local prêt soit encore considéré
         # comme « IA désactivée » au premier clic sur Résumer.
@@ -618,19 +629,6 @@ class AIService:
                 "dans les Paramètres, ou installez Ollama en local."
             )
             return None
-        if not transcript or len(transcript.strip()) < 50:
-            self.last_summary_error = "Transcription trop courte pour être résumée."
-            return None
-
-        cache_key = self._normalize_cache_key(transcript, "summary")
-        # On ne relit le cache QUE s'il contient un vrai résumé. Auparavant les
-        # échecs y étaient mémorisés eux aussi : une seule panne réseau
-        # condamnait définitivement cette transcription, chaque nouvel essai
-        # renvoyant l'échec sans même appeler l'IA. Un bouton « Générer » qui ne
-        # peut plus jamais aboutir, sans que rien ne l'explique.
-        cached = self._summary_cache.get(cache_key)
-        if cached:
-            return cached
 
         # Chaque moteur ajoute ici la raison de son échec : sans cela
         # l'opérateur ne voit qu'un « échec de génération » muet.

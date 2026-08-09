@@ -13,6 +13,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$HERE/../../backend"
 FREEZE_VENV="$BACKEND/.freeze-venv"
+VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$HERE/tauri.conf.json" | head -1)"
+UPDATER_KEY="$HERE/../../../.secrets/versepro-updater.key"
+
+if [ -f "$UPDATER_KEY" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY_PATH="$UPDATER_KEY"
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+fi
 
 if [ ! -x "$FREEZE_VENV/bin/pyinstaller" ]; then
   echo "❌ venv de gel absent. Créez-le :"
@@ -45,7 +52,7 @@ echo "▶ 3/4  Construction de l'application Tauri…"
 
 echo "▶ 4/4  Création du DMG natif…"
 APP="$HERE/target/release/bundle/macos/VersePro.app"
-DMG="$HERE/target/release/bundle/dmg/VersePro_2.0.0_aarch64.dmg"
+DMG="$HERE/target/release/bundle/dmg/VersePro_${VERSION}_aarch64.dmg"
 STAGING="$(mktemp -d "${TMPDIR:-/tmp}/versepro-dmg.XXXXXX")"
 cleanup() { rm -rf "$STAGING"; }
 trap cleanup EXIT
