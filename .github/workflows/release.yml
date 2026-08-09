@@ -99,6 +99,21 @@ jobs:
           pip install -r requirements-ci.txt pyinstaller
           python -c "import transcribe_cpp; assert transcribe_cpp.backends(); print('transcribe.cpp natif OK:', transcribe_cpp.library_path())"
 
+      - name: Vérifier le VAD natif sur la plateforme distribuée
+        working-directory: v2/backend
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from app.services.vad_service import VoiceGate, vad_available
+
+          assert vad_available(), "modèle silero_vad.onnx absent"
+          gate = VoiceGate(sample_rate=16000)
+          silence = np.zeros(4096, dtype=np.int16).tobytes()
+          assert gate.accept(silence) is False
+          assert gate.stats()["chunks_blocked"] == 1
+          print("VAD Silero natif OK")
+          PY
+
       - name: Geler le backend
         working-directory: v2/backend
         run: pyinstaller --clean --noconfirm versepro-backend.spec

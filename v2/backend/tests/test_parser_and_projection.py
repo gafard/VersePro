@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import pytest
 
@@ -88,6 +89,8 @@ def test_voice_gate_blocks_silence_and_reports_stats():
     """La barrière vocale doit fermer la porte sur du silence pur."""
     from app.services.vad_service import VoiceGate, vad_available
 
+    if os.environ.get("VERSEPRO_SKIP_NATIVE_VAD_TEST") == "1":
+        pytest.skip("Inférence VAD vérifiée sur les runners macOS et Windows de la release")
     if not vad_available():
         pytest.skip("Modèle silero_vad.onnx absent")
 

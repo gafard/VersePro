@@ -28,6 +28,11 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Tests
+        env:
+          # ONNX/Silero se fige sur le runner Ubuntu alors que VersePro n'est
+          # pas distribué sous Linux. Le workflow Release exécute ce test sur
+          # les deux plateformes réellement livrées : macOS et Windows.
+          VERSEPRO_SKIP_NATIVE_VAD_TEST: "1"
         run: python -m pytest tests/ test_parser.py -q
 
       - name: Audit des dépendances Python
