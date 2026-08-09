@@ -170,7 +170,12 @@ def rendre_habillage(
     # utilisent le même découpage que le texte NDI, y compris les passages
     # longs. Cela évite de tenter de deviner une position depuis la longueur
     # brute de la chaîne.
-    boites_mots: List[Tuple[str, Tuple[float, float, float, float]]] = []
+    # (mot normalisé, bbox, mot original, position Y) pour pouvoir redessiner
+    # une sélection en gras sur la trame NDI, comme dans la sortie HTML/OBS.
+    boites_mots: List[Tuple[str, Tuple[float, float, float, float], str, float]] = []
+    texte_police_famille = "sans"
+    texte_taille = 0
+    texte_couleur = (255, 255, 255, 255)
     for nom, contenu in (("reference", reference), ("text", texte)):
         zone = (zones or {}).get(nom)
         if not zone or not contenu:
@@ -183,6 +188,10 @@ def rendre_habillage(
         taille = max(8, int(zone["size"] * hauteur / 100))
         police = _police(zone.get("font", "sans"), taille, zone.get("weight", 400) >= 600)
         couleur = _rgba(zone.get("color"), 1.0)
+        if nom == "text":
+            texte_police_famille = zone.get("font", "sans")
+            texte_taille = taille
+            texte_couleur = couleur
         interligne = zone.get("line", 1.2) * taille
 
         retrait = 0
@@ -212,7 +221,7 @@ def rendre_habillage(
                 for mot in ligne.split():
                     largeur_mot = crayon.textlength(mot, font=police)
                     bbox = crayon.textbbox((curseur, y), mot, font=police)
-                    boites_mots.append((_normaliser_mot(mot), bbox))
+                    boites_mots.append((_normaliser_mot(mot), bbox, mot, y))
                     curseur += largeur_mot + crayon.textlength(" ", font=police)
             y += interligne
 
@@ -225,7 +234,7 @@ def rendre_habillage(
         cible = [mot for mot in _normaliser_mots(annotation.get("text", "")) if mot]
         debut = -1
         if cible:
-            mots = [mot for mot, _ in boites_mots]
+            mots = [mot for mot, _, _, _ in boites_mots]
             for index in range(0, len(mots) - len(cible) + 1):
                 if mots[index:index + len(cible)] == cible:
                     debut = index
@@ -236,7 +245,7 @@ def rendre_habillage(
         calque = Image.new("RGBA", cadre.size, (0, 0, 0, 0))
         annotation_draw = ImageDraw.Draw(calque)
         couleur = _rgba(annotation.get("color", "yellow"), 1.0)
-        boxes = [box for _, box in selection]
+        boxes = [box for _, box, _, _ in selection]
         if annotation.get("type") == "highlight":
             for left, top, right, bottom in boxes:
                 annotation_draw.rounded_rectangle(
@@ -271,6 +280,12 @@ def rendre_habillage(
                     outline=(*couleur[:3], 255),
                     width=max(2, int((bottom - top) * 0.08)),
                 )
+        if annotation.get("bold") and texte_taille:
+            # Redessine uniquement les mots ciblés avec la variante bold de
+            # la même police, sans épaissir le reste du verset.
+            police_gras = _police(texte_police_famille, texte_taille, True)
+            for _normalise, bbox, mot_original, position_y in selection:
+                annotation_draw.text((bbox[0], position_y), mot_original, font=police_gras, fill=texte_couleur)
         cadre.alpha_composite(calque)
 
     return cadre

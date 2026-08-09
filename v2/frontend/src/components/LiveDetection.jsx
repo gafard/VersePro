@@ -83,6 +83,32 @@ function renderHighlightedVerseText(verseText, transcript, isParaphrase) {
   })
 }
 
+/** Rend uniquement la portion sélectionnée en gras, le reste en graisse normale. */
+function renderSelectedVerseText(verseText, selectedText) {
+  const source = String(verseText || '')
+  const selected = String(selectedText || '').trim().replace(/\s+/g, ' ')
+  if (!source || !selected) return source || 'Texte non chargé.'
+
+  // La sélection du navigateur peut contenir des espaces ou retours à la
+  // ligne différents de ceux du texte biblique rendu dans la carte.
+  const escapedWords = selected.split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  if (!escapedWords.length) return source
+  const match = new RegExp(escapedWords.join('\\s+'), 'i').exec(source)
+  if (!match) return source
+
+  const start = match.index
+  const end = start + match[0].length
+  return (
+    <>
+      {source.slice(0, start)}
+      <strong className="live-selection-bold">{source.slice(start, end)}</strong>
+      {source.slice(end)}
+    </>
+  )
+}
+
 function MicIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -151,6 +177,7 @@ export default function LiveDetection({ setActiveTab }) {
   const [preflightOpen, setPreflightOpen] = useState(false)
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [flippingIds, setFlippingIds] = useState(new Set())
+  const [annotationSelections, setAnnotationSelections] = useState({})
   const [failedIds, setFailedIds] = useState(new Set())
   const [preparingReference, setPreparingReference] = useState(false)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false)
@@ -486,6 +513,24 @@ export default function LiveDetection({ setActiveTab }) {
     }
   }
 
+  const handleTextSelection = (event, item) => {
+    const selection = window.getSelection?.()
+    if (!selection || selection.isCollapsed) return
+    const container = event.currentTarget
+    if (!container.contains(selection.anchorNode) || !container.contains(selection.focusNode)) return
+    const selected = selection.toString().replace(/\s+/g, ' ').trim()
+    if (!selected) return
+    setAnnotationSelections((previous) => ({ ...previous, [item.queueId]: selected }))
+  }
+
+  const clearTextSelection = (queueId) => {
+    setAnnotationSelections((previous) => {
+      const next = { ...previous }
+      delete next[queueId]
+      return next
+    })
+  }
+
   const handleShiftVerse = async (delta) => {
     const next = shiftVerse(onAir?.reference, delta)
     if (next) await sendReference(next)
@@ -698,6 +743,10 @@ export default function LiveDetection({ setActiveTab }) {
     const isProjected = item.status === 'projected' || item.reference === onAir?.reference
     const prevRef = shiftVerse(item.reference, -1)
     const nextRef = shiftVerse(item.reference, 1)
+    const selectedText = annotationSelections[item.queueId] || ''
+    // Une annotation ne doit jamais retomber sur le verset entier : elle est
+    // volontairement limitée à la sélection explicite de l'opérateur.
+    const annotationText = selectedText
 
     return (
       <article
@@ -735,8 +784,14 @@ export default function LiveDetection({ setActiveTab }) {
           </div>
         )}
 
-        <p className="live-card-text leading-relaxed">
-          {renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
+        <p
+          className="live-card-text leading-relaxed select-text cursor-text"
+          onMouseUp={(event) => handleTextSelection(event, item)}
+          title="Sélectionnez une phrase pour la mettre en gras et l'annoter"
+        >
+          {selectedText
+            ? renderSelectedVerseText(item.text, selectedText)
+            : renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
         </p>
 
         {/* Quick Verse Navigation & Direct Jump Selector */}
@@ -798,21 +853,27 @@ export default function LiveDetection({ setActiveTab }) {
 
           {/* Surligneur Live pour le verset à l'antenne */}
           {isProjected && (
-            <div className="flex items-center justify-between gap-2 pt-1 border-t border-emerald-500/20 bg-emerald-500/5 px-2 py-1 rounded">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-emerald-500/20 bg-emerald-500/5 px-2 py-1 rounded">
               <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
                 <span>🖊️</span>
                 <span>Surlignage Live :</span>
               </span>
-              <div className="flex items-center gap-1">
+              <span className={`text-[9px] truncate max-w-[230px] ${selectedText ? 'text-emerald-200' : 'text-text-faint'}`} title={selectedText || undefined}>
+                {selectedText ? `Sélection : « ${selectedText} »` : 'Sélectionnez une phrase dans le verset'}
+              </span>
+              <div className="flex items-center gap-1 flex-wrap">
                 <button
+                  type="button"
                   className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-amber-400/20 hover:bg-amber-400/40 text-amber-300 border border-amber-400/30 transition-all"
+                  disabled={!selectedText}
+                  title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Surligner la sélection'}
                   onClick={async (e) => {
                     e.stopPropagation()
                     try {
                       await fetch('/api/v1/projection/annotation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: item.text || item.reference }] }),
+                        body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: annotationText, bold: true }] }),
                       })
                       addToast?.({ message: '🟡 Surlignage appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
@@ -821,14 +882,17 @@ export default function LiveDetection({ setActiveTab }) {
                   🟡 Jaune
                 </button>
                 <button
+                  type="button"
                   className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 border border-rose-500/30 transition-all"
+                  disabled={!selectedText}
+                  title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Souligner la sélection'}
                   onClick={async (e) => {
                     e.stopPropagation()
                     try {
                       await fetch('/api/v1/projection/annotation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: item.text || item.reference }] }),
+                        body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: annotationText, bold: true }] }),
                       })
                       addToast?.({ message: '🔴 Soulignage appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
@@ -837,14 +901,17 @@ export default function LiveDetection({ setActiveTab }) {
                   🔴 Rouge
                 </button>
                 <button
+                  type="button"
                   className="px-2 py-0.5 rounded text-[9.5px] font-semibold bg-sky-500/20 hover:bg-sky-500/40 text-sky-300 border border-sky-500/30 transition-all"
+                  disabled={!selectedText}
+                  title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Entourer la sélection'}
                   onClick={async (e) => {
                     e.stopPropagation()
                     try {
                       await fetch('/api/v1/projection/annotation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'circle', color: '#38bdf8', text: item.text || item.reference }] }),
+                        body: JSON.stringify({ annotations: [{ type: 'circle', color: '#38bdf8', text: annotationText, bold: true }] }),
                       })
                       addToast?.({ message: '🔵 Cercle appliqué à la projection', kind: 'success' })
                     } catch (err) { console.error(err) }
@@ -853,6 +920,7 @@ export default function LiveDetection({ setActiveTab }) {
                   🔵 Cercle
                 </button>
                 <button
+                  type="button"
                   className="px-1.5 py-0.5 rounded text-[9.5px] font-medium bg-surface-3 hover:bg-surface-2 text-text-dim transition-all"
                   onClick={async (e) => {
                     e.stopPropagation()
@@ -862,6 +930,7 @@ export default function LiveDetection({ setActiveTab }) {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ annotations: [] }),
                       })
+                      clearTextSelection(item.queueId)
                       addToast?.({ message: '🧹 Annotations effacées', kind: 'info' })
                     } catch (err) { console.error(err) }
                   }}

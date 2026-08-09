@@ -115,6 +115,7 @@
                que celui projeté, sans modifier le contenu biblique. */
             #text .annotation-highlight { background: rgba(250, 204, 21, 0.72); color: inherit; border-radius: 0.16em; padding: 0 0.08em; }
             #text .annotation-underline { text-decoration: underline 0.12em solid #ef4444; text-underline-offset: 0.12em; }
+            #text .annotation-bold { font-weight: 700; }
             #annotation-layer { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; overflow: visible; }
             #annotation-layer rect { fill: none; stroke: #38bdf8; stroke-width: 4; stroke-dasharray: 12 7; vector-effect: non-scaling-stroke; }
 
@@ -882,8 +883,8 @@
             // la scène. On les recalcule après chaque changement de page pour
             // qu'elles restent visibles sur les longs passages paginés.
             function appliquerAnnotations() {
-                textEl.querySelectorAll('.annotation-highlight, .annotation-underline').forEach((el) => {
-                    el.classList.remove('annotation-highlight', 'annotation-underline');
+                textEl.querySelectorAll('.annotation-highlight, .annotation-underline, .annotation-bold').forEach((el) => {
+                    el.classList.remove('annotation-highlight', 'annotation-underline', 'annotation-bold');
                 });
                 annotationLayer.textContent = '';
                 if (!currentAnnotations.length) return;
@@ -908,6 +909,9 @@
                     if (!indices.length) return;
                     if (annotation.type === 'highlight' || annotation.type === 'underline') {
                         indices.forEach((el) => el.classList.add('annotation-' + annotation.type));
+                    }
+                    if (annotation.bold) {
+                        indices.forEach((el) => el.classList.add('annotation-bold'));
                     }
                     if (annotation.type === 'circle') {
                         const rects = indices.flatMap((el) => Array.from(el.getClientRects()));
