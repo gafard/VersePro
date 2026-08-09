@@ -6,6 +6,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      allow_unsigned:
+        description: "Autoriser des installateurs de test non signés si les certificats sont absents"
+        required: true
+        default: true
+        type: boolean
 
 jobs:
   build:
@@ -28,21 +34,32 @@ jobs:
     env:
       HAS_WIN_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      # Un lancement manuel sert aussi à fabriquer des builds de validation.
+      # Les publications par tag restent, elles, obligatoirement signées.
+      ALLOW_UNSIGNED: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_unsigned }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
 
-      - name: Refuser une publication non signée
+      - name: Vérifier la politique de signature
         run: |
           if [ "$RUNNER_OS" = "macOS" ] && [ "$HAS_APPLE_CERT" != "true" ]; then
-            echo "::error::Certificat Apple Developer ID absent. Aucun installeur public non signé ne sera produit."
-            exit 1
+            if [ "$ALLOW_UNSIGNED" = "true" ]; then
+              echo "::warning::Certificat Apple Developer ID absent : le DMG de test sera non signé et non notarialisé."
+            else
+              echo "::error::Certificat Apple Developer ID absent. Une publication par tag doit être signée."
+              exit 1
+            fi
           fi
           if [ "$RUNNER_OS" = "Windows" ] && [ "$HAS_WIN_CERT" != "true" ]; then
-            echo "::error::Certificat Windows absent. Aucun installeur public non signé ne sera produit."
-            exit 1
+            if [ "$ALLOW_UNSIGNED" = "true" ]; then
+              echo "::warning::Certificat Windows absent : les installateurs de test seront non signés."
+            else
+              echo "::error::Certificat Windows absent. Une publication par tag doit être signée."
+              exit 1
+            fi
           fi
 
       # ── 1. Geler le backend Python (PyInstaller onedir) ──
@@ -143,9 +160,8 @@ jobs:
         with:
           workspaces: v2/frontend/src-tauri
 
-      # Le garde de publication ci-dessus rend le certificat obligatoire.
       - name: Importer le certificat Windows
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && env.HAS_WIN_CERT == 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
