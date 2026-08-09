@@ -637,16 +637,9 @@ async def get_nemotron_status():
     from ..main import nemotron_service
     if not nemotron_service:
         return {"installed": False, "downloading": False, "model_name": "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"}
-
-    installed = nemotron_service.is_ready
     return {
-        "installed": installed,
-        "ready": installed,
-        "downloading": getattr(nemotron_service, "downloading", False) and not installed,
-        "download_progress": 1.0 if installed else getattr(nemotron_service, "download_progress", 0.0),
-        "last_error": getattr(nemotron_service, "last_error", ""),
+        **nemotron_service.status(),
         "model_name": "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
-        "model_size_mb": 716
     }
 
 
@@ -893,8 +886,13 @@ async def prepare_local_asr(request: Optional[PrepareModelRequest] = None):
     from ..main import nemotron_service
     if not nemotron_service:
         raise HTTPException(status_code=503, detail="Service ASR local indisponible")
-    if nemotron_service.is_ready:
+    if nemotron_service.is_ready and nemotron_service.runtime_available:
         return {"status": "ready", **nemotron_service.status()}
+    if nemotron_service.is_ready and not nemotron_service.runtime_available:
+        raise HTTPException(
+            status_code=503,
+            detail=nemotron_service.last_error or "Moteur natif Nemotron absent de l'application",
+        )
     if not nemotron_service.downloading:
         import threading
         threading.Thread(

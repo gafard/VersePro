@@ -136,6 +136,17 @@ def test_start_ouvre_le_flux_dans_la_bonne_langue(service, flux):
     assert service.status()["loaded"] is True
 
 
+def test_prewarm_prepare_un_flux_reutilise_par_start(service, monkeypatch, flux):
+    """Le préchargement ne doit pas ouvrir un deuxième flux au clic micro."""
+    monkeypatch.setattr(type(service), "is_ready", property(lambda self: True))
+    service.prewarm()
+    assert service.status()["loaded"] is True
+    assert service._session.flux_ouverts == 1
+
+    service.start()
+    assert service._session.flux_ouverts == 1
+
+
 def test_le_locale_complet_est_exige():
     """Le modèle REFUSE « fr » et « auto » — constaté à l'exécution.
 

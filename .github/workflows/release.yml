@@ -81,6 +81,7 @@ jobs:
           open('requirements-ci.txt', 'w').writelines(lines)
           "
           pip install -r requirements-ci.txt pyinstaller
+          python -c "import transcribe_cpp; assert transcribe_cpp.backends(); print('transcribe.cpp natif OK:', transcribe_cpp.library_path())"
 
       - name: Geler le backend
         working-directory: v2/backend

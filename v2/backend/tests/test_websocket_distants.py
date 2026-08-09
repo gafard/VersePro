@@ -193,3 +193,35 @@ def test_nemotron_audio_stream_emits_transcript(monkeypatch):
     assert transcript["type"] == "transcript"
     assert transcript["text"] == "bonjour"
     assert transcript["is_final"] is False
+
+
+def test_nemotron_force_ne_bascule_jamais_sur_deepgram(monkeypatch):
+    """Choisir le local est une garantie : aucun octet ne doit partir au cloud."""
+
+    class MissingNemotron:
+        is_ready = False
+        last_error = "Bibliothèque native transcribe.cpp absente"
+
+    class TrackingDeepgram:
+        calls = 0
+
+        async def create_session(self, callback):
+            self.calls += 1
+            return FakeDeepgramSession(callback)
+
+    cloud = TrackingDeepgram()
+    monkeypatch.setattr(main, "nemotron_service", MissingNemotron())
+    monkeypatch.setattr(main, "deepgram_service", cloud)
+    remote_client = TestClient(main.app, client=("203.0.113.10", 49152))
+
+    with remote_client.websocket_connect(
+        "/ws/audio?token=secure-integration-token&engine=nemotron"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "ai_status"
+        status = websocket.receive_json()
+        assert status["type"] == "status_update"
+        assert status["status"] == "error"
+        assert status["mode"] == "nemotron"
+        assert "transcribe.cpp" in status["reason"]
+
+    assert cloud.calls == 0

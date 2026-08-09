@@ -21,13 +21,20 @@ if [ ! -x "$FREEZE_VENV/bin/pyinstaller" ]; then
   exit 1
 fi
 
-if ! "$FREEZE_VENV/bin/python" -c "import faster_whisper, keyring" >/dev/null 2>&1; then
+if ! "$FREEZE_VENV/bin/python" -c "import faster_whisper, keyring, transcribe_cpp; assert transcribe_cpp.backends()" >/dev/null 2>&1; then
   echo "Mise à niveau des dépendances du backend figé…"
   "$FREEZE_VENV/bin/python" -m pip install -r "$BACKEND/requirements.txt" pyinstaller
 fi
 
 echo "▶ 1/3  Gel du backend (PyInstaller onedir)…"
 ( cd "$BACKEND" && "$FREEZE_VENV/bin/pyinstaller" --clean --noconfirm versepro-backend.spec )
+
+NATIVE_ASR="$(find "$BACKEND/dist/versepro-backend" \( -iname 'libtranscribe*' -o -iname 'transcribe*.dll' \) -type f -print -quit)"
+if [ -z "$NATIVE_ASR" ]; then
+  echo "❌ Le gel ne contient pas la bibliothèque native transcribe.cpp : Nemotron serait inutilisable."
+  exit 1
+fi
+echo "✅ Moteur natif Nemotron embarqué : $NATIVE_ASR"
 
 echo "▶ 2/3  Embarquement du backend dans les ressources Tauri…"
 rm -rf "$HERE/backend"

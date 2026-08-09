@@ -952,26 +952,37 @@ async def websocket_audio(websocket: WebSocket):
     logger.info(f"🔌 Connexion WebSocket audio demandée avec le moteur : {engine} | Traduction: {translation_lang or 'aucune'}")
 
     if engine in ("vosk", "nemotron", "local_auto"):
-        local_ready = False
+        # Un moteur local explicitement choisi est une contrainte de
+        # confidentialité, pas une préférence. Il ne doit jamais envoyer le
+        # son vers Deepgram en silence. Seul « auto » autorise le cloud.
         if engine == "nemotron":
             local_ready = await activate_nemotron()
-        if not local_ready:
-            local_ready = await activate_vosk(status="fallback" if engine == "nemotron" else "connected")
-        if not local_ready and engine == "local_auto":
+            reason = (
+                getattr(nemotron_service, "last_error", "")
+                or "Nemotron n'est pas opérationnel. Vérifiez le moteur natif et le modèle local."
+            )
+        elif engine == "vosk":
+            local_ready = await activate_vosk()
+            reason = "Vosk n'est pas opérationnel. Préparez le modèle local."
+        else:
+            # local_auto reste strictement hors ligne : Nemotron en priorité,
+            # puis Vosk, sans aucune sortie réseau.
             local_ready = await activate_nemotron()
+            if not local_ready:
+                local_ready = await activate_vosk(status="fallback")
+            reason = "Aucun moteur ASR local n'est opérationnel."
+
         if not local_ready:
-            try:
-                transcription_session = await deepgram_service.create_session(on_transcript_received)
-                await send_json({
-                    "type": "status_update",
-                    "status": "fallback",
-                    "mode": "deepgram",
-                    "reason": "Moteurs locaux indisponibles. Deepgram activé en secours.",
-                })
-            except Exception as exc:
-                with suppress(Exception):
-                    await websocket.close(code=1011, reason=f"Aucun moteur ASR disponible : {exc}")
-                return
+            logger.error(f"Moteur ASR local demandé indisponible : {reason}")
+            await send_json({
+                "type": "status_update",
+                "status": "error",
+                "mode": engine,
+                "reason": reason,
+            })
+            with suppress(Exception):
+                await websocket.close(code=1011, reason=reason[:120])
+            return
     elif engine == "deepgram":
         # Mode Deepgram cloud forcé
         try:

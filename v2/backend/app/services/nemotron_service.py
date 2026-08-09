@@ -135,10 +135,12 @@ class NemotronService:
         self._flux = None
 
         self._lock = threading.Lock()
+        self._startup_lock = threading.Lock()
         self._running = False
         self.downloading = False
         self.download_progress = 0.0
         self.last_error = ""
+        self._runtime_available: Optional[bool] = None
 
         # Longueur du texte figé DÉJÀ transmis à l'appelant.
         self._fige_emis = 0
@@ -175,39 +177,78 @@ class NemotronService:
     def model_path(self) -> Path:
         return self.resolved_model_path
 
+    @property
+    def runtime_available(self) -> bool:
+        """Vérifie une fois que le binding Python ET sa bibliothèque native chargent.
+
+        La présence du GGUF seule ne suffit pas : c'était précisément le cas du
+        DMG défectueux, qui annonçait « prêt » avec 716 Mo sur disque alors que
+        `transcribe_cpp` n'avait pas été embarqué.
+        """
+        if self._runtime_available is not None:
+            return self._runtime_available
+        try:
+            self._binding()
+            self._runtime_available = True
+        except Exception:
+            self._runtime_available = False
+        return self._runtime_available
+
     def status(self) -> Dict[str, Any]:
+        model_installed = self.is_ready
+        runtime_ready = self.runtime_available
         return {
             "provider": self.NAME,
             "display_name": self.DISPLAY_NAME,
-            "ready": self.is_ready,
-            "installed": self.is_ready,
+            "ready": model_installed and runtime_ready,
+            "installed": model_installed,
+            "runtime_available": runtime_ready,
             "model_path": str(self.resolved_model_path),
             "model_size_mb": MODEL_SIZE_MB,
             "loaded": self._running,
-            "downloading": self.downloading and not self.is_ready,
-            "download_progress": 1.0 if self.is_ready else self.download_progress,
+            "downloading": self.downloading and not model_installed,
+            "download_progress": 1.0 if model_installed else self.download_progress,
             "last_error": self.last_error,
         }
 
     def prewarm(self) -> None:
         """Précharge le modèle GGUF et les pipelines GPU en mémoire en arrière-plan au démarrage."""
-        if not self.is_ready or self._modele is not None:
-            return
-        try:
-            chemin = self.resolved_model_path
-            transcribe_cpp = self._binding()
-            logger.info("🧠 Pré-chargement de Nemotron 3.5-ASR (716 Mo) en mémoire...")
-            self._modele = transcribe_cpp.Model(str(chemin))
-            if self._modele.capabilities.supports_streaming:
+        with self._startup_lock:
+            if not self.is_ready or self._running:
+                return
+            try:
+                chemin = self.resolved_model_path
+                transcribe_cpp = self._binding()
+                logger.info("🧠 Pré-chargement de Nemotron 3.5-ASR (716 Mo) en mémoire...")
+                if self._modele is None:
+                    self._modele = transcribe_cpp.Model(str(chemin))
+                if not self._modele.capabilities.supports_streaming:
+                    raise RuntimeError(
+                        f"{self._modele.arch}/{self._modele.variant} ne gère pas le flux"
+                    )
                 self._session = self._modele.session().__enter__()
                 self._flux = self._session.stream(language=LANGUE).__enter__()
-            logger.info(f"✅ Nemotron 3.5-ASR prêt instantanément en mémoire")
-        except Exception as exc:
-            logger.warning(f"Pré-chargement Nemotron reporté : {exc}")
+                with self._lock:
+                    self._fige_emis = 0
+                    self._tentatif = ""
+                    self._enonce_fini = None
+                    self._dernier_changement = time.monotonic()
+                self._running = True
+                logger.info("✅ Nemotron 3.5-ASR prêt instantanément en mémoire")
+            except Exception as exc:
+                self._fermer_natif()
+                self._running = False
+                self.last_error = f"Pré-chargement Nemotron impossible : {exc}"
+                logger.warning(self.last_error)
 
     def prepare(self, allow_download: bool = True) -> bool:
         """Télécharge le GGUF depuis Hugging Face si absent."""
         if self.is_ready:
+            if not self.runtime_available:
+                # Ne retélécharge pas 716 Mo pour réparer un exécutable auquel
+                # il manque le binding natif : seul un paquet d'application
+                # corrigé peut résoudre ce cas.
+                return False
             logger.info("Modèle Nemotron déjà présent.")
             self.prewarm()
             return True
@@ -298,9 +339,13 @@ class NemotronService:
     def start(self) -> None:
         """Charge le modèle et ouvre un flux en français.
 
-        Lève une RuntimeError explicite en cas d'échec : l'appelant
-        (activate_nemotron) l'attrape et se rabat sur Vosk sans couper le micro.
+        Lève une RuntimeError explicite en cas d'échec : l'appelant la remonte
+        à la régie sans envoyer silencieusement le son vers un moteur cloud.
         """
+        with self._startup_lock:
+            self._start_locked()
+
+    def _start_locked(self) -> None:
         if self._running:
             return
 

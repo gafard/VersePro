@@ -172,6 +172,17 @@ export const createSyncSlice = (set, get) => ({
         if (data.status === 'fallback') {
           const msg = data.reason || `Le moteur demandé n'est pas prêt. Repli sur ${data.mode}.`
           get().addToast({ message: msg, kind: 'warn' })
+        } else if (data.status === 'error') {
+          const msg = data.reason || `Le moteur ${data.mode || 'ASR'} n'est pas disponible.`
+          // Le backend ferme ensuite la socket. Marquer la fermeture comme
+          // volontaire empêche huit reconnexions automatiques qui masqueraient
+          // la vraie panne et donneraient l'impression d'un moteur instable.
+          set({
+            micError: msg,
+            audioConnected: false,
+            _manualDisconnect: true
+          })
+          get().addToast({ message: msg, kind: 'error', duration: 8000 })
         }
       }
 
