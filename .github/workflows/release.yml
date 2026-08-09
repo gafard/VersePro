@@ -191,6 +191,14 @@ jobs:
         run: |
           npm ci
           if [ "$RUNNER_OS" = "macOS" ]; then
+            # Une variable APPLE_CERTIFICATE présente mais vide suffit à faire
+            # croire au bundler Tauri qu'il doit importer un certificat. Pour
+            # un build manuel non signé, il faut donc retirer complètement ces
+            # variables de l'environnement du processus enfant.
+            if [ "$HAS_APPLE_CERT" != "true" ]; then
+              unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY
+              unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            fi
             npm run tauri build -- --bundles app
           else
             npm run tauri build
