@@ -1118,6 +1118,37 @@ body {
   background: var(--color-ok-soft);
   color: var(--color-ink-2);
 }
+.live-annotation-toolbar--onair {
+  flex: 0 0 auto;
+  align-items: stretch;
+  justify-content: flex-start;
+  margin: 0 0 var(--space-sm);
+  padding: var(--space-2xs);
+  border: 1px solid var(--color-ok-soft);
+  border-left: 3px solid var(--color-ok);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-ok-soft) 88%, transparent), transparent),
+    var(--color-paper-2);
+}
+.live-annotation-toolbar--onair .live-annotation-heading {
+  font-size: var(--text-2xs);
+}
+.live-annotation-toolbar--onair .live-annotation-selection {
+  width: 100%;
+  max-width: none;
+}
+.live-annotation-toolbar--onair .live-annotation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+.live-annotation-toolbar--onair .live-annotation-button {
+  justify-content: center;
+  min-width: 0;
+}
+.live-annotation-toolbar--onair.is-unavailable .live-annotation-selection {
+  color: var(--color-muted);
+}
 .live-annotation-heading,
 .live-annotation-actions,
 .live-annotation-button {

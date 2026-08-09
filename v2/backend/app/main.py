@@ -397,7 +397,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VersePro v2",
     description="Détection automatique de versets bibliques avec IA",
-    version="2.1.0",
+    version="2.1.1",
     lifespan=lifespan
 )
 
@@ -442,7 +442,7 @@ async def root():
     return {
         "name": "VersePro v2",
         "status": "running",
-        "version": "2.1.0"
+        "version": "2.1.1"
     }
 
 

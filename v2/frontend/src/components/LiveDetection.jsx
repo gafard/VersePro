@@ -179,6 +179,7 @@ export default function LiveDetection({ setActiveTab }) {
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [flippingIds, setFlippingIds] = useState(new Set())
   const [annotationSelections, setAnnotationSelections] = useState({})
+  const [annotationBusy, setAnnotationBusy] = useState(false)
   const [failedIds, setFailedIds] = useState(new Set())
   const [preparingReference, setPreparingReference] = useState(false)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false)
@@ -514,14 +515,14 @@ export default function LiveDetection({ setActiveTab }) {
     }
   }
 
-  const handleTextSelection = (event, item) => {
+  const handleTextSelection = (event, selectionKey) => {
     const selection = window.getSelection?.()
     if (!selection || selection.isCollapsed) return
     const container = event.currentTarget
     if (!container.contains(selection.anchorNode) || !container.contains(selection.focusNode)) return
     const selected = selection.toString().replace(/\s+/g, ' ').trim()
     if (!selected) return
-    setAnnotationSelections((previous) => ({ ...previous, [item.queueId]: selected }))
+    setAnnotationSelections((previous) => ({ ...previous, [selectionKey]: selected }))
   }
 
   const clearTextSelection = (queueId) => {
@@ -619,6 +620,41 @@ export default function LiveDetection({ setActiveTab }) {
     const projected = projectionQueue.find((item) => item.status === 'projected')
     return projected ? { reference: projected.reference, text: projected.text, version: projected.version || activeBible } : null
   })()
+  const onAirSelectionKey = onAirDisplay?.reference
+    ? `onair:${onAirDisplay.reference}:${onAirDisplay.version || activeBible || 'LSG'}`
+    : 'onair:none'
+  const onAirSelectedText = annotationSelections[onAirSelectionKey] || ''
+
+  const sendLiveAnnotation = async (type = 'clear') => {
+    if (annotationBusy || (!onAirSelectedText && type !== 'clear')) return
+    const annotationConfig = {
+      highlight: { color: 'yellow', success: 'Surlignage appliqué à la projection' },
+      underline: { color: 'red', success: 'Soulignage appliqué à la projection' },
+      circle: { color: '#38bdf8', success: 'Cercle appliqué à la projection' },
+    }
+    const config = annotationConfig[type]
+    const annotations = config
+      ? [{ type, color: config.color, text: onAirSelectedText, bold: true }]
+      : []
+
+    setAnnotationBusy(true)
+    try {
+      const response = await fetch(`${BACKEND_BASE}/api/v1/projection/annotation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ annotations }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.detail || 'La sortie de projection ne répond pas')
+      if (!config) clearTextSelection(onAirSelectionKey)
+      window.getSelection?.()?.removeAllRanges?.()
+      addToast?.({ message: config?.success || 'Annotations effacées', kind: config ? 'success' : 'info' })
+    } catch (error) {
+      addToast?.({ message: error.message || 'Impossible d’annoter la projection', kind: 'error' })
+    } finally {
+      setAnnotationBusy(false)
+    }
+  }
 
   // Navigation dynamique autour du verset actuellement projeté à l'antenne
   const onAirNavChips = useMemo(() => {
@@ -744,10 +780,6 @@ export default function LiveDetection({ setActiveTab }) {
     const isProjected = item.status === 'projected' || item.reference === onAir?.reference
     const prevRef = shiftVerse(item.reference, -1)
     const nextRef = shiftVerse(item.reference, 1)
-    const selectedText = annotationSelections[item.queueId] || ''
-    // Une annotation ne doit jamais retomber sur le verset entier : elle est
-    // volontairement limitée à la sélection explicite de l'opérateur.
-    const annotationText = selectedText
 
     return (
       <article
@@ -786,13 +818,9 @@ export default function LiveDetection({ setActiveTab }) {
         )}
 
         <p
-          className="live-card-text leading-relaxed select-text cursor-text"
-          onMouseUp={(event) => handleTextSelection(event, item)}
-          title="Sélectionnez une phrase pour la mettre en gras et l'annoter"
+          className="live-card-text leading-relaxed"
         >
-          {selectedText
-            ? renderSelectedVerseText(item.text, selectedText)
-            : renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
+          {renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
         </p>
 
         {/* Quick Verse Navigation & Direct Jump Selector */}
@@ -852,104 +880,6 @@ export default function LiveDetection({ setActiveTab }) {
             )}
           </div>
 
-          {/* Surligneur Live pour le verset à l'antenne */}
-          {isProjected && (
-            <div className="live-annotation-toolbar">
-              <span className="live-annotation-heading">
-                <LiveHighlightIcon type="highlight" size={14} />
-                <span>Surlignage Live :</span>
-              </span>
-              <span className={`live-annotation-selection ${selectedText ? 'has-selection' : ''}`} title={selectedText || undefined}>
-                {selectedText ? `Sélection : « ${selectedText} »` : 'Sélectionnez une phrase dans le verset'}
-              </span>
-              <div className="live-annotation-actions" role="group" aria-label="Annoter la sélection à l'antenne">
-                <button
-                  type="button"
-                  className="live-annotation-button is-highlight"
-                  disabled={!selectedText}
-                  aria-label="Surligner la sélection en jaune"
-                  title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Surligner la sélection'}
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    try {
-                      await fetch('/api/v1/projection/annotation', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'highlight', color: 'yellow', text: annotationText, bold: true }] }),
-                      })
-                      addToast?.({ message: 'Surlignage appliqué à la projection', kind: 'success' })
-                    } catch (err) { console.error(err) }
-                  }}
-                >
-                  <LiveHighlightIcon type="highlight" />
-                  <span>Surligner</span>
-                </button>
-                <button
-                  type="button"
-                  className="live-annotation-button is-underline"
-                  disabled={!selectedText}
-                  aria-label="Souligner la sélection en rouge"
-                  title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Souligner la sélection'}
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    try {
-                      await fetch('/api/v1/projection/annotation', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'underline', color: 'red', text: annotationText, bold: true }] }),
-                      })
-                      addToast?.({ message: 'Soulignage appliqué à la projection', kind: 'success' })
-                    } catch (err) { console.error(err) }
-                  }}
-                >
-                  <LiveHighlightIcon type="underline" />
-                  <span>Souligner</span>
-                </button>
-                <button
-                  type="button"
-                  className="live-annotation-button is-circle"
-                  disabled={!selectedText}
-                  aria-label="Entourer la sélection en bleu"
-                  title={!selectedText ? 'Sélectionnez d’abord une phrase dans le verset' : 'Entourer la sélection'}
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    try {
-                      await fetch('/api/v1/projection/annotation', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [{ type: 'circle', color: '#38bdf8', text: annotationText, bold: true }] }),
-                      })
-                      addToast?.({ message: 'Cercle appliqué à la projection', kind: 'success' })
-                    } catch (err) { console.error(err) }
-                  }}
-                >
-                  <LiveHighlightIcon type="circle" />
-                  <span>Entourer</span>
-                </button>
-                <button
-                  type="button"
-                  className="live-annotation-button is-clear"
-                  aria-label="Effacer les annotations à l'antenne"
-                  title="Effacer les annotations à l'antenne"
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    try {
-                      await fetch('/api/v1/projection/annotation', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ annotations: [] }),
-                      })
-                      clearTextSelection(item.queueId)
-                      addToast?.({ message: 'Annotations effacées', kind: 'info' })
-                    } catch (err) { console.error(err) }
-                  }}
-                >
-                  <LiveHighlightIcon type="clear" />
-                  <span>Effacer</span>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="live-card-foot">
@@ -1309,7 +1239,7 @@ export default function LiveDetection({ setActiveTab }) {
             )}
 
             <div ref={queueScrollRef} className="live-queue-scroll flex-1 overflow-y-auto pr-1">
-              {projectionQueue.length === 0 ? (
+              {displayQueue.length === 0 ? (
                 <div className="live-empty">
                   <strong>Aucun verset en attente</strong>
                   <p>Démarrez le micro : les références citées pendant la prédication apparaîtront ici pour validation.</p>
@@ -1570,12 +1500,76 @@ export default function LiveDetection({ setActiveTab }) {
             )}
 
             <p
-              className="live-onair-text"
+              className="live-onair-text select-text cursor-text"
               tabIndex={0}
-              aria-label="Texte du verset projeté, zone défilable"
+              aria-label="Texte du verset projeté. Sélectionnez les mots à annoter."
+              onMouseUp={(event) => handleTextSelection(event, onAirSelectionKey)}
+              title={onAirDisplay ? 'Sélectionnez directement les mots à surligner, souligner ou entourer' : undefined}
             >
-              {onAirDisplay?.text || 'Aucun verset projeté.'}
+              {onAirDisplay?.text
+                ? renderSelectedVerseText(onAirDisplay.text, onAirSelectedText)
+                : 'Aucun verset projeté.'}
             </p>
+
+            <div className={`live-annotation-toolbar live-annotation-toolbar--onair ${onAirDisplay ? '' : 'is-unavailable'}`}>
+              <span className="live-annotation-heading">
+                <LiveHighlightIcon type="highlight" size={15} />
+                <span>Surlignage Live</span>
+              </span>
+              <span className={`live-annotation-selection ${onAirSelectedText ? 'has-selection' : ''}`} title={onAirSelectedText || undefined}>
+                {onAirSelectedText
+                  ? `Sélection : « ${onAirSelectedText} »`
+                  : onAirDisplay
+                    ? 'Sélectionnez des mots dans le verset ci-dessus'
+                    : 'Projetez d’abord un verset'}
+              </span>
+              <div className="live-annotation-actions" role="group" aria-label="Annoter la sélection à l'antenne">
+                <button
+                  type="button"
+                  className="live-annotation-button is-highlight"
+                  disabled={!onAirSelectedText || annotationBusy}
+                  aria-label="Surligner la sélection en jaune"
+                  title={!onAirSelectedText ? 'Sélectionnez d’abord des mots dans le verset' : 'Surligner la sélection'}
+                  onClick={() => sendLiveAnnotation('highlight')}
+                >
+                  <LiveHighlightIcon type="highlight" />
+                  <span>Surligner</span>
+                </button>
+                <button
+                  type="button"
+                  className="live-annotation-button is-underline"
+                  disabled={!onAirSelectedText || annotationBusy}
+                  aria-label="Souligner la sélection en rouge"
+                  title={!onAirSelectedText ? 'Sélectionnez d’abord des mots dans le verset' : 'Souligner la sélection'}
+                  onClick={() => sendLiveAnnotation('underline')}
+                >
+                  <LiveHighlightIcon type="underline" />
+                  <span>Souligner</span>
+                </button>
+                <button
+                  type="button"
+                  className="live-annotation-button is-circle"
+                  disabled={!onAirSelectedText || annotationBusy}
+                  aria-label="Entourer la sélection en bleu"
+                  title={!onAirSelectedText ? 'Sélectionnez d’abord des mots dans le verset' : 'Entourer la sélection'}
+                  onClick={() => sendLiveAnnotation('circle')}
+                >
+                  <LiveHighlightIcon type="circle" />
+                  <span>Entourer</span>
+                </button>
+                <button
+                  type="button"
+                  className="live-annotation-button is-clear"
+                  disabled={!onAirDisplay || annotationBusy}
+                  aria-label="Effacer les annotations à l'antenne"
+                  title="Effacer les annotations à l'antenne"
+                  onClick={() => sendLiveAnnotation('clear')}
+                >
+                  <LiveHighlightIcon type="clear" />
+                  <span>{annotationBusy ? 'Envoi…' : 'Effacer'}</span>
+                </button>
+              </div>
+            </div>
             
             {followMode && followProgress && (
               <div className="live-follow-bar mb-3" aria-label="Progression de la lecture">
