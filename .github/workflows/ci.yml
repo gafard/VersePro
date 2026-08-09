@@ -68,4 +68,7 @@ jobs:
 
       - name: Vérifier le lanceur Tauri
         working-directory: v2/frontend/src-tauri
-        run: cargo check --locked
+        # Le vrai backend PyInstaller n'est copié qu'au workflow de release.
+        # Le build-script Tauri exige néanmoins que la ressource déclarée
+        # existe déjà, même pour un simple `cargo check`.
+        run: mkdir -p backend && cargo check --locked
