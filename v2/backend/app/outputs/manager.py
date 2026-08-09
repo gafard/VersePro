@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Dict, Any, Optional
 from loguru import logger
 from .base import BaseOutput
@@ -26,7 +27,13 @@ class OutputManager:
         self.register_output("propresenter", ProPresenterOutput(
             host=settings.PROPRESENTER_HOST,
             port=settings.PROPRESENTER_PORT,
-            enabled=settings.PROPRESENTER_AUTO_CONNECT
+            # Les tests du protocole créent leur propre faux serveur. Le
+            # TestClient global ne doit jamais tenter de joindre le port 1025
+            # réel de la machine qui exécute la suite.
+            enabled=(
+                settings.PROPRESENTER_AUTO_CONNECT
+                and os.environ.get("VERSEPRO_TESTING") != "1"
+            )
         ))
         self.register_output("vmix", VMixOutput(
             host=settings.VMIX_HOST,

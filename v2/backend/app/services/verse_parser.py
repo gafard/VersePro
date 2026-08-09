@@ -271,10 +271,15 @@ class BibleLoader:
         BibleLoader._shared_index = self.verse_index
         BibleLoader._shared_phrase_hits = self.curated_phrase_hits
 
-        # 4. Index flou local (citations approximatives / erreurs ASR) — en arrière-plan
-        #    pour ne pas retarder le démarrage, sur la version de référence LSG.
-        import threading
-        threading.Thread(target=self._build_fuzzy_index, daemon=True).start()
+        # 4. Index flou local (citations approximatives / erreurs ASR) — en
+        #    arrière-plan pour ne pas retarder le démarrage, sur la version de
+        #    référence LSG. Les tests qui couvrent cet index le construisent
+        #    explicitement : ne pas laisser ce calcul CPU de 64 Mo survivre au
+        #    cycle de vie du TestClient, sinon il affame les tests réseau qui
+        #    suivent sur les petits runners GitHub.
+        if os.environ.get("VERSEPRO_TESTING") != "1":
+            import threading
+            threading.Thread(target=self._build_fuzzy_index, daemon=True).start()
 
     def _build_fuzzy_index(self):
         try:

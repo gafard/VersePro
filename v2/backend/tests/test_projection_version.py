@@ -47,9 +47,9 @@ def _projeter(client, version=None):
 def test_le_texte_projete_suit_la_version_demandee(client):
     """Le cœur du sujet : deux versions, deux textes RÉELLEMENT différents."""
     lsg = _projeter(client, "LSG")
-    sem = _projeter(client, "SEM")
-    assert lsg and sem
-    assert lsg != sem, "la version demandée n'a pas changé le texte projeté"
+    kjf = _projeter(client, "KJF")
+    assert lsg and kjf
+    assert lsg != kjf, "la version demandée n'a pas changé le texte projeté"
 
 
 def test_ce_qui_est_projete_est_ce_que_la_comparaison_annonce(client):
