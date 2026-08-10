@@ -145,7 +145,7 @@ export default function LiveDetection({ setActiveTab }) {
     lastAiRejection,
     onAir, clearProjectionScreen,
     statistics,
-    toggleListening, volume, waveform, audioDevices, selectedAudioDeviceId, micError, refreshAudioDevices, setMicPermissionState,
+    toggleListening, volume, waveform, audioDevices, selectedAudioDeviceId, micError, micSilent, refreshAudioDevices, setMicPermissionState,
     preflight, preflightLoading, runPreflight, activatePanicMode, sundaySafeMode, shadowMode,
     listeningStartedAt, listeningStoppedAt, addToast
   } = useStore(s => ({
@@ -164,7 +164,7 @@ export default function LiveDetection({ setActiveTab }) {
     lastAiRejection: s.lastAiRejection,
     onAir: s.onAir, clearProjectionScreen: s.clearProjectionScreen,
     statistics: s.statistics,
-    toggleListening: s.toggleListening, volume: s.volume, waveform: s.waveform, audioDevices: s.audioDevices, selectedAudioDeviceId: s.selectedAudioDeviceId, micError: s.micError, refreshAudioDevices: s.refreshAudioDevices, setMicPermissionState: s.setMicPermissionState,
+    toggleListening: s.toggleListening, volume: s.volume, waveform: s.waveform, audioDevices: s.audioDevices, selectedAudioDeviceId: s.selectedAudioDeviceId, micError: s.micError, micSilent: s.micSilent, refreshAudioDevices: s.refreshAudioDevices, setMicPermissionState: s.setMicPermissionState,
     preflight: s.preflight, preflightLoading: s.preflightLoading, runPreflight: s.runPreflight, activatePanicMode: s.activatePanicMode, sundaySafeMode: s.sundaySafeMode, shadowMode: s.shadowMode,
     listeningStartedAt: s.listeningStartedAt, listeningStoppedAt: s.listeningStoppedAt,
     addToast: s.addToast
@@ -991,8 +991,16 @@ export default function LiveDetection({ setActiveTab }) {
       )}
 
       {/* Messages et Alertes temporaires */}
-      {(visibleRejection || micError) && (
+      {(visibleRejection || micError || micSilent) && (
         <div className="live-status-alerts flex gap-4 items-center px-4 py-2 bg-surface-1 border border-border-weak rounded-xl animate-fade-in">
+          {/* Un micro ouvert sur une entrée sans signal ressemblait, à l'écran,
+              à un micro qui attend qu'on parle. Ici on le nomme. */}
+          {micSilent && (
+            <span className="live-ai-note is-error">
+              Micro ouvert mais AUCUN signal depuis 8 s
+              {selectedAudioDevice?.label ? ` sur « ${selectedAudioDevice.label} »` : ''} — changez la source audio dans Paramètres → Audio.
+            </span>
+          )}
           {visibleRejection && (
             <span className="live-ai-note">
               IA : « {visibleRejection.reference} » écartée ({visibleRejection.confidence}% &lt; {visibleRejection.threshold}%)
@@ -1050,7 +1058,7 @@ export default function LiveDetection({ setActiveTab }) {
               </button>
               
               <div className="text-[10px] text-[var(--text-dim)] truncate mt-1">
-                {selectedAudioDevice?.label || 'Aucun micro actif'}
+                {selectedAudioDevice?.label || 'Entrée par défaut du système'}
               </div>
             </div>
           </div>
@@ -1660,9 +1668,11 @@ export default function LiveDetection({ setActiveTab }) {
                 <div className="text-[var(--text-faint)] italic text-center py-8">
                   {!isListening
                     ? 'Micro arrêté.'
-                    : volume > 2
-                      ? `${asrMode === 'nemotron' ? 'Nemotron' : asrMode === 'vosk' ? 'Vosk' : 'Le moteur ASR'} reçoit le son — transcription en cours...`
-                      : 'Micro actif — en attente de parole...'}
+                    : micSilent
+                      ? 'Aucun signal sur l’entrée micro. Vérifiez la source audio dans Paramètres → Audio.'
+                      : volume > 2
+                        ? `${asrMode === 'nemotron' ? 'Nemotron' : asrMode === 'vosk' ? 'Vosk' : 'Le moteur ASR'} reçoit le son — transcription en cours...`
+                        : 'Micro actif — en attente de parole...'}
                 </div>
               )}
               <div ref={transcriptEndRef} />

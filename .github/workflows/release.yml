@@ -85,19 +85,30 @@ jobs:
           cache: pip
           cache-dependency-path: v2/backend/requirements.txt
 
-      - name: Dépendances backend (sans ndi-python ni pyaudio)
+      - name: Dépendances backend (sans pyaudio)
         working-directory: v2/backend
-        # ndi-python : exclu du gel de toute façon (spec excludes NDIlib) et sans
-        # roue fiable en 3.12 ; pyaudio : jamais importé (l'audio arrive par
-        # WebSocket). Les retirer rend l'installation CI déterministe.
+        # pyaudio : jamais importé (l'audio arrive par WebSocket) et sans roue
+        # officielle sous Windows. Le retirer rend l'installation déterministe.
+        #
+        # ndi-python N'EST PLUS RETIRÉ. Il l'était au motif que le spec excluait
+        # NDIlib et qu'aucune roue 3.12 n'existait : les deux sont faux
+        # aujourd'hui. Le spec ne l'exclut plus, et PyPI publie des roues de
+        # cp310 à cp314 pour macOS arm64, Windows x64 et Linux.
+        #
+        # Conséquence de ce retrait : l'application livrée n'avait AUCUN module
+        # NDIlib, donc NDI_AVAILABLE valait False pour toujours, et l'écran
+        # Paramètres réclamait l'installation du « Runtime NDI ». Ce runtime ne
+        # pouvait rien y faire — il ne fournit pas le binding Python — d'où un
+        # message qui revenait indéfiniment après chaque installation.
         run: |
           python -c "
           lines = [l for l in open('requirements.txt')
-                   if not l.strip().startswith(('ndi-python', 'pyaudio'))]
+                   if not l.strip().startswith('pyaudio')]
           open('requirements-ci.txt', 'w').writelines(lines)
           "
           pip install -r requirements-ci.txt pyinstaller
           python -c "import transcribe_cpp; assert transcribe_cpp.backends(); print('transcribe.cpp natif OK:', transcribe_cpp.library_path())"
+          python -c "import NDIlib; print('binding NDI OK')"
 
       - name: Vérifier le VAD natif sur la plateforme distribuée
         working-directory: v2/backend

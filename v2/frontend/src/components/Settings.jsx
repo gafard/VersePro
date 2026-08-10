@@ -684,16 +684,16 @@ export default function Settings() {
             >
               <Row label="Source audio">
                 <div style={{ display: 'flex', gap: '8px' }}>
+                  {/* Le défaut système reste toujours atteignable : c'est la
+                      sortie de secours quand une entrée choisie s'est révélée
+                      muette en plein culte. */}
                   <select value={selectedAudioDeviceId} onChange={(e) => updateAudioDevice(e.target.value)}>
-                    {audioDevices.length === 0 ? (
-                      <option value="">Micro par défaut du navigateur</option>
-                    ) : (
-                      audioDevices.map((device, index) => (
-                        <option key={device.deviceId || index} value={device.deviceId}>
-                          {device.label || `Micro ${index + 1}`}
-                        </option>
-                      ))
-                    )}
+                    <option value="">Entrée par défaut du système</option>
+                    {audioDevices.map((device, index) => (
+                      <option key={device.deviceId || index} value={device.deviceId}>
+                        {device.label || `Micro ${index + 1}`}
+                      </option>
+                    ))}
                   </select>
                   <button type="button" className="vp-btn vp-btn--ghost vp-btn--sm" onClick={refreshAudioDevices}>
                     Actualiser
