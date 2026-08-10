@@ -59,7 +59,7 @@
             function renderWords(text) {
                 textEl.textContent = '';
                 textEl.classList.remove('waiting');
-        (text || '').split(/\\s+/).filter(Boolean).forEach((word) => {
+        (text || '').split(/\s+/).filter(Boolean).forEach((word) => {
                     const span = document.createElement('span');
                     span.className = 'w';
                     span.textContent = word;
