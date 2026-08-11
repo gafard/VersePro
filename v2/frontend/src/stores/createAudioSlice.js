@@ -129,10 +129,11 @@ export const createAudioSlice = (set, get) => ({
     }
     try {
       await get().connectWebSocket()
-    } catch {
-      set({ micError: 'Le moteur VersePro ne répond pas.', backendUnreachable: true })
-      get().addToast({ message: 'Impossible de démarrer: serveur audio indisponible.', kind: 'error' })
-      throw new Error('Serveur audio indisponible')
+    } catch (error) {
+      const detail = error?.message || 'Serveur audio indisponible'
+      set({ micError: `Le canal audio ne répond pas : ${detail}.`, backendUnreachable: true })
+      get().addToast({ message: `Impossible de démarrer le micro : ${detail}.`, kind: 'error', duration: 8000 })
+      throw error
     }
     const { selectedAudioDeviceId } = get()
     const audioConstraints = selectedAudioDeviceId

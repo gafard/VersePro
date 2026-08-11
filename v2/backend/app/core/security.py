@@ -93,3 +93,21 @@ def websocket_allowed(websocket: WebSocket) -> bool:
         return True
     logger.warning(f"🚫 Connexion WebSocket refusée depuis {host} : {websocket.url.path}")
     return False
+
+
+def websocket_subprotocol(websocket: WebSocket) -> str | None:
+    """Sous-protocole sûr à confirmer dans la réponse WebSocket.
+
+    L'application Tauri transmet le jeton dans un sous-protocole séparé, mais
+    expose aussi le protocole public ``versepro``. Chromium tolère souvent que
+    le serveur n'en confirme aucun ; WebView2 sous Windows peut alors refuser
+    le canal après que l'API HTTP a déjà été déclarée prête. On confirme donc
+    explicitement le protocole public, sans jamais renvoyer celui qui contient
+    le secret de session.
+    """
+    requested = {
+        protocol.strip()
+        for protocol in websocket.headers.get("sec-websocket-protocol", "").split(",")
+        if protocol.strip()
+    }
+    return "versepro" if "versepro" in requested else None

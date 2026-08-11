@@ -246,7 +246,7 @@ export const createSyncSlice = (set, get) => ({
       }
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (get().websocket !== ws) {
           return
         }
@@ -263,7 +263,13 @@ export const createSyncSlice = (set, get) => ({
           currentTranslation: '',
           _connectionAttempts: attempts
         })
-        if (!opened) reject(new Error('Connexion audio impossible'))
+        if (!opened) {
+          const detail = event.reason?.trim()
+            || (event.code === 1008
+              ? 'Canal audio refusé par le serveur local'
+              : `Connexion audio impossible${event.code ? ` (code ${event.code})` : ''}`)
+          reject(new Error(detail))
+        }
         if (reconnect) {
           const delay = reconnectDelay(attempts)
           const timer = setTimeout(() => {

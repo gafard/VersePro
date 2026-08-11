@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Application
     DEBUG: bool = True
     APP_NAME: str = "VersePro v2"
-    VERSION: str = "2.1.1"
+    VERSION: str = "2.1.2"
     API_TOKEN: str = ""
     # Origines de la fenêtre applicative. Tauri 2 sert la fenêtre depuis
     # « http://tauri.localhost » sous Windows — en HTTP, là où Tauri 1 utilisait
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # Version de l'application et contrôle de secours pour le mode navigateur.
     # L'application Tauri utilise son Updater signé ; cette URL simplifiée ne
     # sert que lorsque l'interface tourne hors du conteneur de bureau.
-    APP_VERSION: str = "2.1.1"
+    APP_VERSION: str = "2.1.2"
     UPDATE_CHECK_URL: str = ""
     UPDATE_CHECK_TIMEOUT: float = 6.0
 

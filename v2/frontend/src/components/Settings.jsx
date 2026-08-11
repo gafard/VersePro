@@ -1271,23 +1271,26 @@ export default function Settings() {
                   )}
                 </>
               ) : (
+                /* CE PANNEAU RÉCLAMAIT UN LOGICIEL QUI N'Y POUVAIT RIEN.
+                   Il disait « Runtime NDI non détecté, installez-le », et il le
+                   redisait après chaque installation — parce que ce qui manquait
+                   n'était pas le runtime Vizrt mais le module Python NDIlib,
+                   retiré du gel par le workflow de release. Le runtime NDI
+                   voyage désormais AVEC ce module dans la même roue : il n'y a
+                   plus rien à installer, et si NDI manque encore, c'est un
+                   défaut de la version livrée. On le dit, au lieu d'envoyer un
+                   régisseur télécharger 200 Mo pour rien. */
                 <div className="flex flex-col gap-3 p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-200">
                   <div>
-                    <strong>NDI Runtime (Vizrt) non détecté sur ce poste.</strong>
+                    <strong>Sortie NDI absente de cette version de VersePro.</strong>
                     {settings?.ndi?.last_error ? <span className="block text-xs mt-1 opacity-70">{settings.ndi.last_error}</span> : null}
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    NDI permet d'envoyer l'écran de projection en direct sur le réseau local (OBS, vMix, Resolume…).
-                    Installez le Runtime NDI gratuit, redémarrez VersePro, et la sortie NDI sera disponible.
+                    NDI envoie l'écran de projection en direct sur le réseau local (OBS, vMix, Resolume…).
+                    Il est normalement livré avec l'application : <strong>vous n'avez rien à installer</strong>.
+                    S'il manque ici, c'est un défaut de cette version — une mise à jour le corrigera.
+                    Installer le Runtime NDI de Vizrt n'y changera rien.
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    <a href="https://ndi.video/tools/ndi-core-suite/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-amber-400 underline font-medium hover:text-amber-300 w-fit">
-                      ⬇ Télécharger NDI Core Suite (Windows) ↗
-                    </a>
-                    <a href="https://ndi.video/tools/ndi-core-suite/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-sky-400 underline font-medium hover:text-sky-300 w-fit">
-                      ⬇ Télécharger NDI Core Suite (macOS) ↗
-                    </a>
-                  </div>
                 </div>
               )}
             </Accordion>

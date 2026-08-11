@@ -145,7 +145,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "version": "2.1.1",
+        "version": "2.1.2",
         "services": {
             "deepgram": deepgram_service is not None,
             "propresenter": propresenter_connected,
@@ -173,7 +173,7 @@ async def preflight_check(probe_cloud: bool = False):
 
     disk = shutil.disk_usage(DATA_DIR)
     local_asr = bool(
-        (nemotron_service and nemotron_service.is_ready)
+        (nemotron_service and nemotron_service.is_ready and nemotron_service.runtime_available)
         or (vosk_service and vosk_service.initialized)
     )
     cloud_configured = bool(settings.DEEPGRAM_API_KEY)
@@ -241,7 +241,7 @@ async def preflight_check(probe_cloud: bool = False):
         {"id": "database", "label": "Base locale", "ok": bool(db_service and db_service.db), "critical": True},
         {"id": "bible", "label": "Corpus biblique", "ok": bool(verse_parser and verse_parser.bible_loader.versions), "critical": True},
         {"id": "asr", "label": "Transcription", "ok": cloud_ready or local_asr, "critical": True,
-         "detail": cloud_detail or ("Local prêt" if local_asr else "Préparer Whisper/Vosk ou ajouter une clé")},
+         "detail": cloud_detail or ("Nemotron/Vosk prêt" if local_asr else "Préparer Nemotron/Vosk ou ajouter une clé Deepgram")},
         {"id": "output", "label": "Moteur de sortie", "ok": browser_output, "critical": True,
          "detail": output_detail},
         {"id": "configured_outputs", "label": "Sorties activées",

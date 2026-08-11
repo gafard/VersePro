@@ -153,6 +153,22 @@ jobs:
           fi
           echo "$TROUVE"
 
+      # Même raisonnement que pour transcribe.cpp : la sortie NDI échouait en
+      # production, jamais à la construction. Le binding ET le runtime NDI
+      # voyagent dans la même roue — si la bibliothèque de 30 Mo n'est pas dans
+      # le gel, l'église verra « NDI non détecté » quoi qu'elle installe.
+      - name: Vérifier la bibliothèque NDI embarquée
+        working-directory: v2/backend
+        run: |
+          set -u
+          TROUVE=$(find dist/versepro-backend \( -iname "libndi*" -o -iname "Processing.NDI.Lib*" \) | head -5)
+          if [ -z "$TROUVE" ]; then
+            echo "::error::runtime NDI absent du gel — la sortie NDI serait indisponible"
+            find dist/versepro-backend -iname "*ndi*" | head -20
+            exit 1
+          fi
+          echo "$TROUVE"
+
       # Test de démarrage RÉEL du backend figé. Vérifier la présence des
       # fichiers ne prouve rien : un exécutable peut se construire puis mourir à
       # l'exécution (DLL manquante, import cassé). Sans ce test, un backend mort
@@ -166,6 +182,7 @@ jobs:
           DATA="$(mktemp -d 2>/dev/null || echo "${TMP:-/tmp}/vp-smoke-$$")"
           mkdir -p "$DATA"
           VERSEPRO_HOST=127.0.0.1 VERSEPRO_PORT=17999 VERSEPRO_DATA_DIR="$DATA" \
+            VERSEPRO_SESSION_TOKEN="release-smoke-token" \
             "$EXE" > smoke.log 2>&1 &
           PID=$!
           # Le chargement (Bible, index flou, sémantique) prend ~16 s sur un PC
@@ -173,6 +190,23 @@ jobs:
           for i in $(seq 1 120); do
             if curl -fsS -m 2 http://127.0.0.1:17999/api/v1/health > health.json 2>/dev/null; then
               echo "✅ backend prêt après ${i}s :"; cat health.json; echo
+              python - <<'PY'
+          import asyncio
+          import json
+          import websockets
+
+          async def smoke_audio_websocket():
+              async with websockets.connect(
+                  "ws://127.0.0.1:17999/ws/audio?engine=auto",
+                  subprotocols=["versepro", "versepro.auth.release-smoke-token"],
+              ) as websocket:
+                  assert websocket.subprotocol == "versepro", websocket.subprotocol
+                  message = json.loads(await asyncio.wait_for(websocket.recv(), timeout=5))
+                  assert message["type"] == "ai_status", message
+
+          asyncio.run(smoke_audio_websocket())
+          print("✅ canal audio WebSocket authentifié")
+          PY
               kill $PID 2>/dev/null || true
               exit 0
             fi

@@ -124,6 +124,7 @@ function App() {
   const connected = useStore(s => s.connected)
   const connectionStatus = useStore(s => s.connectionStatus)
   const asrMode = useStore(s => s.asrMode)
+  const selectedEngine = useStore(s => s.selectedEngine)
   const aiActive = useStore(s => s.aiActive)
   const propresenterConnected = useStore(s => s.propresenterConnected)
   const isListening = useStore(s => s.isListening)
@@ -138,6 +139,14 @@ function App() {
       : connectionStatus === 'reconnecting'
         ? { label: 'Reconnexion', tooltip: 'Reconnexion au serveur', tone: 'is-warn', color: 'var(--warning)' }
         : { label: 'Hors ligne', tooltip: 'Serveur déconnecté', tone: 'is-bad', color: 'var(--danger)' }
+  const displayedEngine = isListening ? asrMode : selectedEngine
+  const engineStatus = {
+    auto: { label: 'ASR automatique', local: false },
+    deepgram: { label: 'Deepgram sélectionné', local: false },
+    nemotron: { label: 'Nemotron sélectionné', local: true },
+    vosk: { label: 'Vosk sélectionné', local: true },
+    local_auto: { label: 'ASR local automatique', local: true },
+  }[displayedEngine] || { label: 'ASR automatique', local: false }
   
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [firstRun, setFirstRun] = useState(() => {
@@ -260,8 +269,8 @@ function App() {
               <span className={`vp-chip ${serverStatus.tone}`}>
                 <span className="dot" />{serverStatus.label}
               </span>
-              <span className={`vp-chip ${['vosk', 'nemotron'].includes(asrMode) ? 'is-warn' : 'is-accent'}`}>
-                <span className="dot" />{asrMode === 'vosk' ? 'Vosk sélectionné' : asrMode === 'nemotron' ? 'Nemotron sélectionné' : 'Deepgram sélectionné'}
+              <span className={`vp-chip ${engineStatus.local ? 'is-warn' : 'is-accent'}`}>
+                <span className="dot" />{engineStatus.label}
               </span>
               <span className={`vp-chip ${aiActive ? 'is-accent' : ''}`}>
                 <span className="dot" />IA {aiActive ? 'prête' : 'off'}
