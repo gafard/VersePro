@@ -220,6 +220,7 @@ class BibleLoader:
     _shared_index = None
     _shared_phrase_hits = None
     _shared_fuzzy = None
+    _shared_manual = None
 
     def __init__(self, json_path: Optional[str] = None):
         import os
@@ -230,12 +231,14 @@ class BibleLoader:
         self.curated_phrase_hits = {}
 
         self.fuzzy_index = None
+        self.manual_index = None
 
         if BibleLoader._shared_versions is not None:
             self.versions = BibleLoader._shared_versions
             self.verse_index = BibleLoader._shared_index or {}
             self.curated_phrase_hits = BibleLoader._shared_phrase_hits or {}
             self.fuzzy_index = BibleLoader._shared_fuzzy
+            self.manual_index = BibleLoader._shared_manual
             logger.info(f"📚 BibleLoader réutilisé en mémoire: {len(self.versions)} versions, {len(self.verse_index)} clés")
             return
 
@@ -311,9 +314,11 @@ class BibleLoader:
         # 3. Construit l'index de recherche textuelle global
         self._build_index()
         self._build_curated_phrase_hits()
+        self._build_manual_index()
         BibleLoader._shared_versions = self.versions
         BibleLoader._shared_index = self.verse_index
         BibleLoader._shared_phrase_hits = self.curated_phrase_hits
+        BibleLoader._shared_manual = self.manual_index
 
         # 4. Index flou local (citations approximatives / erreurs ASR) — en
         #    arrière-plan pour ne pas retarder le démarrage, sur la version de
@@ -336,6 +341,40 @@ class BibleLoader:
             BibleLoader._shared_fuzzy = index
         except Exception as e:
             logger.error(f"❌ Construction de l'index flou impossible: {e}")
+
+    def _build_manual_index(self):
+        """Index exhaustif réservé à la recherche déclenchée par l'opérateur."""
+        try:
+            import os
+            import threading
+            from .manual_search import ManualVerseIndex
+
+            active = self.versions.get(self.active_version)
+            initial_versions = {self.active_version: active} if active else self.versions
+            # Le corpus principal est disponible immédiatement. Charger en
+            # série sept traductions ajoutait huit secondes au démarrage du
+            # serveur de régie ; les traductions supplémentaires enrichissent
+            # donc l'index en arrière-plan, puis le remplacent atomiquement.
+            self.manual_index = ManualVerseIndex(initial_versions, self.active_version)
+
+            if len(self.versions) > len(initial_versions):
+                def enrich_all_versions():
+                    try:
+                        complete = ManualVerseIndex(self.versions, self.active_version)
+                        self.manual_index = complete
+                        BibleLoader._shared_manual = complete
+                    except Exception as exc:
+                        logger.error(f"❌ Enrichissement de l'index de fragments impossible: {exc}")
+
+                if os.environ.get("VERSEPRO_TESTING") == "1":
+                    enrich_all_versions()
+                else:
+                    threading.Thread(target=enrich_all_versions, daemon=True).start()
+        except Exception as exc:
+            # La recherche par référence doit rester disponible même sur un
+            # poste très contraint ou avec une traduction importée malformée.
+            logger.error(f"❌ Construction de l'index de fragments impossible: {exc}")
+            self.manual_index = None
 
     def _load_version(self, v_id: str, path: str) -> dict:
         """Charge une version et la normalise en book_abbr -> { chapter -> { verse -> text } }"""
@@ -664,6 +703,37 @@ class BibleLoader:
             for m in self.fuzzy_index.search(norm_query, top_k=limit, min_score=0.45):
                 push(m["book_abbr"], m["chapter"], m["verse"], "text_fuzzy", round(min(0.9, 0.55 + m["score"] * 0.35), 2))
 
+        return results[:limit]
+
+    def search_manual_candidates(self, query_text: str, limit: int = 12) -> list:
+        """Recherche opérateur : fragment situé n'importe où dans un verset.
+
+        Ce chemin est volontairement séparé de ``search_candidates`` : les
+        fragments très courts sont utiles quand un humain les tape, mais trop
+        ambigus pour déclencher la détection automatique d'un culte.
+        """
+        if not self.manual_index:
+            return self.search_candidates(query_text, limit)
+
+        results = []
+        for match in self.manual_index.search(query_text, top_k=max(limit * 2, 12)):
+            result = self._make_reference_result(
+                match["book_abbr"], match["chapter"], match["verse"], query_text
+            )
+            verse_end = match.get("verse_end")
+            if verse_end:
+                result["verse_end"] = verse_end
+                result["reference"] = format_reference(
+                    match["book_abbr"], match["chapter"], match["verse"], verse_end
+                )
+                result["text"] = self.get_verse_text(
+                    match["book_abbr"], match["chapter"], match["verse"], verse_end
+                )
+            result["detection_method"] = match["detection_method"]
+            result["confidence"] = match["score"]
+            result["matched_version"] = match.get("matched_version")
+            result["matched_text"] = match.get("matched_text")
+            results.append(result)
         return results[:limit]
 
 
