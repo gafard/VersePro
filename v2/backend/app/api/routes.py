@@ -145,7 +145,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "version": "2.1.2",
+        "version": "2.1.3",
         "services": {
             "deepgram": deepgram_service is not None,
             "propresenter": propresenter_connected,

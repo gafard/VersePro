@@ -269,7 +269,20 @@ def fuse(
     elif (best["in_sem"] and best["sem_score"] >= semantic_threshold
           and best["overlap"] >= overlap_min):
         surfaced, reason = True, "sémantique forte + recouvrement"
-    # 4. Quasi-citation repérée au lexical : forte couverture des mots prononcés
+    # 4. Citation presque littérale classée un peu sous le seuil sémantique.
+    # Un extrait pris au milieu d'un long verset est parfois moins bien classé
+    # que les débuts de versets (Jean 7:37 arrivait 8e à 0,830 pour un seuil
+    # de 0,8385), alors que tous ses mots distinctifs correspondaient. Cette
+    # porte exige quatre radicaux ET 90 % de couverture : elle ne transforme
+    # donc pas une vague proximité de sens en détection.
+    elif (
+        best["in_sem"]
+        and best["sem_score"] >= max(0.0, semantic_threshold - 0.03)
+        and best["overlap"] >= 0.90
+        and len(content_stems(spoken)) >= RADICAUX_MIN_QUASI_CITATION
+    ):
+        surfaced, reason = True, "quasi-citation sémantique"
+    # 5. Quasi-citation repérée au lexical : forte couverture des mots prononcés
     #    (near-verbatim). Le récupérateur lexical seul suffit alors — même si le
     #    sémantique s'est égaré et si le score flou est modeste.
     #
@@ -289,7 +302,7 @@ def fuse(
     elif (best["in_lex"] and best["overlap"] >= 0.55
           and len(content_stems(spoken)) >= RADICAUX_MIN_QUASI_CITATION):
         surfaced, reason = True, "quasi-citation lexicale"
-    # 5. Flou lexical fort confirmé par le recouvrement minimal.
+    # 6. Flou lexical fort confirmé par le recouvrement minimal.
     elif best["in_lex"] and best["lex_score"] >= 0.8 and best["overlap"] >= overlap_min:
         surfaced, reason = True, "flou fort + recouvrement"
 

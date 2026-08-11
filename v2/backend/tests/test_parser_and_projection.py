@@ -19,6 +19,9 @@ from app.services.verse_parser import VerseParserService
         ("Psaume cent dix neuf verset cent soixante seize", "Psaumes 119:176"),
         ("Éphésiens deux huit jusqu'au verset neuf", "Éphésiens 2:8-9"),
         ("Genèse chapitre un versets un à trois", "Genèse 1:1-3"),
+        ("Luc chapitre dix les versets dix-sept et dix-huit", "Luc 10:17-18"),
+        ("Actes chapitre seize seize à dix-neuf", "Actes 16:16-19"),
+        ("un Jean chapitre quatre verset dix-sept", "1 Jean 4:17"),
     ],
 )
 def test_parser_high_value_cases(text, reference):
@@ -125,6 +128,20 @@ def test_natural_french_phrasings_and_ordinals():
     t0 = time.perf_counter()
     asyncio.run(parser.parse("et je crois que nous devons tous prendre au sérieux cette parole ce matin"))
     assert (time.perf_counter() - t0) < 0.8
+
+
+def test_toutes_les_traductions_embarquees_indexent_les_66_livres():
+    """Un nom de livre éditorial ne doit pas supprimer un livre du corpus.
+
+    Darby stocke ses noms en anglais et Français courant sous des libellés
+    longs (« Première lettre aux Corinthiens »). Avant ce garde-fou, certaines
+    éditions perdaient jusqu'à 36 livres lors du chargement.
+    """
+    parser = VerseParserService()
+    expected = {"LSG", "NBS", "SEM", "TOB", "KJF", "DBY", "FC"}
+    assert expected.issubset(parser.bible_loader.versions)
+    for version_id in expected:
+        assert len(parser.bible_loader.versions[version_id]) == 66, version_id
 
 
 def test_propresenter_output_initialization():

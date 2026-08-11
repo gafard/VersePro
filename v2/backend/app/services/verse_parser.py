@@ -85,12 +85,55 @@ STANDARD_BOOK_MAP = {
     "3 jean": "3 Jn",
     "jude": "Jude",
     "apocalypse": "Ap", "révélation": "Ap",
+
+    # Certaines sources Darby emploient des noms anglais dans les
+    # métadonnées alors que le texte des versets est français. Sans ces alias,
+    # 56 livres sur 66 étaient silencieusement exclus de l'index global.
+    "genesis": "Gen", "exodus": "Ex", "leviticus": "Lév", "numbers": "Nb",
+    "deuteronomy": "Dt", "joshua": "Jos", "judges": "Jg",
+    "i samuel": "1 S", "ii samuel": "2 S", "i kings": "1 R", "ii kings": "2 R",
+    "i chronicles": "1 Ch", "ii chronicles": "2 Ch", "ezra": "Esd",
+    "nehemiah": "Neh", "psalms": "Ps", "proverbs": "Pr", "ecclesiastes": "Ec",
+    "song of solomon": "Ct", "isaiah": "És", "jeremiah": "Jér", "ezekiel": "Éz",
+    "hosea": "Os", "obadiah": "Abd", "jonah": "Jon", "micah": "Mi",
+    "habakkuk": "Hab", "zephaniah": "So", "haggai": "Ag", "zechariah": "Za", "malachi": "Ml",
+    "matthew": "Mt", "mark": "Mc", "luke": "Lc", "john": "Jn", "acts": "Ac",
+    "romans": "Rm", "i corinthians": "1 Co", "ii corinthians": "2 Co",
+    "galatians": "Ga", "ephesians": "Éph", "philippians": "Ph", "colossians": "Col",
+    "i thessalonians": "1 Th", "ii thessalonians": "2 Th",
+    "i timothy": "1 Tm", "ii timothy": "2 Tm", "titus": "Tt",
+    "hebrews": "He", "james": "Jc", "i peter": "1 P", "ii peter": "2 P",
+    "i john": "1 Jn", "ii john": "2 Jn", "iii john": "3 Jn",
+    "revelation of john": "Ap",
+
+    # Libellés éditoriaux rencontrés dans les fichiers NBS, Semeur et Français
+    # courant. Ce sont des métadonnées de livres, mais aussi des formulations
+    # que l'ASR peut réellement produire (« première lettre aux Corinthiens »).
+    "michee": "Mi", "nahoum": "Na", "habaquq": "Hab",
+    "premier livre de samuel": "1 S", "deuxieme livre de samuel": "2 S",
+    "premier livre des rois": "1 R", "deuxieme livre des rois": "2 R",
+    "premier livre des chroniques": "1 Ch", "deuxieme livre des chroniques": "2 Ch",
+    "l'ecclesiaste ou les paroles du sage": "Ec",
+    "evangile selon matthieu": "Mt", "evangile selon marc": "Mc",
+    "evangile selon luc": "Lc", "evangile selon jean": "Jn",
+    "lettre aux romains": "Rm", "premiere lettre aux corinthiens": "1 Co",
+    "deuxieme lettre aux corinthiens": "2 Co", "lettre aux galates": "Ga",
+    "lettre aux ephesiens": "Éph", "lettre aux philippiens": "Ph",
+    "lettre aux colossiens": "Col", "premiere lettre aux thessaloniciens": "1 Th",
+    "deuxieme lettre aux thessaloniciens": "2 Th", "premiere lettre a timothee": "1 Tm",
+    "deuxieme lettre a timothee": "2 Tm", "lettre a tite": "Tt",
+    "lettre a philemon": "Phm", "lettre aux hebreux": "He",
+    "lettre de jacques": "Jc", "premiere lettre de pierre": "1 P",
+    "deuxieme lettre de pierre": "2 P", "premiere lettre de jean": "1 Jn",
+    "deuxieme lettre de jean": "2 Jn", "troisieme lettre de jean": "3 Jn",
+    "lettre de jude": "Jude", "apocalypse ou revelation accordee a jean": "Ap",
 }
 
 def get_standard_abbr(book_name: str) -> Optional[str]:
     """Retourne l'abréviation standard d'un livre"""
     name_clean = book_name.lower().strip()
     name_clean = "".join(c for c in unicodedata.normalize('NFD', name_clean) if unicodedata.category(c) != 'Mn')
+    name_clean = re.sub(r"\s+", " ", name_clean.replace("’", "'").replace("`", "'"))
     return STANDARD_BOOK_MAP.get(name_clean)
 
 def get_full_book_name(book_abbr: str) -> str:
@@ -159,6 +202,7 @@ BIBLE_VERSION_LABELS = {
     "SEM": ("Bible du Semeur", "Semeur"),
     "TOB": ("Traduction œcuménique de la Bible", "TOB"),
     "FC": ("Bible en français courant", "Français courant"),
+    "DBY": ("Bible Darby", "Darby"),
 }
 
 
@@ -759,8 +803,11 @@ class VerseParserService:
             "3 Jn": 1, "Jude": 1, "Ap": 22,
         }
 
-    INVERTED_A_PATTERN_INDEX = 6
-    INVERTED_B_PATTERN_INDEX = 7
+    RANGE_WITHOUT_VERSET_PATTERN_INDEX = 4
+    CHAPTER_ONLY_PATTERN_INDEX = 5
+    SINGLE_CHAPTER_PATTERN_INDEX = 6
+    INVERTED_A_PATTERN_INDEX = 7
+    INVERTED_B_PATTERN_INDEX = 8
 
     def _compile_patterns(self) -> List[re.Pattern]:
         """Compile les patterns regex optimisés (évite le greedy matching)"""
@@ -769,29 +816,34 @@ class VerseParserService:
 
         patterns = [
             # 0: "Jean 3:16" ou "Jn 3:16" ou "1 Co 13:4-8"
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s*[:\.]\s*(\d+)(?:\s*(?:[-–àa]|et(?:\s+le\s+verset)?|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
 
             # 1: "Jean chapitre 3 verset 16" ou "Matthieu chapitre 8, et je lis à partir du verset 2"
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la|livre\s+de|épître\s+aux))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:[\s,]+(?:[^\d\n]{1,45}?\s+)?)?(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la|livre\s+de|épître\s+aux))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)(?:[\s,]+(?:[^\d\n]{1,45}?\s+)?)?(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|et(?:\s+le\s+verset)?|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
 
             # 2: "Jean 3 verset 16" ou "Matthieu 8, et je lis au verset 2"
-            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:[\s,]+(?:[^\d\n]{1,45}?\s+)?)?(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)(?:[\s,]+(?:[^\d\n]{1,45}?\s+)?)?(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|et(?:\s+le\s+verset)?|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
 
             # 3: "Jean 3 16" (sans séparateur, par exemple après conversion des mots de Vosk)
             # ⚠️ Pattern "loose" : sujet aux faux positifs sur du langage courant converti en
             # chiffres — sa confiance est plafonnée sous le seuil d'autopilotage (voir LOOSE_PATTERN_INDEX)
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\s+(\d+)\s+(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?\b', re.IGNORECASE),
 
-            # 4: "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
+            # 4: « Actes chapitre 16, 16 à 19 ». Les moteurs ASR omettent
+            # souvent le second mot « verset ». Le mot « chapitre » et le
+            # connecteur de plage gardent cette forme suffisamment stricte.
+            re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)[\s,]+(\d+)\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?|et(?:\s+le\s+verset)?)\s*(\d+)\b', re.IGNORECASE),
+
+            # 5: "Ésaïe chapitre 53" : candidat chapitre seul, sans inventer un verset 1.
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)(?:\s+(?:au|aux|dans|le|la))*\s+(?:chapitre|ch\.?|chap\.?)\s*(\d+)\b', re.IGNORECASE),
 
-            # 5: "Jude verset 24" : livre à CHAPITRE UNIQUE, cité sans chapitre
+            # 6: "Jude verset 24" : livre à CHAPITRE UNIQUE, cité sans chapitre
             re.compile(r'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+)(?:\s+(?:au|aux|dans|le|la))*\s+(?:versets?|v\.?)\s*(\d+)(?:\s*(?:[-–àa])\s*(\d+))?\b', re.IGNORECASE),
 
-            # 6: Inversé A: "verset 2 du chapitre 8 de Matthieu"
+            # 7: Inversé A: "verset 2 du chapitre 8 de Matthieu"
             re.compile(r'\b(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?(?:[\s,]+(?:du|dans|au|dans\s+le)\s*(?:chapitre|ch\.?|chap\.?)\s*(\d+))(?:[\s,]+(?:de|des|du|dans|dans\s+le\s+livre\s+de|d\'|à))\s+\b(' + books_pattern + r')\b', re.IGNORECASE),
 
-            # 7: Inversé B: "verset 2 dans Matthieu chapitre 8" ou "verset 2 dans Matthieu 8"
+            # 8: Inversé B: "verset 2 dans Matthieu chapitre 8" ou "verset 2 dans Matthieu 8"
             re.compile(r'\b(?:versets?|v\.?s?)\s*(\d+)(?:\s*(?:[-–àa]|jusqu(?:\'| )?au(?:\s+verset)?)\s*(\d+))?(?:[\s,]+(?:dans|de|du|dans\s+le\s+livre\s+de|dans\s+l\'|d\'|à))\s+\b(' + books_pattern + r')\b(?:[\s,]+(?:au|dans|le|la|livre\s+de))*\s*(?:chapitre|ch\.?|chap\.?)?\s*(\d+)\b', re.IGNORECASE),
         ]
         return patterns
@@ -809,9 +861,6 @@ class VerseParserService:
             # 1. Livre seul ("dans jean", "lisons jean")
             re.compile(rf'\b((?:\d+\s+)?[A-Za-zÀ-ÿ]+(?:\s+(?:de|des)\s+[A-Za-zÀ-ÿ]+)?)\b', re.IGNORECASE)
         ]
-
-    # Index du motif « livre verset N » réservé aux livres à chapitre unique.
-    SINGLE_CHAPTER_PATTERN_INDEX = 5
 
     # Index du pattern "livre chiffre chiffre" (sans séparateur) dans la liste ci-dessus
     LOOSE_PATTERN_INDEX = 3
@@ -868,6 +917,11 @@ class VerseParserService:
         """Nettoie le texte en corrigeant les homophones vocaux ASR courants en français"""
         text = text.lower()
         text = self._convert_ordinal_books(text)
+        # Nemotron/Deepgram transcrivent parfois « première Jean » comme
+        # « un Jean ». La correction est volontairement limitée à une amorce
+        # de référence pour ne pas réécrire la parole ordinaire.
+        text = re.sub(r"\bun\s+jean\s+(?=(?:au\s+)?chapitre\b)", "1 jean ", text)
+        text = re.sub(r"\bun\s+pi[eè]ge\s+(?=(?:au\s+)?chapitre\b)", "1 pierre ", text)
         # Après les livres ordinaux (« première épître de Jean »), pour ne pas
         # confondre un rang de livre avec un rang de verset.
         text = self._convert_ordinal_ranks(text)
@@ -1064,8 +1118,13 @@ class VerseParserService:
         # Le motif « livre verset N » vient juste après les motifs explicites :
         # il est aussi sûr qu'eux puisqu'il exige un livre à chapitre unique,
         # mais il ne doit pas primer sur une référence pleinement énoncée.
-        pattern_groups = [(0, 1, 2, self.INVERTED_A_PATTERN_INDEX, self.INVERTED_B_PATTERN_INDEX), (self.SINGLE_CHAPTER_PATTERN_INDEX,),
-                          (self.LOOSE_PATTERN_INDEX,), (4,)]
+        pattern_groups = [
+            (0, 1, 2, self.RANGE_WITHOUT_VERSET_PATTERN_INDEX,
+             self.INVERTED_A_PATTERN_INDEX, self.INVERTED_B_PATTERN_INDEX),
+            (self.SINGLE_CHAPTER_PATTERN_INDEX,),
+            (self.LOOSE_PATTERN_INDEX,),
+            (self.CHAPTER_ONLY_PATTERN_INDEX,),
+        ]
         is_direct_input = skip_text_search
         for group in pattern_groups:
             if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue and not is_direct_input:
@@ -1089,7 +1148,7 @@ class VerseParserService:
                             book_abbr = reference["book_abbr"]
                             chapter = reference["chapter"]
                             best_verse = None
-                            best_score = 0.0
+                            best_rank = (-1, -1, -1, -1.0)
 
                             version = self.bible_loader.versions.get(self.bible_loader.active_version)
                             if not version and self.bible_loader.versions:
@@ -1097,18 +1156,60 @@ class VerseParserService:
 
                             if version and book_abbr.lower() in version and chapter in version[book_abbr.lower()]:
                                 chapter_verses = version[book_abbr.lower()][chapter]
-                                query_words = {w for w in self.bible_loader._normalize_text(cleaned_text).split() if len(w) >= 3}
+                                # On retire la référence elle-même avant de
+                                # comparer la citation. Sinon « Luc / chapitre
+                                # / quinze » compte comme du texte biblique et
+                                # avantage arbitrairement les versets courts.
+                                quote_text = (
+                                    clean_text_regex[:match.start()] + " " + clean_text_regex[match.end():]
+                                ).strip()
+                                query_tokens = self.bible_loader._normalize_text(quote_text).replace("'", " ").split()
+
+                                def ngrams(tokens, size):
+                                    return {
+                                        tuple(tokens[i:i + size])
+                                        for i in range(max(0, len(tokens) - size + 1))
+                                    }
+
+                                query_bigrams = ngrams(query_tokens, 2)
+                                query_trigrams = ngrams(query_tokens, 3)
+                                from .detection_fusion import best_overlap, content_stems
+                                query_stems = content_stems(quote_text)
 
                                 for v_num, v_text in chapter_verses.items():
-                                    if not v_text: continue
-                                    v_words = {w for w in self.bible_loader._normalize_text(v_text).split() if len(w) >= 3}
-                                    if not v_words: continue
+                                    if not v_text:
+                                        continue
+                                    translations = self.bible_loader.translations_for(book_abbr, chapter, v_num)
+                                    texts = list(translations.values()) or [v_text]
+                                    candidate_bigrams = set()
+                                    candidate_trigrams = set()
+                                    candidate_stems = set()
+                                    for candidate_text in texts:
+                                        tokens = self.bible_loader._normalize_text(candidate_text).replace("'", " ").split()
+                                        candidate_bigrams.update(ngrams(tokens, 2))
+                                        candidate_trigrams.update(ngrams(tokens, 3))
+                                        candidate_stems.update(content_stems(candidate_text))
 
-                                    overlap = len(query_words.intersection(v_words))
-                                    score = overlap / len(v_words)
-
-                                    if score > best_score and overlap >= 2:
-                                        best_score = score
+                                    trigram_hits = len(query_trigrams & candidate_trigrams)
+                                    bigram_hits = len(query_bigrams & candidate_bigrams)
+                                    stem_hits = len(query_stems & candidate_stems)
+                                    coverage = best_overlap(
+                                        quote_text,
+                                        {"text": v_text, "translations": translations},
+                                    )
+                                    # Une séquence de trois mots est le signal
+                                    # le plus précis. Sans trigramme, les mots
+                                    # distinctifs et leur couverture priment
+                                    # sur un bigramme courant (« par la »), qui
+                                    # confondait Romains 9:31 avec 9:32.
+                                    rank = (trigram_hits, stem_hits, coverage, bigram_hits)
+                                    has_evidence = (
+                                        trigram_hits >= 1
+                                        or (bigram_hits >= 2 and stem_hits >= 1)
+                                        or (stem_hits >= 2 and coverage >= 0.45)
+                                    )
+                                    if has_evidence and rank > best_rank:
+                                        best_rank = rank
                                         best_verse = v_num
 
                             if best_verse:
@@ -1117,8 +1218,16 @@ class VerseParserService:
                                 reference["text"] = self.bible_loader.get_verse_text(book_abbr, chapter, best_verse)
                                 reference["translations"] = self.bible_loader.translations_for(book_abbr, chapter, best_verse)
                                 reference["detection_method"] = "chapter_contextual_text"
-                                reference["confidence"] = min(0.98, max(0.85, 0.70 + (best_score * 0.3)))
-                                logger.info(f"📖 Verset déduit du contexte du chapitre: {reference['reference']} (score: {best_score:.2f})")
+                                phrase_hits = best_rank[0] + best_rank[3]
+                                reference["confidence"] = min(
+                                    0.98,
+                                    max(0.85, 0.80 + phrase_hits * 0.03 + best_rank[2] * 0.12),
+                                )
+                                logger.info(
+                                    f"📖 Verset déduit du contexte du chapitre: {reference['reference']} "
+                                    f"(3-grammes={best_rank[0]}, 2-grammes={best_rank[3]}, "
+                                    f"mots={best_rank[1]}, couverture={best_rank[2]:.2f})"
+                                )
                                 return reference
 
                         logger.info(f"📖 Référence explicite détectée: {reference['reference']}")
@@ -1290,6 +1399,10 @@ class VerseParserService:
                 "text": verse_text,
                 "translations": translations,
                 "detected_from": full_text[:100],
+                # Segment exact reconnu par la regex. Le moteur hybride peut
+                # ainsi retirer « Psaume 3 verset 8 » avant de comparer le
+                # texte cité au corpus, sans deviner où finit la référence.
+                "matched_reference": match.group(0),
                 "detection_method": "chapter_candidate" if verse_start is None else "explicit",
                 "confidence": 0.72 if verse_start is None else (0.85 if loose else 0.98),
             }
@@ -1307,7 +1420,9 @@ class VerseParserService:
 
         for abbr, full in self.book_abbreviations.items():
             abbr_clean = strip_accents(abbr)
-            if book_clean.startswith(abbr_clean):
+            # Une abréviation courte doit correspondre entièrement. Le vieux
+            # `startswith` transformait « 1 parking chapitre 5 » en 1 Pierre 5.
+            if book_clean == abbr_clean:
                 return self.clean_book_names.get(strip_accents(full))
 
         sorted_names = sorted(self.clean_book_names.keys(), key=len, reverse=True)

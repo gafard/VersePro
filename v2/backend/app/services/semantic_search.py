@@ -309,6 +309,55 @@ class LocalSemanticService:
             })
         return results
 
+    def search_in_scope(
+        self,
+        query: str,
+        book_abbr: str,
+        chapter: int,
+        top_k: Optional[int] = None,
+        min_score: float = 0.0,
+    ) -> List[Dict[str, Any]]:
+        """Recherche sémantique bornée à un chapitre déjà annoncé.
+
+        Filtrer un top-40 global *après* la recherche perd les formulations
+        courtes ou narratives : « il se dit en lui-même » (Luc 15:17) ne
+        figurait pas dans les 40 meilleurs versets de toute la Bible. Une fois
+        « Luc chapitre 15 » annoncé, seuls les 32 versets de ce chapitre sont
+        pertinents ; on les classe donc directement.
+        """
+        if not self.initialized or self.encoder is None or not query or len(query.split()) < 4:
+            return []
+        wanted_book = str(book_abbr or "").casefold()
+        wanted_chapter = int(chapter or 0)
+        scoped_indexes = np.asarray([
+            idx
+            for idx, entry in enumerate(self.entries)
+            if str(entry.get("book_abbr") or "").casefold() == wanted_book
+            and int(entry.get("chapter") or 0) == wanted_chapter
+        ], dtype=np.int64)
+        if not len(scoped_indexes):
+            return []
+
+        query_vector = self._encode([query], kind="query")[0]
+        scoped_scores = self.matrix[scoped_indexes] @ query_vector
+        count = max(1, min(int(top_k or settings.LOCAL_SEMANTIC_TOP_K), len(scoped_scores)))
+        local_indexes = np.argpartition(scoped_scores, -count)[-count:]
+        local_indexes = local_indexes[np.argsort(scoped_scores[local_indexes])[::-1]]
+        results = []
+        for local_index in local_indexes:
+            score = float(scoped_scores[local_index])
+            if score < min_score:
+                continue
+            index = int(scoped_indexes[local_index])
+            results.append({
+                **self.entries[index],
+                "score": round(score, 4),
+                "confidence": round(score, 4),
+                "detection_method": "semantic_anchored",
+                "requires_review": True,
+            })
+        return results
+
     def reset(self) -> None:
         """Invalide l'index actif apres un changement de version biblique."""
         self.entries = []
