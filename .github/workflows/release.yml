@@ -188,7 +188,8 @@ jobs:
           # Le chargement (Bible, index flou, sémantique) prend ~16 s sur un PC
           # modeste ; les runners partagés sont plus lents encore.
           for i in $(seq 1 120); do
-            if curl -fsS -m 2 http://127.0.0.1:17999/api/v1/health > health.json 2>/dev/null; then
+            if curl -fsS -m 2 -H "Authorization: Bearer release-smoke-token" \
+              http://127.0.0.1:17999/api/v1/health > health.json 2>/dev/null; then
               echo "✅ backend prêt après ${i}s :"; cat health.json; echo
               python - <<'PY'
           import asyncio
