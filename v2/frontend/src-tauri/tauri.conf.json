@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "VersePro",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "identifier": "app.versepro.regie",
   "build": {
     "beforeBuildCommand": "npm run build",

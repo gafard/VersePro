@@ -5,17 +5,24 @@ Moteur central de détection de références bibliques. Découplé de l'ASR.
 
 import time
 import asyncio
+import re
 from collections import deque
 from typing import Optional, Dict, Any
 from loguru import logger
 from app.services.ai_service import AIService
-from app.services.detection_fusion import fuse as fuse_detection, strip_attribution
+from app.services.detection_fusion import (
+    best_overlap,
+    content_stems,
+    fuse as fuse_detection,
+    strip_attribution,
+)
 
 # Nombre d'énoncés précédents fournis à l'IA. Trois est le réglage que
 # SmartVerses expose sous « Prior chunks for AI », et c'est un bon compromis :
 # assez pour situer une allusion dans son récit, assez peu pour que le verset
 # annoncé cinq minutes plus tôt ne pèse plus sur la phrase courante.
 CONTEXTE_ENONCES = 3
+DEDUPLICATION_SECONDS = 30.0
 
 BIBLE_KEYWORDS = {
     "dieu", "seigneur", "jésus", "jesus", "christ", "esprit", "bible", "écriture",
@@ -89,11 +96,182 @@ class BibleReferenceEngine:
             ajouter(" ".join(phrases[-1].split()[-limite:]))
         return vues or [" ".join(mots[-limite:])]
 
+    @staticmethod
+    def _same_verse(a: dict | None, b: dict | None) -> bool:
+        if not a or not b:
+            return False
+        return (
+            str(a.get("book_abbr") or "").casefold()
+            == str(b.get("book_abbr") or "").casefold()
+            and int(a.get("chapter") or 0) == int(b.get("chapter") or 0)
+            and int(a.get("verse_start") or a.get("verse") or 0)
+            == int(b.get("verse_start") or b.get("verse") or 0)
+        )
+
+    @staticmethod
+    def _inside_anchor(candidate: dict, anchor: dict | None) -> bool:
+        if not anchor:
+            return True
+        return (
+            str(candidate.get("book_abbr") or "").casefold()
+            == str(anchor.get("book_abbr") or "").casefold()
+            and int(candidate.get("chapter") or 0) == int(anchor.get("chapter") or 0)
+        )
+
+    async def _hybrid_search(self, query: str, anchor: dict | None = None) -> Optional[Dict[str, Any]]:
+        """Recherche lexicale+sémantique, éventuellement bornée à un chapitre.
+
+        Une annonce comme « Jean chapitre 17 » est une ancre, pas une fin de
+        recherche : la citation qui suit doit choisir le verset *dans* Jean 17.
+        On demande davantage de candidats avant filtrage afin qu'un verset du
+        chapitre annoncé ne disparaisse pas derrière des ressemblances globales.
+        """
+        top_k = max(3, int(self.settings.HYBRID_TOP_K))
+        # Un extrait situé au milieu/à la fin d'un long verset peut n'être que
+        # 8e sémantiquement (Jean 7:37 en est un cas réel). On récupère un
+        # vivier plus large puis le recouvrement lexical tranche ; cela ne
+        # relâche aucun seuil de décision.
+        candidate_k = min(24, top_k * 4)
+        retrieval_k = min(40, top_k * 6) if anchor else candidate_k
+
+        async def decide(window: str) -> dict | None:
+            async def lexical_search():
+                candidates = await asyncio.to_thread(
+                    self.verse_parser.bible_loader.search_candidates, window, retrieval_k
+                )
+                return [c for c in candidates if self._inside_anchor(c, anchor)][:candidate_k]
+
+            async def semantic_search():
+                if not (self.semantic_service and self.semantic_service.initialized):
+                    return []
+                if anchor and hasattr(self.semantic_service, "search_in_scope"):
+                    candidates = await asyncio.to_thread(
+                        self.semantic_service.search_in_scope,
+                        window,
+                        anchor.get("book_abbr"),
+                        anchor.get("chapter"),
+                        candidate_k,
+                        0.0,
+                    )
+                else:
+                    candidates = await asyncio.to_thread(
+                        self.semantic_service.search, window, retrieval_k, 0.0
+                    )
+                return [c for c in candidates if self._inside_anchor(c, anchor)][:candidate_k]
+
+            lexical, semantic = await asyncio.gather(lexical_search(), semantic_search())
+            for cand in semantic:
+                if "translations" not in cand and cand.get("verse_start") is not None:
+                    cand["translations"] = self.verse_parser.bible_loader.translations_for(
+                        cand["book_abbr"], cand["chapter"], cand["verse_start"]
+                    )
+            return fuse_detection(
+                lexical,
+                semantic,
+                window,
+                semantic_threshold=(
+                    self.semantic_service.active_threshold
+                    if self.semantic_service else self.settings.LOCAL_SEMANTIC_THRESHOLD
+                ),
+                semantic_margin=(
+                    self.semantic_service.active_margin
+                    if self.semantic_service else self.settings.LOCAL_SEMANTIC_MARGIN
+                ),
+                overlap_min=self.settings.HYBRID_OVERLAP_MIN,
+                top_n=candidate_k,
+            )
+
+        decisions = [
+            decision
+            for decision in await asyncio.gather(
+                *[decide(window) for window in self._retrieval_windows(query)]
+            )
+            if decision
+        ]
+        if not decisions:
+            return None
+        decisions.sort(
+            key=lambda decision: (
+                bool((decision.get("fusion") or {}).get("agreement")),
+                float((decision.get("fusion") or {}).get("overlap") or 0),
+                float(decision.get("confidence") or 0),
+            ),
+            reverse=True,
+        )
+        return decisions[0]
+
+    async def _explicit_conflict(self, spoken: str, explicit: dict) -> Optional[Dict[str, Any]]:
+        """Signale une citation quasi certaine qui contredit la référence dite.
+
+        On ne remplace jamais une référence explicite sur une ressemblance
+        moyenne. Il faut un accord lexical+sémantique, une citation très couverte
+        et presque aucun recouvrement avec le verset annoncé. Le résultat reste
+        obligatoirement manuel : l'opérateur voit les deux références.
+        """
+        query = strip_attribution(self.verse_parser.normalize_spoken(spoken))
+        # Les mots de la référence annoncée (« psaume / trois / huit »)
+        # diluent la citation et faisaient tomber son recouvrement de 1,00 à
+        # 0,67. Le parseur nous donne le segment exact qu'il a reconnu : on le
+        # retire uniquement de la requête de comparaison.
+        matched_reference = str(explicit.get("matched_reference") or "").strip()
+        if matched_reference:
+            query = re.sub(re.escape(matched_reference), " ", query, count=1, flags=re.IGNORECASE)
+            query = " ".join(query.split())
+        if len(content_stems(query)) < 4:
+            return None
+        if self.semantic_service and not self.semantic_service.initialized and not self.semantic_service.indexing:
+            await asyncio.to_thread(self.semantic_service.initialize, False)
+        if not (self.semantic_service and self.semantic_service.initialized):
+            return None
+
+        candidate = await self._hybrid_search(query)
+        if not candidate or self._same_verse(candidate, explicit):
+            return None
+        fusion = candidate.get("fusion") or {}
+        candidate_overlap = float(fusion.get("overlap") or 0)
+        explicit_overlap = best_overlap(query, explicit)
+        confidence = float(candidate.get("confidence") or 0)
+        semantic_score = float(fusion.get("sem_score") or candidate.get("score") or 0)
+        semantic_floor = (
+            float(self.semantic_service.active_threshold)
+            if self.semantic_service else 0.90
+        )
+        independently_confirmed = bool(fusion.get("agreement")) or (
+            candidate_overlap >= 0.90 and semantic_score >= semantic_floor
+        )
+        if not (
+            independently_confirmed
+            and candidate_overlap >= 0.72
+            and confidence >= 0.94
+            and explicit_overlap <= 0.20
+        ):
+            return None
+
+        corrected = dict(candidate)
+        corrected["detection_method"] = "semantic_conflict"
+        corrected["requires_review"] = True
+        corrected["explicit_conflict"] = {
+            "spoken_reference": explicit.get("reference"),
+            "spoken_text": explicit.get("text", ""),
+            "spoken_overlap": round(explicit_overlap, 3),
+            "quoted_reference": corrected.get("reference"),
+            "quoted_overlap": round(candidate_overlap, 3),
+        }
+        return corrected
+
     async def _run_detection_cascade(self, analysis_text: str, final_state: bool) -> Optional[Dict[str, Any]]:
         if not self.verse_parser:
             return None
 
         recent = self._recent_window(analysis_text, self.settings.HYBRID_WINDOW_WORDS)
+        # Une citation peut dépasser 40 mots. Conserver une fenêtre plus large
+        # pour l'étage explicite empêche la référence prononcée au début de
+        # disparaître avant que le final ASR arrive. La recherche sémantique
+        # reste, elle, découpée en petites fenêtres dans `_hybrid_search`.
+        reference_scope = self._recent_window(
+            analysis_text,
+            max(96, int(self.settings.HYBRID_WINDOW_WORDS) * 3),
+        )
 
         # ── A. Citation explicite & sauts relatifs ──
         active_ctx = None
@@ -102,18 +280,44 @@ class BibleReferenceEngine:
             if p_act and p_act.get("book_abbr") and p_act.get("chapter"):
                 active_ctx = {"book_abbr": p_act["book_abbr"], "chapter": p_act["chapter"]}
 
-        reference = await self.verse_parser.parse(recent, skip_text_search=True, active_context=active_ctx)
-        if reference:
+        reference = await self.verse_parser.parse(
+            reference_scope, skip_text_search=True, active_context=active_ctx
+        )
+        chapter_anchor = reference if reference and reference.get("verse_start") is None else None
+
+        # Une référence complète reste instantanée sur les partiels. Sur un
+        # final, on laisse toutefois une citation quasi littérale signaler une
+        # contradiction manifeste (« Psaume 3:8 » suivi du texte de Ps 32:8).
+        if reference and reference.get("verse_start") is not None:
+            if final_state and self.settings.LOCAL_SEMANTIC_ENABLED:
+                conflict = await self._explicit_conflict(reference_scope, reference)
+                if conflict:
+                    return conflict
             return reference
 
-        if not final_state or not self.settings.LOCAL_SEMANTIC_ENABLED:
-            return None
+        # Le chapitre seul s'affiche immédiatement pendant que le prédicateur
+        # continue. Une fois l'énoncé clos, il devient une ancre et la cascade
+        # poursuit jusqu'au verset au lieu de renvoyer artificiellement :0.
+        if not final_state:
+            return chapter_anchor
+
+        contextual_candidate = None
+        if chapter_anchor:
+            contextual = await self.verse_parser.parse(
+                reference_scope, skip_text_search=False, active_context=active_ctx
+            )
+            if contextual and contextual.get("verse_start") is not None:
+                contextual["requires_review"] = True
+                contextual_candidate = contextual
+
+        if not self.settings.LOCAL_SEMANTIC_ENABLED:
+            return contextual_candidate or chapter_anchor
 
         # Un segment trop court ne peut désigner aucun verset : « j'avais de
         # l'eau » (4 mots) faisait sortir Ézéchiel 47:4. Ce filtre-ci reste.
         if self.sante_transcription:
             if not self.sante_transcription.segment_exploitable(recent):
-                return None
+                return contextual_candidate or chapter_anchor
 
         # LE FILTRE « SON DIFFICILE » EST RETIRÉ, sur décision de l'utilisateur.
         #
@@ -132,65 +336,36 @@ class BibleReferenceEngine:
         cleaned = self.verse_parser.normalize_spoken(recent)
         query = strip_attribution(cleaned)
         if len(query.split()) < 4:
-            return None
+            return contextual_candidate or chapter_anchor
 
         if self.semantic_service and not self.semantic_service.initialized and not self.semantic_service.indexing:
             await asyncio.to_thread(self.semantic_service.initialize, False)
 
         # ── B'. VERSEGRAPH ──
-        if self.verse_graph:
+        if self.verse_graph and not chapter_anchor:
             ancre = self.verse_graph.resoudre(recent)
             if ancre:
                 logger.info(f"⚓ VerseGraph → {ancre['reference']} (score={ancre['confidence']:.4f})")
                 return ancre
 
         # ── B. FUSION SÉMANTIQUE ──
-        async def _decide(window: str) -> dict | None:
-            async def _lexical():
-                return await asyncio.to_thread(
-                    self.verse_parser.bible_loader.search_candidates, window, self.settings.HYBRID_TOP_K
-                )
-            async def _semantic():
-                if not (self.semantic_service and self.semantic_service.initialized):
-                    return []
-                return await asyncio.to_thread(
-                    self.semantic_service.search, window, self.settings.HYBRID_TOP_K, 0.0
-                )
-            lexical, semantic = await asyncio.gather(_lexical(), _semantic())
-            for cand in semantic:
-                if "translations" not in cand and cand.get("verse_start") is not None:
-                    cand["translations"] = self.verse_parser.bible_loader.translations_for(
-                        cand["book_abbr"], cand["chapter"], cand["verse_start"]
-                    )
-            return fuse_detection(
-                lexical, semantic, window,
-                semantic_threshold=(self.semantic_service.active_threshold if self.semantic_service else self.settings.LOCAL_SEMANTIC_THRESHOLD),
-                semantic_margin=(self.semantic_service.active_margin if self.semantic_service else self.settings.LOCAL_SEMANTIC_MARGIN),
-                overlap_min=self.settings.HYBRID_OVERLAP_MIN,
-                top_n=self.settings.HYBRID_TOP_K,
-            )
-
-        # Plusieurs fenêtres complémentaires améliorent le rappel sans injecter
-        # les énoncés précédents dans le score lexical : le verset proposé doit
-        # réellement correspondre à la phrase qui vient d'être prononcée.
-        windows = self._retrieval_windows(query)
-        found = [d for d in await asyncio.gather(*[_decide(w) for w in windows]) if d]
+        found = await self._hybrid_search(query, anchor=chapter_anchor)
         if found:
-            found.sort(
-                key=lambda d: (
-                    bool((d.get("fusion") or {}).get("agreement")),
-                    float((d.get("fusion") or {}).get("overlap") or 0),
-                    float(d.get("confidence") or 0),
-                ),
-                reverse=True,
-            )
-            return found[0]
+            if chapter_anchor:
+                found["chapter_anchor"] = chapter_anchor.get("reference")
+            return found
+
+        # Si l'index sémantique n'est pas encore prêt, le meilleur résultat
+        # contextuel du parseur vaut mieux que de retomber sur « chapitre :0 ».
+        # Il reste toujours en validation manuelle.
+        if contextual_candidate:
+            return contextual_candidate
 
         # ── C. DERNIER RECOURS : Arbitrage IA ──
         if not (self.ai_service and self.ai_service.enabled and self.settings.AI_AGENT_ENABLED):
-            return None
+            return chapter_anchor
         if self._ai_last_resort_lock.locked():
-            return None
+            return chapter_anchor
         # Mode strict : on n'interroge l'IA que si le propos est manifestement
         # religieux, pour ne pas la solliciter sur la parole du quotidien.
         #
@@ -204,7 +379,7 @@ class BibleReferenceEngine:
         if self.settings.AI_FILTERING_MODE == "strict":
             fil = " ".join([query, *self._contexte_recent]).lower()
             if not any(k in fil for k in BIBLE_KEYWORDS):
-                return None
+                return chapter_anchor
 
         async with self._ai_last_resort_lock:
             try:
@@ -222,11 +397,11 @@ class BibleReferenceEngine:
 
                     if not intent_res or intent_res.get("intent") != "biblical" or not intent_res.get("query"):
                         logger.debug("IA : Aucune intention biblique détectée ou requête vide.")
-                        return None
+                        return chapter_anchor
 
                     clean_query = intent_res.get("query")
                     if clean_query.lower() in {"none", "null"}:
-                        return None
+                        return chapter_anchor
 
                     logger.info(f"🤖 Intention biblique détectée. Mots-clés extraits : '{clean_query}'")
 
@@ -236,8 +411,15 @@ class BibleReferenceEngine:
                 )
                 if self.semantic_service and self.semantic_service.initialized:
                     shortlist += await asyncio.to_thread(self.semantic_service.search, clean_query, 3, 0.0)
+                if chapter_anchor:
+                    shortlist = [
+                        candidate for candidate in shortlist
+                        if self._inside_anchor(candidate, chapter_anchor)
+                    ]
 
                 if not shortlist:
+                    if chapter_anchor:
+                        return chapter_anchor
                     logger.info("IA RAG : aucun candidat local ; validation directe contre la Bible.")
 
                 # 3. Validation par l'IA (RAG Step 3). Même sans shortlist,
@@ -251,10 +433,10 @@ class BibleReferenceEngine:
                 raise
             except Exception as exc:
                 logger.debug(f"Arbitrage IA hybride indisponible : {exc}")
-                return None
+                return chapter_anchor
 
         if not res or not res.get("reference"):
-            return None
+            return chapter_anchor
 
         # Normalisation stricte de la référence
         normaliser = AIService._normalize_reference
@@ -268,7 +450,7 @@ class BibleReferenceEngine:
 
             if not selected:
                 logger.info(f"Suggestion IA écartée : '{res.get('reference')}' absente de la shortlist du vivier")
-                return None
+                return chapter_anchor
 
         # Validation du score. Une suggestion issue d'une shortlist reçoit la
         # confiance du candidat local ; une suggestion libre garde uniquement
@@ -312,12 +494,12 @@ class BibleReferenceEngine:
         )
         if confidence < seuil:
             logger.info(f"🛡️ Suggestion IA écartée (confiance {confidence:.0f} % < {seuil} %)")
-            return None
+            return chapter_anchor
 
         grounded = await self.verse_parser.parse(res["reference"], skip_text_search=True)
         if not grounded or not grounded.get("text"):
             logger.info(f"🛡️ Suggestion IA écartée (référence introuvable dans la Bible) : {res['reference']!r}")
-            return None
+            return chapter_anchor
 
         grounded["confidence"] = confidence / 100.0
         grounded["detection_method"] = "ai_semantic"
@@ -347,8 +529,8 @@ class BibleReferenceEngine:
     async def detecter_sans_effet(self, analysis_text: str, final_state: bool = True) -> Optional[Dict[str, Any]]:
         """La cascade seule, sans toucher à l'état du direct.
 
-        `process()` mémorise la dernière référence pour ne pas la reproposer
-        pendant 8 secondes. Le mode répétition doit rejouer la MÊME cascade
+        `process()` mémorise la dernière référence pendant la fenêtre de
+        déduplication. Le mode répétition doit rejouer la MÊME cascade
         sans polluer cette mémoire, sinon une répétition juste avant le culte
         rendrait le moteur muet sur les premiers versets réellement cités.
         """
@@ -392,6 +574,12 @@ class BibleReferenceEngine:
         ref = dict(decision)
         ref["source"] = source
 
+        if method == "chapter_candidate":
+            # Une ancre de chapitre aide l'opérateur et VerseGraph pendant que
+            # la phrase continue, mais ce n'est pas encore un verset : elle ne
+            # doit pas gonfler l'historique ni les statistiques avec un :0.
+            ref["transient"] = True
+
         if source != "local":
             ref["detection_method"] = "ai_semantic"
             ref["confidence"] = min(float(ref.get("confidence") or 0.95), 0.95)
@@ -422,11 +610,19 @@ class BibleReferenceEngine:
         fusion = ref.get("fusion") or {}
         if ref.get("detection_method") == "explicit":
             explanation = "Référence biblique prononcée explicitement et vérifiée dans le corpus local."
-        elif source == "semantic":
+        elif ref.get("detection_method") == "semantic_conflict":
+            conflict = ref.get("explicit_conflict") or {}
+            explanation = (
+                f"Le texte cité correspond à {ref.get('reference')} mais la référence "
+                f"prononcée était {conflict.get('spoken_reference')}. Validation requise."
+            )
+        elif ref.get("detection_method") in {"semantic_local", "semantic_anchored"}:
             explanation = (
                 "Suggestion locale issue de l'accord lexical et sémantique. "
                 f"Recouvrement: {float(fusion.get('overlap') or 0):.2f}."
             )
+        elif ref.get("detection_method") == "chapter_candidate":
+            explanation = "Chapitre annoncé ; recherche du verset en cours."
         else:
             explanation = "Suggestion IA choisie dans une liste fermée de versets réels. Validation humaine requise."
 
@@ -436,7 +632,7 @@ class BibleReferenceEngine:
         ref_key = f"{ref.get('book_abbr')}_{ref.get('chapter')}_{ref.get('verse_start')}_{ref.get('verse_end') or ''}"
         now = time.monotonic()
 
-        if ref_key == self.last_detected_ref and now - self.last_detected_at < 8.0:
+        if ref_key == self.last_detected_ref and now - self.last_detected_at < DEDUPLICATION_SECONDS:
             return None
 
         self.last_detected_ref = ref_key

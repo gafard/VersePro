@@ -78,3 +78,11 @@ def test_les_pieges_du_corpus_restent_muets():
         "nos frères de Corinthe nous ont envoyé un message",
     ):
         assert _ref(phrase) is None, f"faux positif sur : {phrase}"
+
+
+def test_homophone_un_piege_est_borne_a_une_reference():
+    # Erreur ASR observée dans le sermon : « 1 Pierre » -> « un piège ».
+    assert _ref("un piège chapitre cinq verset huit") == "1 Pierre 5:8"
+    # La correction ne doit pas réintroduire le faux positif des préfixes
+    # d'abréviation (« 1 p... »).
+    assert _ref("un parking chapitre cinq") is None

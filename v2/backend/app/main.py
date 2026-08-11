@@ -50,7 +50,7 @@ from .core.config import settings, RESOURCE_DIR
 from .core.security import http_request_allowed, websocket_allowed, websocket_subprotocol
 from .services.deepgram_service import DeepgramService
 from .services.verse_parser import VerseParserService, version_label
-from .services.reference_engine import BibleReferenceEngine
+from .services.reference_engine import BibleReferenceEngine, DEDUPLICATION_SECONDS
 from .services.database import DatabaseService, get_database
 from .services.vosk_service import VoskService
 from .services.nemotron_service import NemotronService
@@ -397,7 +397,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VersePro v2",
     description="Détection automatique de versets bibliques avec IA",
-    version="2.1.2",
+    version="2.1.3",
     lifespan=lifespan
 )
 
@@ -442,7 +442,7 @@ async def root():
     return {
         "name": "VersePro v2",
         "status": "running",
-        "version": "2.1.2"
+        "version": "2.1.3"
     }
 
 
@@ -1195,7 +1195,14 @@ async def websocket_audio(websocket: WebSocket):
             ref = dict(raw_ref)
             ref["source"] = source
             if source != "local":
-                ref["detection_method"] = "semantic_local" if source == "semantic" else "ai_semantic"
+                # Le moteur peut avoir produit une décision plus précise que
+                # le simple canal d'origine (notamment ``semantic_conflict``).
+                # Ne l'écrasons pas ici : l'interface doit pouvoir expliquer
+                # qu'une référence prononcée contredit le texte réellement cité.
+                if source == "ai":
+                    ref["detection_method"] = "ai_semantic"
+                else:
+                    ref.setdefault("detection_method", "semantic_local")
                 ref["confidence"] = min(float(ref.get("confidence") or 0.95), 0.95)
                 ref["requires_review"] = True
                 ref["projection_policy"] = "manual_review"
@@ -1228,11 +1235,19 @@ async def websocket_audio(websocket: WebSocket):
             fusion = ref.get("fusion") or {}
             if ref.get("detection_method") == "explicit":
                 explanation = "Référence biblique prononcée explicitement et vérifiée dans le corpus local."
-            elif source == "semantic":
+            elif ref.get("detection_method") == "semantic_conflict":
+                conflict = ref.get("explicit_conflict") or {}
+                explanation = (
+                    f"Le texte cité correspond à {ref.get('reference')} mais la référence "
+                    f"prononcée était {conflict.get('spoken_reference')}. Validation requise."
+                )
+            elif ref.get("detection_method") in {"semantic_local", "semantic_anchored"}:
                 explanation = (
                     "Suggestion locale issue de l'accord lexical et sémantique. "
                     f"Recouvrement: {float(fusion.get('overlap') or 0):.2f}."
                 )
+            elif ref.get("detection_method") == "chapter_candidate":
+                explanation = "Chapitre annoncé ; recherche du verset en cours."
             else:
                 explanation = "Suggestion IA choisie dans une liste fermée de versets réels. Validation humaine requise."
             ref["explanation"] = explanation
@@ -1245,7 +1260,7 @@ async def websocket_audio(websocket: WebSocket):
             now = time.monotonic()
             if (
                 ref_key == last_detected_ref
-                and now - last_detected_at < 8.0
+                and now - last_detected_at < DEDUPLICATION_SECONDS
             ) or not is_current(generation):
                 return
             last_detected_ref = ref_key
@@ -1264,7 +1279,10 @@ async def websocket_audio(websocket: WebSocket):
             if not is_current(generation):
                 return
 
-            if db_service and db_service.db:
+            # Un chapitre seul est un état d'interface temporaire, pas un
+            # verset détecté. Le conserver créait les nombreuses entrées :0
+            # observées dans l'historique du sermon.
+            if not ref.get("transient") and db_service and db_service.db:
                 ref_snapshot = dict(ref)
                 persist_later(
                     "detected-verse",

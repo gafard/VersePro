@@ -63,6 +63,25 @@ def test_strong_semantic_without_overlap_rejected():
     assert out is None
 
 
+def test_semantic_suffix_quote_just_below_threshold_surfaces():
+    """Un extrait exact en fin de long verset ne doit pas être perdu."""
+    spoken = "si quelqu'un a soif qu'il vienne à moi et qu'il boive"
+    verse = (
+        "Le dernier jour, le grand jour de la fête, Jésus, se tenant debout, s'écria: "
+        "Si quelqu'un a soif, qu'il vienne à moi, et qu'il boive."
+    )
+    out = fuse(
+        [],
+        [_sem("Jn", 7, 37, verse, 0.830)],
+        spoken,
+        semantic_threshold=0.8385,
+        semantic_margin=0.005,
+        overlap_min=0.34,
+    )
+    assert out and out["reference"] == "Jn 7:37"
+    assert out["fusion"]["reason"] == "quasi-citation sémantique"
+
+
 def test_curated_phrase_surfaces():
     spoken = "car dieu a tant aimé le monde qu il a donné son fils unique"
     verse = "Car Dieu a tant aimé le monde qu'il a donné son Fils unique"
@@ -127,17 +146,25 @@ NOISE = [
 def test_end_to_end_precision_recall():
     # Exerce la VRAIE cascade de production (explicite + attribution + fusion).
     import asyncio
-    from app import main as M
+    from app.core.config import settings
+    from app.services.reference_engine import BibleReferenceEngine
     from app.services.verse_parser import VerseParserService
     from app.services.semantic_search import LocalSemanticService
 
-    M.verse_parser = VerseParserService()
-    M.semantic_service = LocalSemanticService(M.verse_parser.bible_loader)
-    if not M.semantic_service.initialize(allow_download=False):
-        pytest.skip(f"Index sémantique non construit : {M.semantic_service.last_error}")
+    parser = VerseParserService()
+    semantic = LocalSemanticService(parser.bible_loader)
+    if not semantic.initialize(allow_download=False):
+        pytest.skip(f"Index sémantique non construit : {semantic.last_error}")
+    engine = BibleReferenceEngine(
+        verse_parser=parser,
+        semantic_service=semantic,
+        verse_graph=None,
+        ai_service=None,
+        settings=settings,
+    )
 
     def detect(spoken):
-        return asyncio.run(M.run_detection_cascade(spoken, final_state=True))
+        return asyncio.run(engine.detecter_sans_effet(spoken, final_state=True))
 
     hits = 0
     for spoken, (book, chap) in PARAPHRASES:
