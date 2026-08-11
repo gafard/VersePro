@@ -47,6 +47,13 @@ def init_main_services():
     main.deepgram_service = DeepgramService("fake-key")
     main.verse_parser = VerseParserService()
     main.vosk_service = VoskService()
+    main.reference_engine = main.BibleReferenceEngine(
+        main.verse_parser,
+        semantic_service=None,
+        verse_graph=None,
+        ai_service=None,
+        settings=settings,
+    )
     if not main.output_manager:
         main.output_manager = main.OutputManager()
         import asyncio
@@ -55,6 +62,7 @@ def init_main_services():
     main.deepgram_service = None
     main.verse_parser = None
     main.vosk_service = None
+    main.reference_engine = None
 
 def test_remote_projection_ws_is_public():
     # L'écran d'affichage est public : même à distance (ex: 203.0.113.10), il doit se connecter sans token.
@@ -123,12 +131,14 @@ def test_local_browser_origin_is_checked_without_token(monkeypatch):
     assert accepted.status_code == 200
 
 
-def test_websocket_accepts_session_token_subprotocol():
+def test_websocket_accepts_session_token_subprotocol(monkeypatch):
+    monkeypatch.setattr(main, "deepgram_service", FakeDeepgramService())
     remote_client = TestClient(main.app, client=("203.0.113.10", 49152))
     with remote_client.websocket_connect(
         "/ws/audio",
         subprotocols=["versepro", "versepro.auth.secure-integration-token"],
     ) as websocket:
+        assert websocket.accepted_subprotocol == "versepro"
         assert websocket.receive_json()["type"] == "ai_status"
 
 

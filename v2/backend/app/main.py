@@ -47,7 +47,7 @@ from loguru import logger
 import uvicorn
 
 from .core.config import settings, RESOURCE_DIR
-from .core.security import http_request_allowed, websocket_allowed
+from .core.security import http_request_allowed, websocket_allowed, websocket_subprotocol
 from .services.deepgram_service import DeepgramService
 from .services.verse_parser import VerseParserService, version_label
 from .services.reference_engine import BibleReferenceEngine
@@ -397,7 +397,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VersePro v2",
     description="Détection automatique de versets bibliques avec IA",
-    version="2.1.1",
+    version="2.1.2",
     lifespan=lifespan
 )
 
@@ -442,7 +442,7 @@ async def root():
     return {
         "name": "VersePro v2",
         "status": "running",
-        "version": "2.1.1"
+        "version": "2.1.2"
     }
 
 
@@ -570,7 +570,7 @@ async def websocket_output(websocket: WebSocket):
     `?canal=preview` abonne au canal de PRÉPARATION : ce que l'opérateur monte
     sans que l'assemblée le voie. Par défaut, `program` — la salle.
     """
-    await websocket.accept()
+    await websocket.accept(subprotocol=websocket_subprotocol(websocket))
     canal = websocket.query_params.get("canal", "program")
     browser_driver = output_manager.outputs.get("browser") if output_manager else None
     if browser_driver:
@@ -802,7 +802,7 @@ async def websocket_audio(websocket: WebSocket):
         await websocket.close(code=1008, reason="Jeton API requis pour les clients distants")
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=websocket_subprotocol(websocket))
 
     if not deepgram_service or not verse_parser or not vosk_service:
         await websocket.close(code=1011, reason="Services non initialisés")
@@ -1507,7 +1507,7 @@ async def websocket_control(websocket: WebSocket):
         await websocket.close(code=1008, reason="Jeton API requis pour les clients distants")
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=websocket_subprotocol(websocket))
     if not output_manager:
         await websocket.close(code=1011, reason="Moteur de sortie non initialisé")
         return
