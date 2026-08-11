@@ -206,7 +206,7 @@ jobs:
                   assert message["type"] == "ai_status", message
 
           asyncio.run(smoke_audio_websocket())
-          print("✅ canal audio WebSocket authentifié")
+          print("OK canal audio WebSocket authentifie")
           PY
               kill $PID 2>/dev/null || true
               exit 0
