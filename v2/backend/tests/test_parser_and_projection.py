@@ -4,7 +4,7 @@ import os
 import pytest
 
 from app.outputs.propresenter import ProPresenterOutput
-from app.services.verse_parser import VerseParserService
+from app.services.verse_parser import VerseParserService, get_standard_abbr
 
 
 @pytest.mark.parametrize(
@@ -138,10 +138,20 @@ def test_toutes_les_traductions_embarquees_indexent_les_66_livres():
     éditions perdaient jusqu'à 36 livres lors du chargement.
     """
     parser = VerseParserService()
-    expected = {"LSG", "NBS", "SEM", "TOB", "KJF", "DBY", "FC"}
-    assert expected.issubset(parser.bible_loader.versions)
-    for version_id in expected:
+    # La distribution publique/CI n'embarque légalement que LSG + KJF ; les
+    # autres éditions sont présentes sur le poste de développement ou
+    # importées par l'utilisateur. Toute édition effectivement disponible doit
+    # cependant conserver ses 66 livres.
+    assert {"LSG", "KJF"}.issubset(parser.bible_loader.versions)
+    for version_id in {"LSG", "NBS", "SEM", "TOB", "KJF", "DBY", "FC"} & set(parser.bible_loader.versions):
         assert len(parser.bible_loader.versions[version_id]) == 66, version_id
+
+    # Les libellés responsables des pertes restent testés même quand les
+    # fichiers optionnels ne sont pas distribués sur le runner public.
+    assert get_standard_abbr("Habakkuk") == "Hab"
+    assert get_standard_abbr("Michée") == "Mi"
+    assert get_standard_abbr("Première lettre aux Corinthiens") == "1 Co"
+    assert get_standard_abbr("Apocalypse ou Revelation accordee a Jean") == "Ap"
 
 
 def test_propresenter_output_initialization():
