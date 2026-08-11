@@ -10,9 +10,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import main as runtime
 from app.core.config import settings
+from app.services.reference_engine import BibleReferenceEngine
 from app.services.semantic_search import LocalSemanticService
+from app.services.verse_graph import VerseGraphService
 from app.services.verse_parser import VerseParserService
 
 
@@ -51,10 +52,22 @@ async def run(cases_path: Path, require_onnx: bool = False) -> dict:
     if require_onnx and not semantic.initialized:
         raise RuntimeError("Le modèle ONNX demandé n'est pas préparé")
 
-    runtime.verse_parser = parser
-    runtime.semantic_service = semantic
-    runtime.ai_service = DisabledAI()
     settings.AI_AGENT_ENABLED = False
+    # La cascade a quitté app.main pour BibleReferenceEngine : ce banc d'essai
+    # appelait `runtime.run_detection_cascade`, disparu depuis. Il levait donc
+    # une AttributeError avant le premier cas — autrement dit, la qualité de
+    # détection n'a plus été mesurée depuis ce déplacement.
+    #
+    # `detecter_sans_effet` est l'entrée prévue pour rejouer la cascade sans
+    # toucher à la mémoire du direct : c'est exactement ce qu'il faut ici, sans
+    # quoi la déduplication ferait manquer les cas qui se répètent.
+    moteur = BibleReferenceEngine(
+        verse_parser=parser,
+        semantic_service=semantic,
+        verse_graph=VerseGraphService(semantic),
+        ai_service=DisabledAI(),
+        settings=settings,
+    )
 
     latencies: list[float] = []
     rows = []
@@ -62,7 +75,7 @@ async def run(cases_path: Path, require_onnx: bool = False) -> dict:
     for case in cases:
         expected_key = await canonical(parser, case.get("expected"))
         started = time.perf_counter()
-        result = await runtime.run_detection_cascade(case["text"], final_state=True)
+        result = await moteur.detecter_sans_effet(case["text"], final_state=True)
         latency = (time.perf_counter() - started) * 1000
         latencies.append(latency)
         predicted = result.get("reference") if result else None
