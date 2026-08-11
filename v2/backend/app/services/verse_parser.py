@@ -1174,21 +1174,23 @@ class VerseParserService:
         prononcée. Le choix se défend sur un partiel, où la fenêtre glisse et où
         le prédicateur en est à la plus récente.
 
-        Sur un énoncé CLOS, il fait disparaître tout le reste. Mesuré sur un
-        enregistrement de cinq références enchaînées, transcrit par Vosk en un
-        seul segment :
+        Sur un énoncé CLOS, il fait disparaître tout le reste. Constaté en
+        production, sur une heure de prédication transcrite par NEMOTRON — le
+        moteur local réellement utilisé, Vosk n'étant plus qu'un repli :
 
-            « …dans jean chapitre trois verset seize lisons le psaume vingt-trois
-              verset un dans ephésiens chapitre deux versets huit à neuf il est
-              écrit romains chapitre huit verset vingt huit… »
+            22:57  « …tel est votre un corinthiens 2 16, vous avez la même
+                     onction… L'évidence un Jean chapitre 2 verset 20 »
+                   rendue : 1 Jn 2:20 seule — 1 Co 2:16 perdue.
 
-            présentes : Jn 3:16, Ps 23:1, Ep 2:8-9, Rm 8:28
-            rendue    : Rm 8:28
-            perdues   : trois sur quatre, sans trace ni journal.
+            22:24  « …par ses blessures, j'ai été guéri. Un pierre 2 24. Non
+                     pas que je vais être guéri… Ephésiens chapitre un
+                     verset 19 dit que »
+                   rendue : Ep 1:19 seule — 1 P 2:24 perdue.
 
+        Rejoués, neuf énoncés de cette session rendent cinq références de plus.
         Un prédicateur qui annonce son plan (« nous verrons Jean 3, puis
-        Romains 8, et nous finirons par Apocalypse 21 ») perdait donc les deux
-        tiers de ses annonces.
+        Romains 8, et nous finirons par Apocalypse 21 ») perdait les deux tiers
+        de ses annonces, sans trace ni journal.
         """
         if not text:
             return [] if collect_all else None
