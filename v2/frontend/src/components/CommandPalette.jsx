@@ -11,6 +11,10 @@ const METHOD_LABELS = {
   text_index: 'Texte exact',
   text_substring: 'Texte exact',
   text_fuzzy: 'Citation approchée',
+  manual_exact: 'Fragment exact',
+  manual_cross_verse: 'Passage exact',
+  manual_approx: 'Fragment approché',
+  manual_semantic: 'Paraphrase',
 }
 
 /**
@@ -138,7 +142,7 @@ export default function CommandPalette({ open, onClose }) {
             className="flex-1 bg-transparent border-0 outline-none text-text-primary text-[15px] placeholder:text-text-faint"
             type="text"
             value={query}
-            placeholder="Jn 3:16, « psaume 23 », ou un bout de citation…"
+            placeholder="Référence ou n’importe quel bout de phrase biblique…"
             onChange={(e) => { setQuery(e.target.value); search(e.target.value) }}
             onKeyDown={handleKeyDown}
             aria-label="Rechercher un verset"
@@ -152,12 +156,12 @@ export default function CommandPalette({ open, onClose }) {
           )}
           {!searching && query.trim().length >= 2 && results.length === 0 && (
             <div className="p-4 text-[12.5px] text-text-faint leading-relaxed">
-              Aucun verset trouvé. Essayez une référence (Jn 3:16) ou plus de mots de la citation.
+              Aucun verset trouvé. Vérifiez un mot ou essayez une formulation voisine.
             </div>
           )}
           {query.trim().length < 2 && (
             <div className="p-4 text-[12.5px] text-text-faint leading-relaxed">
-              Tapez une référence ou un extrait du texte — <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-surface-elevated border border-border text-text-faint">↑↓</span> naviguer, <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-surface-elevated border border-border text-text-faint">Entrée</span> projeter.
+              Tapez une référence ou quelques mots pris n’importe où dans le verset — <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-surface-elevated border border-border text-text-faint">↑↓</span> naviguer, <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-surface-elevated border border-border text-text-faint">Entrée</span> projeter.
             </div>
           )}
           {results.map((result, idx) => {
@@ -179,9 +183,13 @@ export default function CommandPalette({ open, onClose }) {
                     isActive ? 'text-accent' : 'text-text-faint'
                   }`}>
                     {METHOD_LABELS[result.detection_method] || result.detection_method}
+                    {result.matched_version ? ` · ${result.matched_version}` : ''}
+                    {result.confidence ? ` · ${Math.round(result.confidence * 100)} %` : ''}
                   </span>
                 </div>
-                <p className="mt-1 text-[12.5px] leading-snug text-text-secondary line-clamp-2">{result.text || ''}</p>
+                <p className="mt-1 text-[12.5px] leading-snug text-text-secondary line-clamp-2">
+                  {result.matched_text || result.text || ''}
+                </p>
               </button>
             )
           })}

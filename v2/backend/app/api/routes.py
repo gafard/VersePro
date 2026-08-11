@@ -145,7 +145,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "version": "2.1.3",
+        "version": "2.1.4",
         "services": {
             "deepgram": deepgram_service is not None,
             "propresenter": propresenter_connected,
@@ -427,12 +427,13 @@ async def bible_search(q: str, limit: int = 6):
     référence explicite (Jn 3:16, "rom 8 28"), début de texte, citation approximative.
     Renvoie plusieurs candidats avec texte et score, sans rien projeter.
     """
-    from ..main import verse_parser
+    from ..main import verse_parser, semantic_service
 
     if not verse_parser or not q or not q.strip():
         return {"results": []}
 
-    query = re.sub(r"^[^\w\s]+", "", q.strip()).strip() or q.strip()
+    limit = min(max(int(limit), 1), 20)
+    query = (re.sub(r"^[^\w\s]+", "", q.strip()).strip() or q.strip())[:5000]
     results = []
     seen = set()
 
@@ -448,7 +449,7 @@ async def bible_search(q: str, limit: int = 6):
                 v = explicit["verse_start"] + offset
                 text = verse_parser.bible_loader.get_verse_text(explicit["book_abbr"], explicit["chapter"], v)
                 if text:
-                    results.append({
+                    adjacent = {
                         "reference": f"{explicit['book_abbr']} {explicit['chapter']}:{v}",
                         "book_abbr": explicit["book_abbr"],
                         "chapter": explicit["chapter"],
@@ -456,17 +457,53 @@ async def bible_search(q: str, limit: int = 6):
                         "text": text,
                         "detection_method": "adjacent",
                         "confidence": 0.5,
-                    })
+                    }
+                    seen.add(adjacent["reference"])
+                    results.append(adjacent)
 
-    # 2. Recherche textuelle (exacte puis floue)
-    if len(query) >= 8:
-        candidates = await asyncio.to_thread(
-            verse_parser.bible_loader.search_candidates, query, limit
+    # 2. Recherche de fragments à N'IMPORTE QUEL ENDROIT du verset et dans
+    # toutes les traductions installées. Deux lettres suffisent pour lancer la
+    # recherche ; un mot court exact peut déjà être utile à l'opérateur.
+    if len(query) >= 2:
+        manual_task = asyncio.to_thread(
+            verse_parser.bible_loader.search_manual_candidates, query, max(limit * 2, 12)
         )
-        for cand in candidates:
-            if cand["reference"] not in seen:
-                seen.add(cand["reference"])
-                results.append(cand)
+        semantic_task = None
+        if semantic_service and semantic_service.initialized and len(query.split()) >= 2:
+            semantic_task = asyncio.to_thread(
+                semantic_service.search_manual, query, max(limit * 2, 12)
+            )
+
+        manual_candidates = await manual_task
+        semantic_candidates = await semantic_task if semantic_task else []
+
+        # Les fragments exacts priment. Les paraphrases sémantiques complètent
+        # ensuite la liste, sans doublon ni projection automatique.
+        for cand in [*manual_candidates, *semantic_candidates]:
+            key = cand.get("reference") or (
+                f"{cand.get('book_abbr')} {cand.get('chapter')}:{cand.get('verse_start') or cand.get('verse')}"
+            )
+            if key in seen:
+                continue
+            if not cand.get("reference") and cand.get("verse") is not None:
+                from ..services.verse_parser import format_reference
+                cand = dict(cand)
+                cand["verse_start"] = cand.get("verse")
+                cand["reference"] = format_reference(
+                    cand.get("book_abbr"), cand.get("chapter"), cand.get("verse")
+                )
+                # L'index sémantique embarque son texte, mais les traductions
+                # restent utiles au panneau de comparaison.
+                cand["translations"] = verse_parser.bible_loader.translations_for(
+                    cand.get("book_abbr"), cand.get("chapter"), cand.get("verse")
+                )
+            elif not cand.get("translations") and cand.get("verse_start") is not None:
+                cand = dict(cand)
+                cand["translations"] = verse_parser.bible_loader.translations_for(
+                    cand.get("book_abbr"), cand.get("chapter"), cand.get("verse_start")
+                )
+            seen.add(cand["reference"])
+            results.append(cand)
 
     return {"results": results[:limit]}
 

@@ -70,6 +70,49 @@ def test_fuzzy_index_finds_approximate_quotes_and_rejects_noise():
     assert index.search("la réunion de lundi soir est reportée à mardi prochain", min_score=0.55) == []
 
 
+@pytest.mark.parametrize(
+    ("fragment", "reference"),
+    [
+        # Fragments courts pris au MILIEU du verset : l'ancien index ne
+        # conservait que ses cinq premiers mots.
+        ("source corrompue", "Proverbes 25:26"),
+        ("cherchant qui il dévorera", "1 Pierre 5:8"),
+        ("ta parole est la vérité", "Jean 17:17"),
+        # Petite faute de frappe/ASR sur « rugissant ».
+        ("lion rugisant", "1 Pierre 5:8"),
+        # Fragment traversant Jean 3:16 puis Jean 3:17.
+        ("vie éternelle Dieu en effet", "Jean 3:16-17"),
+    ],
+)
+def test_manual_search_finds_fragments_anywhere(fragment, reference):
+    parser = VerseParserService()
+    results = parser.bible_loader.search_manual_candidates(fragment, 10)
+
+    assert results, fragment
+    assert any(result["reference"] == reference for result in results), (
+        fragment,
+        [result["reference"] for result in results],
+    )
+
+
+def test_manual_search_covers_every_installed_translation_and_rejects_noise():
+    parser = VerseParserService()
+
+    # La formulation « tellement aimé » est celle du Français courant et
+    # n'existe pas telle quelle dans la LSG. Quand cette traduction est
+    # installée, elle doit tout de même conduire à Jean 3:16.
+    if "FC" in parser.bible_loader.versions:
+        results = parser.bible_loader.search_manual_candidates(
+            "dieu a tellement aimé le monde", 6
+        )
+        assert results and results[0]["reference"] == "Jean 3:16"
+        assert results[0]["matched_version"] == "FC"
+
+    assert parser.bible_loader.search_manual_candidates(
+        "réunion planning projecteur", 6
+    ) == []
+
+
 def test_parser_returns_most_recent_reference_in_buffer():
     """Dans un buffer de parole continue contenant deux références, la plus
     récemment prononcée doit primer (c'est elle que le prédicateur cite)."""

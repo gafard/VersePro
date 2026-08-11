@@ -309,6 +309,28 @@ class LocalSemanticService:
             })
         return results
 
+    def search_manual(self, query: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Recherche sémantique explicitement demandée par l'opérateur.
+
+        Deux mots suffisent ici : les réponses restent dans une liste de choix
+        et ne sont jamais projetées automatiquement. Le chemin live conserve
+        son garde-fou de quatre mots dans :meth:`search`.
+        """
+        if not self.initialized or self.encoder is None or not query or len(query.split()) < 2:
+            return []
+        query_vector = self._encode([query], kind="query")[0]
+        scores = self.matrix @ query_vector
+        count = max(1, min(int(top_k or settings.LOCAL_SEMANTIC_TOP_K), len(scores)))
+        indexes = np.argpartition(scores, -count)[-count:]
+        indexes = indexes[np.argsort(scores[indexes])[::-1]]
+        return [{
+            **self.entries[int(index)],
+            "score": round(float(scores[index]), 4),
+            "confidence": round(float(scores[index]), 4),
+            "detection_method": "manual_semantic",
+            "requires_review": True,
+        } for index in indexes]
+
     def search_in_scope(
         self,
         query: str,

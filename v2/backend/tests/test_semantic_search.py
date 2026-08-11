@@ -45,6 +45,13 @@ def test_semantic_logic_with_fake_encoder(tmp_path):
     # Les requêtes trop courtes sont refusées (ambiguïté)
     assert service.search("dieu est bon") == []
 
+    # Dans la palette manuelle, deux mots sont acceptés : ils n'activent
+    # aucune sortie et restent une simple liste de candidats.
+    manual = service.search_manual("Dieu amour", top_k=3)
+    assert manual
+    assert manual[0]["detection_method"] == "manual_semantic"
+    assert manual[0]["requires_review"] is True
+
 
 def test_semantic_real_model_paraphrase():
     """Intégration réelle : nécessite le modèle ONNX préparé (Paramètres -> Préparer)."""
