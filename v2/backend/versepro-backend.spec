@@ -82,6 +82,29 @@ for pkg in (
     binaries += b
     hiddenimports += h
 
+# NDIlib : le binding ET le runtime NDI (30 Mo de libndi.dylib sur macOS,
+# Processing.NDI.Lib.x64.dll sur Windows) arrivent ENSEMBLE dans la roue
+# ndi-python. Rien à installer côté église : la sortie NDI marche à la sortie
+# de la boîte dès que ce paquet est embarqué.
+#
+# Il l'a longtemps été à moitié : le workflow de release retirait ndi-python
+# avant le gel. L'application livrée n'avait donc aucun module NDIlib,
+# NDI_AVAILABLE valait False pour toujours, et Paramètres réclamait le
+# « Runtime NDI » — que l'on pouvait installer autant de fois qu'on voulait
+# sans jamais rien changer, puisqu'il ne fournit pas le module Python.
+#
+# Seul paquet OPTIONNEL de cette liste : un poste de développement sans
+# ndi-python doit continuer à produire un gel utilisable, simplement privé de
+# la sortie NDI.
+try:
+    d, b, h = collect_all("NDIlib")
+    datas += d
+    binaries += b
+    hiddenimports += h
+    print(f"spec : NDIlib collecté ({len(b)} binaires)")
+except Exception as exc:
+    print(f"spec : ATTENTION — NDIlib absent, la sortie NDI sera indisponible ({exc})")
+
 # Modules chargés dynamiquement.
 hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("app")           # tout le backend

@@ -61,6 +61,43 @@ def test_selection_introuvable_ne_marque_pas_tout():
     assert "if (debut < 0 && !estReference) return;" in contenu
 
 
+def test_le_soulignage_est_un_trait_dessine_pas_une_decoration_par_mot():
+    """« Un trait direct sous toute la partie sélectionnée, pas en discontinu ».
+
+    `text-decoration` s'applique par élément, et le texte est rendu mot par mot
+    pour la lecture vivante : le soulignage se brisait donc à chaque espace.
+    Aucun rapiéçage CSS ne donne un trait franc — il est dessiné dans la couche
+    SVG, d'un bord à l'autre de la sélection, une ligne de texte à la fois.
+    """
+    contenu = (GABARITS / "output.html").read_text(encoding="utf-8")
+    assert "annotation-underline" not in contenu, (
+        "le soulignage est redevenu une décoration posée mot par mot"
+    )
+    assert "annotation-trait" in contenu
+
+
+def test_le_gras_de_la_selection_s_appuie_sur_un_contraste():
+    """Du gras au milieu du gras ne désigne rien.
+
+    Le reste du verset s'allège pendant qu'une sélection est marquée : c'est le
+    contraste qui fait le marquage, pas la graisse seule.
+    """
+    contenu = (GABARITS / "output.html").read_text(encoding="utf-8")
+    assert "#text.a-selection .w" in contenu
+    assert "textEl.classList.add('a-selection')" in contenu
+    assert "textEl.classList.remove('a-selection')" in contenu
+
+
+def test_le_marquage_suit_les_reflows_du_texte():
+    """Trait et cadre sont posés en pixels ; ajusterAuCadre bouge le texte APRÈS.
+
+    Sans observation de la boîte du texte, un trait calculé avant la dernière
+    passe de mise à l'échelle reste accroché là où le texte n'est plus.
+    """
+    contenu = (GABARITS / "output.html").read_text(encoding="utf-8")
+    assert "ResizeObserver" in contenu
+
+
 def test_marquage_sans_requestanimationframe():
     """Un écran de projection n'est presque jamais la fenêtre au premier plan.
 

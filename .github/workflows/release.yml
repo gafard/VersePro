@@ -153,6 +153,22 @@ jobs:
           fi
           echo "$TROUVE"
 
+      # Même raisonnement que pour transcribe.cpp : la sortie NDI échouait en
+      # production, jamais à la construction. Le binding ET le runtime NDI
+      # voyagent dans la même roue — si la bibliothèque de 30 Mo n'est pas dans
+      # le gel, l'église verra « NDI non détecté » quoi qu'elle installe.
+      - name: Vérifier la bibliothèque NDI embarquée
+        working-directory: v2/backend
+        run: |
+          set -u
+          TROUVE=$(find dist/versepro-backend \( -iname "libndi*" -o -iname "Processing.NDI.Lib*" \) | head -5)
+          if [ -z "$TROUVE" ]; then
+            echo "::error::runtime NDI absent du gel — la sortie NDI serait indisponible"
+            find dist/versepro-backend -iname "*ndi*" | head -20
+            exit 1
+          fi
+          echo "$TROUVE"
+
       # Test de démarrage RÉEL du backend figé. Vérifier la présence des
       # fichiers ne prouve rien : un exécutable peut se construire puis mourir à
       # l'exécution (DLL manquante, import cassé). Sans ce test, un backend mort
