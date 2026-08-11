@@ -1149,7 +1149,8 @@ class VerseParserService:
         self,
         text: str,
         skip_text_search: bool = False,
-        active_context: Optional[Dict[str, Any]] = None
+        active_context: Optional[Dict[str, Any]] = None,
+        collect_all: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Parse un texte et extrait la référence biblique (explicite ou par recherche textuelle)
@@ -1158,12 +1159,39 @@ class VerseParserService:
             text: Texte transcrit contenant potentiellement une référence
             skip_text_search: Si True, ignore la recherche textuelle en fallback
             active_context: Dictionnaire optionnel avec {"book_abbr": "Mt", "chapter": 8} pour sauts relatifs
+            collect_all: Renvoie TOUTES les références explicites de l'énoncé,
+                dans l'ordre où elles ont été prononcées, au lieu de la seule
+                dernière. Voir la note ci-dessous.
 
         Returns:
-            Dictionnaire avec la référence structurée ou None
+            Dictionnaire avec la référence structurée ou None.
+            Avec `collect_all=True` : une liste de dictionnaires, éventuellement
+            vide — jamais None.
+
+        POURQUOI `collect_all` EXISTE. Cette fonction ne rendait qu'UNE
+        référence : les motifs sont tous trouvés (finditer), triés par position
+        DÉCROISSANTE, et la première valide est renvoyée — donc la dernière
+        prononcée. Le choix se défend sur un partiel, où la fenêtre glisse et où
+        le prédicateur en est à la plus récente.
+
+        Sur un énoncé CLOS, il fait disparaître tout le reste. Mesuré sur un
+        enregistrement de cinq références enchaînées, transcrit par Vosk en un
+        seul segment :
+
+            « …dans jean chapitre trois verset seize lisons le psaume vingt-trois
+              verset un dans ephésiens chapitre deux versets huit à neuf il est
+              écrit romains chapitre huit verset vingt huit… »
+
+            présentes : Jn 3:16, Ps 23:1, Ep 2:8-9, Rm 8:28
+            rendue    : Rm 8:28
+            perdues   : trois sur quatre, sans trace ni journal.
+
+        Un prédicateur qui annonce son plan (« nous verrons Jean 3, puis
+        Romains 8, et nous finirons par Apocalypse 21 ») perdait donc les deux
+        tiers de ses annonces.
         """
         if not text:
-            return None
+            return [] if collect_all else None
 
         # 1. Correction d'homophones sémantiques vocaux
         cleaned_text = self._clean_homophones(text)
@@ -1196,6 +1224,20 @@ class VerseParserService:
             (self.CHAPTER_ONLY_PATTERN_INDEX,),
         ]
         is_direct_input = skip_text_search
+        # Récolte de `collect_all` : dans l'ORDRE DE PAROLE, dédoublonnée.
+        toutes: List[Dict[str, Any]] = []
+        vues_cles: set = set()
+
+        def retenir(reference: Dict[str, Any], position: int) -> None:
+            cle = (
+                reference.get("book_abbr"), reference.get("chapter"),
+                reference.get("verse_start"), reference.get("verse_end"),
+            )
+            if cle in vues_cles:
+                return
+            vues_cles.add(cle)
+            toutes.append((position, reference))
+
         for group in pattern_groups:
             if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue and not is_direct_input:
                 continue
@@ -1298,12 +1340,45 @@ class VerseParserService:
                                     f"(3-grammes={best_rank[0]}, 2-grammes={best_rank[3]}, "
                                     f"mots={best_rank[1]}, couverture={best_rank[2]:.2f})"
                                 )
+                                if collect_all:
+                                    retenir(reference, match.start())
+                                    continue
                                 return reference
 
+                        if collect_all:
+                            retenir(reference, match.start())
+                            continue
                         logger.info(f"📖 Référence explicite détectée: {reference['reference']}")
                         return reference
                     else:
                         logger.debug(f"⚠️ Référence explicite invalide rejetée: {match.group()}")
+
+        if collect_all:
+            # Ordre de PAROLE : le tri interne va du plus récent au plus ancien
+            # pour que « la dernière prononcée » l'emporte sur un partiel. Ici
+            # on rend la phrase telle qu'elle a été dite, parce que c'est cet
+            # ordre qui a du sens pour la régie : le premier verset annoncé est
+            # celui que le prédicateur va lire.
+            ordonnees = [ref for _, ref in sorted(toutes, key=lambda c: c[0])]
+            # Le motif « chapitre seul » remonte AUSSI sur un texte qui a déjà
+            # donné un verset : « Jean chapitre trois verset seize » produit
+            # Jean 3:16 puis Jean 3. Annoncer les deux remplirait la file de
+            # cartes en double, dont l'une moins précise que l'autre.
+            avec_verset = {
+                (r.get("book_abbr"), r.get("chapter"))
+                for r in ordonnees if r.get("verse_start") is not None
+            }
+            ordonnees = [
+                r for r in ordonnees
+                if r.get("verse_start") is not None
+                or (r.get("book_abbr"), r.get("chapter")) not in avec_verset
+            ]
+            if len(ordonnees) > 1:
+                logger.info(
+                    "📖 %d références explicites dans l'énoncé : %s",
+                    len(ordonnees), ", ".join(r["reference"] for r in ordonnees),
+                )
+            return ordonnees
 
         if skip_text_search:
             return None

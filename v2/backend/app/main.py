@@ -1172,6 +1172,11 @@ async def websocket_audio(websocket: WebSocket):
             # floues, sémantiques ou IA restent soumises à validation.
             exact_methods = {"explicit", "text_phrase", "text_index"}
             minimum = 0.90 if method == "text_index" else (0.95 if method in exact_methods else 0.75)
+            # Plusieurs références dans une même phrase : une seule peut aller
+            # à l'écran, et c'est la première annoncée — celle que le
+            # prédicateur va lire. Les autres attendent dans la file.
+            if ref.get("annonce_multiple"):
+                return False
             return (
                 (
                     method in exact_methods
@@ -1353,6 +1358,16 @@ async def websocket_audio(websocket: WebSocket):
                             f"({fusion['reason']}, recouvrement {fusion['overlap']})"
                         )
                     await process_detected_reference(decision, analysis_text, generation, source="semantic")
+
+                # Les autres références de la MÊME phrase. Elles étaient
+                # simplement perdues : la cascade n'en rendait qu'une, la
+                # dernière prononcée. Relevé sur une heure de prédication,
+                # « Samuel 16:7 » disparaissait ainsi derrière « Jean 4:24 »
+                # annoncé deux phrases plus loin, sans laisser de trace.
+                for extra in decision.get("references_multiples") or []:
+                    if not is_current(generation):
+                        break
+                    await process_detected_reference(extra, analysis_text, generation)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
