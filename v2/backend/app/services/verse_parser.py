@@ -1377,8 +1377,8 @@ class VerseParserService:
             ]
             if len(ordonnees) > 1:
                 logger.info(
-                    "📖 %d références explicites dans l'énoncé : %s",
-                    len(ordonnees), ", ".join(r["reference"] for r in ordonnees),
+                    f"📖 {len(ordonnees)} références explicites dans l'énoncé : "
+                    + ", ".join(r["reference"] for r in ordonnees)
                 )
             return ordonnees
 

@@ -667,6 +667,33 @@ class BibleReferenceEngine:
         if self._deja_emis(ref_key, now):
             return None
 
+        # CONTRADICTION DE VERSET : deux numéros différents du MÊME chapitre à
+        # quelques secondes d'intervalle. C'est la signature d'un chiffre mal
+        # entendu, pas de deux citations.
+        #
+        # Relevé le 11 août, à la même seconde, sur la même phrase :
+        #     « Parlez à votre montagne, Marc chapitre 11 verset 23 »
+        #     « Parlez à votre montagne, Marc chapitre 11 verset 29 »
+        # et de même Romains 5:14 / Romains 5:4. Les deux passent le seuil
+        # d'autopilotage à 0,98 — motif explicite, verset bel et bien prononcé
+        # — donc aucun filtre de confiance ne les sépare. L'un des deux est
+        # forcément faux, et rien ne dit lequel.
+        #
+        # On ne tranche donc pas : le second reste une carte à valider. Le
+        # premier est déjà à l'écran, le régisseur voit les deux et choisit.
+        if self._contredit_recent(ref, now):
+            ref["requires_review"] = True
+            ref["verset_conteste"] = True
+            ref["explanation"] = (
+                f"Un autre verset de {ref.get('book')} {ref.get('chapter')} vient "
+                "d'être détecté : un des deux numéros a probablement été mal "
+                "entendu. À valider avant projection."
+            )
+            logger.warning(
+                f"⚠️ Verset contesté : {ref.get('reference')} arrive juste après "
+                "un autre verset du même chapitre"
+            )
+
         self.last_detected_ref = ref_key
         self.last_detected_at = now
         self._emis_recemment[ref_key] = now
@@ -700,6 +727,24 @@ class BibleReferenceEngine:
             "type": "reference_detected",
             "payload": ref
         }
+
+    # Fenêtre de contradiction : au-delà, deux versets du même chapitre sont
+    # une lecture suivie (« verset 3 … verset 4 »), pas un chiffre mal entendu.
+    CONTRADICTION_SECONDS = 12.0
+
+    def _contredit_recent(self, ref: Dict[str, Any], now: float) -> bool:
+        """Un AUTRE verset du même livre et chapitre vient-il d'être annoncé ?"""
+        prefixe = f"{ref.get('book_abbr')}_{ref.get('chapter')}_"
+        depart = ref.get("verse_start")
+        for cle, quand in self._emis_recemment.items():
+            if now - quand >= self.CONTRADICTION_SECONDS:
+                continue
+            if not cle.startswith(prefixe):
+                continue
+            morceaux = cle[len(prefixe):].split("_")
+            if morceaux and morceaux[0] != str(depart):
+                return True
+        return False
 
     def _deja_emis(self, ref_key: str, now: float) -> bool:
         """Vrai si cette référence est partie il y a moins de DEDUPLICATION_SECONDS."""

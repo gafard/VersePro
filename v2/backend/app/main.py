@@ -1177,11 +1177,25 @@ async def websocket_audio(websocket: WebSocket):
             # prédicateur va lire. Les autres attendent dans la file.
             if ref.get("annonce_multiple"):
                 return False
+            # UN VERSET DÉDUIT NE VA PLUS À L'ÉCRAN TOUT SEUL.
+            #
+            # `chapter_contextual_text` est le cas où le prédicateur n'annonce
+            # QUE le chapitre — « laissez-moi vous donner un exemple tiré de
+            # 2 Rois chapitre 6 » — et où le verset est retrouvé en comparant
+            # la phrase au texte du chapitre. C'est une déduction, souvent
+            # juste, jamais certaine : le numéro n'a pas été prononcé.
+            #
+            # Relevé sur une heure de prédication réelle : « 2 Rois 6:11 » et
+            # « Romains 10:8 » (trois fois) sont partis à l'antenne alors que
+            # seul le chapitre avait été dit — dans le second cas, le « 2 » de
+            # « parle de 2 types de justice » a servi de numéro de verset. Sur
+            # cette session, 50 détections sur 50 ont été projetées d'office.
+            #
+            # La déduction reste précieuse : elle continue d'alimenter la file
+            # en carte, prête en un clic. Elle ne s'impose simplement plus à
+            # l'assemblée sans qu'un régisseur l'ait regardée.
             return (
-                (
-                    method in exact_methods
-                    or method in ("chapter_contextual_text", "relative_jump")
-                )
+                (method in exact_methods or method == "relative_jump")
                 and confidence >= minimum
                 and ref.get("verse_start") is not None
                 and not ref.get("requires_review")
