@@ -35,13 +35,9 @@ zf = zipfile.ZipFile(zip_path, 'r')
 namelist = zf.namelist()
 
 def clean_usfm_text(text: str) -> str:
-    # Remove footnotes \f ...\f*
     text = re.sub(r'\\f\s+.*?(?:\\f\*|$)', '', text, flags=re.DOTALL)
-    # Remove cross-refs \x ...\x*
     text = re.sub(r'\\x\s+.*?(?:\\x\*|$)', '', text, flags=re.DOTALL)
-    # Remove character formatting tags like \wj, \+wj, \add, \+add, \nd, \qs, \q1, \q2, \p, etc.
     text = re.sub(r'\\[a-z0-9\+\*]+', '', text)
-    # Normalize whitespaces
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
@@ -57,6 +53,11 @@ for code, fr_name, abbr in USFM_MAP:
     content = zf.read(match_file).decode('utf-8')
     lines = content.splitlines()
     
+    # Extraire le nom authentique en Éwé depuis le fichier USFM
+    toc2_match = re.search(r'\\toc2\s+(.*)', content)
+    h_match = re.search(r'\\h\s+(.*)', content)
+    ewe_name = toc2_match.group(1).strip() if toc2_match else (h_match.group(1).strip() if h_match else fr_name)
+    
     chapters = []
     current_chapter_num = None
     current_verses = []
@@ -68,7 +69,6 @@ for code, fr_name, abbr in USFM_MAP:
         if not line_s:
             continue
         
-        # Check for chapter \c <num>
         c_match = re.match(r'^\\c\s+(\d+)', line_s)
         if c_match:
             if current_verse_num is not None:
@@ -84,7 +84,6 @@ for code, fr_name, abbr in USFM_MAP:
             current_verses = []
             continue
             
-        # Check for verse \v <num>
         v_match = re.match(r'^\\v\s+(\d+)(?:-\d+)?\s*(.*)', line_s)
         if v_match:
             if current_verse_num is not None:
@@ -99,7 +98,6 @@ for code, fr_name, abbr in USFM_MAP:
                 current_verse_text_parts.append(rem)
             continue
             
-        # Text continuation inside a verse
         if current_verse_num is not None:
             if line_s.startswith('\\'):
                 tag_content = re.sub(r'^\\[a-z0-9\+]+\s*', '', line_s)
@@ -117,8 +115,9 @@ for code, fr_name, abbr in USFM_MAP:
         chapters.append({"chapter": current_chapter_num, "verses": current_verses})
     
     books_result.append({
-        "name": fr_name,
+        "name": ewe_name,
         "abbreviation": abbr,
+        "french_name": fr_name,
         "chapters": chapters
     })
 
@@ -129,21 +128,21 @@ bible_json = {
     "books": books_result
 }
 
-# Destinations:
-# 1. In Simulation folder next to the PDF
+# 1. Dossier Simulation
 dest_sim = Path("/Users/gafardgnane/Downloads/Simulation/EWE.json")
 with open(dest_sim, "w", encoding="utf-8") as f:
     json.dump(bible_json, f, ensure_ascii=False, indent=2)
 
-# 2. In VersePro bibles_cache folder
+# 2. Dossier bibles_cache de VersePro
 cache_dir = Path("/Users/gafardgnane/Downloads/VersePro/v2/backend/data/bibles_cache")
 cache_dir.mkdir(parents=True, exist_ok=True)
 dest_cache = cache_dir / "EWE.json"
 with open(dest_cache, "w", encoding="utf-8") as f:
     json.dump(bible_json, f, ensure_ascii=False, indent=2)
 
-print(f"✅ Conversion réussie !")
+print(f"✅ Conversion avec noms Éwé authentiques réussie !")
 print(f"Livres: {len(books_result)}")
 print(f"Versets totaux: {total_verses}")
-print(f"Fichier créé dans Simulation: {dest_sim} ({os.path.getsize(dest_sim)/1024/1024:.2f} Mo)")
-print(f"Fichier créé dans VersePro: {dest_cache} ({os.path.getsize(dest_cache)/1024/1024:.2f} Mo)")
+print("Exemple Colossiens en Éwé :", next(b["name"] for b in books_result if b["abbreviation"] == "Col"))
+print("Exemple Genèse en Éwé :", next(b["name"] for b in books_result if b["abbreviation"] == "Gen"))
+print("Exemple Jean en Éwé :", next(b["name"] for b in books_result if b["abbreviation"] == "Jn"))
