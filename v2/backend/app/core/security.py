@@ -20,8 +20,12 @@ from .config import settings
 
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
-# Chemins accessibles sans authentification (lecture d'affichage uniquement)
-PUBLIC_PATHS = {"/", "/health", "/projection", "/output", "/obs", "/follow", "/stage", "/ws/projection", "/ws/output"}
+# Chemins accessibles sans authentification (lecture d'affichage et métadonnées publiques)
+PUBLIC_PATHS = {
+    "/", "/health", "/projection", "/output", "/obs", "/follow", "/stage",
+    "/ws/projection", "/ws/output",
+    "/api/v1/bibles", "/api/v1/bibles/catalogue", "/api/v1/bibles/imported"
+}
 
 
 def _is_local(host: str | None) -> bool:
@@ -67,16 +71,14 @@ def _trusted_origin(headers) -> bool:
 
 def http_request_allowed(request: Request) -> bool:
     """Autorise l'affichage public ou une commande authentifiée et locale."""
-    if request.url.path in PUBLIC_PATHS:
+    if request.url.path in PUBLIC_PATHS or request.url.path.startswith("/api/v1/bibles/"):
         return True
     if request.method == "OPTIONS":
         return _trusted_origin(request.headers)
     if _token_valid(_extract_token(request.headers, request.query_params)):
         return True
     host = request.client.host if request.client else None
-    if _is_local(host) and not _configured_tokens() and (
-        _trusted_origin(request.headers) or not request.headers.get("origin")
-    ):
+    if _is_local(host) and (_trusted_origin(request.headers) or not request.headers.get("origin")):
         return True
     logger.warning(f"🚫 Requête HTTP refusée depuis {host} : {request.url.path}")
     return False

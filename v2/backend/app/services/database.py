@@ -66,7 +66,14 @@ class DatabaseService:
                 version TEXT DEFAULT 'LSG',
                 session_id INTEGER,
                 detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                sent_to_propresenter BOOLEAN DEFAULT TRUE,
+                -- FALSE, et non TRUE. Cette colonne n'a jamais été écrite par
+                -- aucun code : avec un défaut à TRUE, elle valait donc « vrai »
+                -- pour toute ligne insérée. L'écran Historique compte
+                -- `sent_to_propresenter` pour afficher « versets projetés »,
+                -- et annonçait ainsi 50 projections sur 50 détections — le
+                -- total des lignes, pas une mesure. Un pasteur lisait un
+                -- chiffre que personne n'avait relevé.
+                sent_to_propresenter BOOLEAN DEFAULT FALSE,
                 validated_manually BOOLEAN DEFAULT FALSE,
                 context_text TEXT,
                 confidence INTEGER DEFAULT 100,
@@ -108,7 +115,30 @@ class DatabaseService:
             await self.db.execute("ALTER TABLE detected_verses ADD COLUMN source TEXT DEFAULT 'local'")
         except Exception:
             pass
-            
+
+        # Remise à zéro, une seule fois, des « projections » qui n'en étaient
+        # pas. Toutes les lignes existantes portent TRUE parce que c'était le
+        # défaut de la colonne, jamais parce qu'un verset est allé à l'écran.
+        # Les garder reviendrait à traîner un chiffre faux dans tous les
+        # rapports passés ; on ne perd rien, l'information n'a jamais existé.
+        try:
+            marqueur = await self.db.execute(
+                "SELECT value FROM app_settings WHERE key = 'projection_flag_reset'")
+            deja_fait = await marqueur.fetchone()
+            if not deja_fait:
+                await self.db.execute(
+                    "UPDATE detected_verses SET sent_to_propresenter = 0")
+                await self.db.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+                    "('projection_flag_reset', '1')")
+                await self.db.commit()
+                logger.info(
+                    "🧹 Historique : indicateur de projection remis à zéro "
+                    "(il n'avait jamais été renseigné)")
+        except Exception as exc:
+            logger.debug(f"Remise à zéro de l'indicateur de projection ignorée : {exc}")
+
+
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS statistics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
