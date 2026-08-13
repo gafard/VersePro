@@ -1,7 +1,7 @@
 [package]
 name = "app"
-version = "2.1.4"
-description = "VersePro — régie de projection biblique en direct"
+version = "2.1.5"
+description = "VersePro - Régie de détection et projection biblique en direct"
 authors = ["Selah Studios"]
 license = ""
 repository = ""
