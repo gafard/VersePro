@@ -14,7 +14,30 @@ const readPreparedVerses = () => {
   }
 }
 
+// Le déroulé part AUSSI au moteur de détection.
+//
+// Il vivait uniquement ici, dans le navigateur : Paramètres → Avancé extrait
+// les références des notes du pasteur, elles remplissaient cette liste, et le
+// moteur n'en savait rien. Un verset annoncé par écrit était donc traité
+// comme un verset jamais vu.
+//
+// C'est pourtant la seule information du système antérieure au culte, la
+// seule qui ne dépende pas de ce que le micro a cru entendre. Elle tranche
+// là où aucun seuil ne peut : entre « Marc 11:23 » et « Marc 11:29 » sortis
+// de la même phrase, c'est le plan qui départage.
+//
+// Sans attente ni blocage : si le moteur ne répond pas, la régie continue
+// exactement comme avant, simplement sans ce renfort.
+const envoyerPlanAuMoteur = (items) => {
+  fetch(`${BACKEND_BASE}/api/v1/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ references: items.map((item) => item.reference).filter(Boolean) }),
+  }).catch(() => {})
+}
+
 const persistPreparedVerses = (items) => {
+  envoyerPlanAuMoteur(items)
   try {
     localStorage.setItem(PREPARED_VERSES_STORAGE_KEY, JSON.stringify(items.slice(0, 100)))
   } catch {

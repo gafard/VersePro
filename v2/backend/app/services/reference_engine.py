@@ -64,11 +64,83 @@ class BibleReferenceEngine:
         # distinctes, soit 15 cartes en double, dont « Éphésiens 1:19 » quatre
         # fois et « 1 Pierre 2:24 » trois fois.
         self._emis_recemment: Dict[str, float] = {}
+
+        # LE PLAN DE PRÉDICATION, quand le pasteur l'a partagé.
+        #
+        # Paramètres → Avancé sait déjà coller des notes et en extraire les
+        # références ; elles remplissaient le déroulé et s'arrêtaient là, dans
+        # le navigateur. Le moteur traitait donc un verset annoncé par écrit
+        # exactement comme un verset jamais vu.
+        #
+        # C'est pourtant la seule information du système qui vienne d'AVANT le
+        # culte, et donc la seule qui ne dépende pas de ce que le micro a cru
+        # entendre. Elle tranche là où aucun seuil ne peut : entre deux numéros
+        # de verset du même chapitre, celui qui est au plan gagne.
+        self._plan: set = set()
+
         # Les derniers énoncés CLOS, donnés à l'IA comme contexte. Une allusion
         # vit dans son fil : « il tenait les bras levés » ne désigne rien seul,
         # précédé de « Moïse était sur la colline » il désigne Exode 17.
         self._contexte_recent: deque[str] = deque(maxlen=CONTEXTE_ENONCES)
         self._ai_last_resort_lock = asyncio.Lock()
+
+    @staticmethod
+    def _cle_plan(book_abbr, chapter, verse_start) -> str:
+        return f"{book_abbr}_{chapter}_{verse_start}"
+
+    async def definir_plan(self, references) -> int:
+        """Enregistre les références annoncées avant le culte. Renvoie le compte."""
+        nouveau = set()
+        for brute in references or []:
+            texte = brute if isinstance(brute, str) else (brute or {}).get("reference")
+            if not texte:
+                continue
+            texte = str(texte).strip()
+            analyse = await self.verse_parser.parse(texte, skip_text_search=True)
+            if not analyse:
+                # « Romains 8 » ne se parse pas seul : les motifs exigent
+                # « chapitre » ou un verset. Un plan écrit à la main contient
+                # pourtant des chapitres nus — on réessaie sous la forme que
+                # le parseur reconnaît plutôt que de les perdre en silence.
+                analyse = await self.verse_parser.parse(
+                    re.sub(r"^(.*?)\s+(\d+)$", r"\1 chapitre \2", texte),
+                    skip_text_search=True,
+                )
+            if analyse and analyse.get("book_abbr") and analyse.get("chapter"):
+                nouveau.add(self._cle_plan(
+                    analyse["book_abbr"], analyse["chapter"], analyse.get("verse_start")))
+        self._plan = nouveau
+        logger.info(f"📋 Plan de prédication : {len(nouveau)} référence(s) attendue(s)")
+        return len(nouveau)
+
+    def _dans_le_plan(self, ref: Dict[str, Any]) -> bool:
+        if not self._plan:
+            return False
+        chapitre = self._cle_plan(ref.get("book_abbr"), ref.get("chapter"), None)
+        verset = self._cle_plan(
+            ref.get("book_abbr"), ref.get("chapter"), ref.get("verse_start"))
+        # Le chapitre seul au plan suffit à reconnaître un verset de ce
+        # chapitre : « nous lirons Romains 8 » couvre Romains 8:28.
+        return verset in self._plan or chapitre in self._plan
+
+    def _contredit_le_plan(self, ref: Dict[str, Any]) -> bool:
+        """Le plan couvre ce chapitre, mais avec un AUTRE verset.
+
+        Le pasteur a écrit « Marc 11:23 » ; le micro entend « verset 29 ». Le
+        plan ne peut pas trancher tout seul — un prédicateur lit souvent
+        autour du verset annoncé — mais il suffit à retirer l'autopilotage :
+        la carte s'affiche, le régisseur voit qu'elle s'écarte du plan.
+
+        Ne se déclenche QUE si le plan désigne des versets précis de ce
+        chapitre. Un « nous lirons Romains 8 » sans numéro ne contredit rien.
+        """
+        if not self._plan or self._dans_le_plan(ref):
+            return False
+        prefixe = self._cle_plan(ref.get("book_abbr"), ref.get("chapter"), "")
+        return any(
+            cle.startswith(prefixe) and not cle.endswith("_None")
+            for cle in self._plan
+        )
 
     def _recent_window(self, text: str, word_limit: int = 40) -> str:
         words = text.split()
@@ -681,7 +753,14 @@ class BibleReferenceEngine:
         #
         # On ne tranche donc pas : le second reste une carte à valider. Le
         # premier est déjà à l'écran, le régisseur voit les deux et choisit.
-        if self._contredit_recent(ref, now):
+        # Le plan tranche la contradiction que le signal ne peut pas trancher.
+        # « Marc 11:23 » et « Marc 11:29 » sortent de la même phrase avec la
+        # même confiance ; si le pasteur a écrit 11:23 dans ses notes, la
+        # question ne se pose plus.
+        ref["au_plan"] = self._dans_le_plan(ref)
+
+        if (self._contredit_recent(ref, now) or self._contredit_le_plan(ref)) \
+                and not ref["au_plan"]:
             ref["requires_review"] = True
             ref["verset_conteste"] = True
             ref["explanation"] = (

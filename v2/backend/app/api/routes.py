@@ -528,6 +528,28 @@ class ExtractReferencesRequest(BaseModel):
     text: str
 
 
+class PlanRequest(BaseModel):
+    references: List[str] = Field(default_factory=list)
+
+
+@router.post("/plan")
+async def definir_plan_predication(request: PlanRequest):
+    """Transmet au moteur le déroulé préparé avant le culte.
+
+    Ce déroulé existait déjà — Paramètres → Avancé extrait les références des
+    notes du pasteur — mais il restait dans le navigateur. Le moteur traitait
+    donc un verset annoncé par écrit comme un verset jamais vu.
+
+    C'est pourtant la seule information du système antérieure au culte, donc
+    la seule qui ne dépende pas de ce que le micro a cru entendre.
+    """
+    from ..main import reference_engine
+    if not reference_engine:
+        raise HTTPException(status_code=503, detail="Moteur de détection indisponible")
+    compte = await reference_engine.definir_plan(request.references)
+    return {"status": "ok", "count": compte}
+
+
 @router.post("/bibles/extract_references")
 async def extract_references_from_text(request: ExtractReferencesRequest):
     """

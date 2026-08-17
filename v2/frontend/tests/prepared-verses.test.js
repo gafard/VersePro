@@ -35,9 +35,19 @@ test('Entrée peut préparer un verset sans le projeter', async () => {
     assert.equal(prepared.reference, searchResult.reference)
     assert.equal(useStore.getState().preparedVerses.length, 1)
     assert.equal(useStore.getState().onAir, null)
-    assert.equal(requests.length, 1)
     assert.match(requests[0], /\/api\/v1\/bible\/search\?/)
-    assert.doesNotMatch(requests[0], /\/references\/send/)
+    // Préparer un verset le fait connaître au MOTEUR : le déroulé sert de
+    // plan de prédication et départage les références mal entendues. Il ne
+    // vivait avant que dans le navigateur.
+    assert.ok(
+      requests.some((url) => /\/api\/v1\/plan$/.test(url)),
+      'le déroulé doit être transmis au moteur de détection'
+    )
+    // Ce que le test protège vraiment : préparer n'est pas projeter.
+    assert.ok(
+      !requests.some((url) => /\/references\/send/.test(url)),
+      'préparer un verset ne doit jamais le projeter'
+    )
     assert.match(saved.get('versepro_prepared_verses'), /Jean 3:16/)
   } finally {
     globalThis.fetch = originalFetch

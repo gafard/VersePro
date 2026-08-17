@@ -1194,8 +1194,18 @@ async def websocket_audio(websocket: WebSocket):
             # La déduction reste précieuse : elle continue d'alimenter la file
             # en carte, prête en un clic. Elle ne s'impose simplement plus à
             # l'assemblée sans qu'un régisseur l'ait regardée.
+            # …SAUF s'il figure au plan de prédication.
+            #
+            # Le pasteur a écrit « 2 Rois 6:15 » dans ses notes et annonce
+            # « un exemple tiré de 2 Rois chapitre 6 » : la déduction n'est
+            # plus un pari, elle est confirmée par une source antérieure au
+            # culte, que le micro ne peut pas avoir mal entendue. C'est le
+            # seul cas où l'on rend sa confiance à un verset non prononcé.
+            methodes_projetables = set(exact_methods) | {"relative_jump"}
+            if ref.get("au_plan"):
+                methodes_projetables.add("chapter_contextual_text")
             return (
-                (method in exact_methods or method == "relative_jump")
+                method in methodes_projetables
                 and confidence >= minimum
                 and ref.get("verse_start") is not None
                 and not ref.get("requires_review")

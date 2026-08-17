@@ -182,7 +182,6 @@ export default function LiveDetection({ setActiveTab }) {
   const [annotationBusy, setAnnotationBusy] = useState(false)
   const [failedIds, setFailedIds] = useState(new Set())
   const [preparingReference, setPreparingReference] = useState(false)
-  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false)
   const [activeHighlightColor, setActiveHighlightColor] = useState(null)
   const [previewDeplie, setPreviewDeplie] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
