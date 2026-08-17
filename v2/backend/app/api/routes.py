@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from loguru import logger
+from contextlib import suppress
 import asyncio
 import re
 
@@ -380,6 +381,21 @@ async def send_reference(request: ReferenceRequest):
     if not browser_sent:
         raise HTTPException(status_code=503, detail="Le moteur d'affichage n'a pas confirmé la scène")
     sent_propresenter = bool(receipts.get("propresenter"))
+
+    # ICI, et nulle part ailleurs, un verset devient « projeté ».
+    #
+    # L'indicateur n'était écrit par aucun code : il valait TRUE parce que
+    # c'était le défaut de la colonne. Le rapport de fin de culte annonçait
+    # donc autant de projections que de détections — un chiffre que personne
+    # n'avait relevé. On l'écrit maintenant au seul moment où il a un sens :
+    # quand l'écran a confirmé avoir affiché la scène.
+    import app.main as main_module
+    if main_module.db_service:
+        with suppress(Exception):
+            await main_module.db_service.marquer_projete(
+                reference.get("reference", request.reference),
+                session_id=main_module.current_session_id,
+            )
 
     return {
         "success": browser_sent,

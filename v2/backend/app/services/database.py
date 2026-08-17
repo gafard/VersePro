@@ -238,7 +238,37 @@ class DatabaseService:
         row = await cursor.fetchone()
         return dict(row) if row else None
     
-    async def update_verse_validation(self, verse_id: int, 
+    async def marquer_projete(self, reference: str, session_id: Optional[int] = None) -> bool:
+        """Note qu'un verset est RÉELLEMENT parti à l'écran.
+
+        Appelée depuis la route de projection, une fois la sortie navigateur
+        confirmée — pas à la détection. C'est toute la différence entre
+        « VersePro a reconnu ce verset » et « l'assemblée l'a lu », et c'est
+        cette seconde information que le rapport de fin de culte annonce.
+
+        On marque la ligne la PLUS RÉCENTE portant cette référence : une même
+        référence peut être détectée plusieurs fois dans un culte, et c'est
+        celle que le régisseur vient de projeter qui compte.
+        """
+        if not reference:
+            return False
+        conditions = "reference = :reference"
+        params: Dict[str, Any] = {"reference": reference}
+        if session_id is not None:
+            conditions += " AND session_id = :session_id"
+            params["session_id"] = session_id
+        cursor = await self.db.execute(f"""
+            UPDATE detected_verses SET sent_to_propresenter = 1
+            WHERE id = (
+                SELECT id FROM detected_verses
+                WHERE {conditions}
+                ORDER BY detected_at DESC, id DESC LIMIT 1
+            )
+        """, params)
+        await self.db.commit()
+        return bool(cursor.rowcount)
+
+    async def update_verse_validation(self, verse_id: int,
                                        validated: bool = True):
         """Marque un verset comme validé manuellement"""
         await self.db.execute("""
