@@ -238,6 +238,28 @@ jobs:
         with:
           workspaces: v2/frontend/src-tauri
 
+      # PUBLIER CE QUI A ÉTÉ TESTÉ, ET RIEN D'AUTRE.
+      #
+      # La CI vérifie le lanceur avec `cargo check --locked` ; ce workflow, lui,
+      # construisait sans. Quand le verrou et Cargo.toml divergeaient, la CI
+      # échouait et la release passait quand même — en régénérant le verrou en
+      # silence. C'est arrivé : le bump vers 2.1.5 a laissé Cargo.lock à 2.1.4,
+      # la CI est restée rouge à chaque poussée, et la version est partie dans
+      # les églises sans qu'aucune intégration ne soit verte.
+      #
+      # Vérifier ici plutôt qu'ajouter `--locked` au build : même garantie —
+      # si la résolution ne bouge pas, la construction n'y touchera pas — sans
+      # modifier une commande de construction que la CI ne rejoue jamais.
+      - name: Le verrou Cargo correspond au manifeste
+        working-directory: v2/frontend/src-tauri
+        run: |
+          mkdir -p backend
+          if ! cargo metadata --locked --format-version 1 > /dev/null; then
+            echo "::error::Cargo.lock ne correspond pas à Cargo.toml. Lancez \`cargo check\` dans v2/frontend/src-tauri et commitez Cargo.lock avant de taguer."
+            exit 1
+          fi
+          echo "verrou cohérent"
+
       - name: Importer le certificat Windows
         if: runner.os == 'Windows' && env.HAS_WIN_CERT == 'true'
         shell: pwsh
