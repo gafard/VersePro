@@ -186,8 +186,32 @@ def test_toutes_les_traductions_embarquees_indexent_les_66_livres():
     # importées par l'utilisateur. Toute édition effectivement disponible doit
     # cependant conserver ses 66 livres.
     assert {"LSG", "KJF"}.issubset(parser.bible_loader.versions)
+
+    # MANQUES CONNUS DES DONNÉES SOURCES, distincts d'une perte au chargement.
+    #
+    # Ce test existe pour attraper un bug de LECTURE : un libellé éditorial mal
+    # reconnu faisait disparaître jusqu'à 36 livres. Il ne peut rien contre une
+    # édition dont le fichier d'origine est lui-même incomplet.
+    #
+    # Français courant ne contient ni 2 Jean ni 3 Jean — deux épîtres de 13 et
+    # 15 versets. Les inscrire ici les nomme au lieu de les noyer dans un échec
+    # global, et fera ressortir toute NOUVELLE disparition. Compléter les
+    # données demande le texte de l'édition, pas une correction de code.
+    MANQUES_CONNUS = {"FC": {"2 jn", "3 jn"}}
+    reference = set(parser.bible_loader.versions["LSG"].keys())
+    assert len(reference) == 66
     for version_id in {"LSG", "NBS", "SEM", "TOB", "KJF", "DBY", "FC"} & set(parser.bible_loader.versions):
-        assert len(parser.bible_loader.versions[version_id]) == 66, version_id
+        presents = set(parser.bible_loader.versions[version_id].keys())
+        manquants = reference - presents - MANQUES_CONNUS.get(version_id, set())
+        assert not manquants, (
+            f"{version_id} a perdu des livres au chargement : {sorted(manquants)}"
+        )
+        # Un manque déclaré qui a été comblé doit sortir de la liste, sinon
+        # elle protégerait un jour un livre réellement disparu.
+        assert not (MANQUES_CONNUS.get(version_id, set()) & presents), (
+            f"{version_id} contient désormais des livres listés comme manquants : "
+            "retirez-les de MANQUES_CONNUS"
+        )
 
     # Les libellés responsables des pertes restent testés même quand les
     # fichiers optionnels ne sont pas distribués sur le runner public.
