@@ -66,7 +66,14 @@ class DatabaseService:
                 version TEXT DEFAULT 'LSG',
                 session_id INTEGER,
                 detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                sent_to_propresenter BOOLEAN DEFAULT TRUE,
+                -- FALSE, et non TRUE. Cette colonne n'a jamais été écrite par
+                -- aucun code : avec un défaut à TRUE, elle valait donc « vrai »
+                -- pour toute ligne insérée. L'écran Historique compte
+                -- `sent_to_propresenter` pour afficher « versets projetés »,
+                -- et annonçait ainsi 50 projections sur 50 détections — le
+                -- total des lignes, pas une mesure. Un pasteur lisait un
+                -- chiffre que personne n'avait relevé.
+                sent_to_propresenter BOOLEAN DEFAULT FALSE,
                 validated_manually BOOLEAN DEFAULT FALSE,
                 context_text TEXT,
                 confidence INTEGER DEFAULT 100,
@@ -108,7 +115,30 @@ class DatabaseService:
             await self.db.execute("ALTER TABLE detected_verses ADD COLUMN source TEXT DEFAULT 'local'")
         except Exception:
             pass
-            
+
+        # Remise à zéro, une seule fois, des « projections » qui n'en étaient
+        # pas. Toutes les lignes existantes portent TRUE parce que c'était le
+        # défaut de la colonne, jamais parce qu'un verset est allé à l'écran.
+        # Les garder reviendrait à traîner un chiffre faux dans tous les
+        # rapports passés ; on ne perd rien, l'information n'a jamais existé.
+        try:
+            marqueur = await self.db.execute(
+                "SELECT value FROM app_settings WHERE key = 'projection_flag_reset'")
+            deja_fait = await marqueur.fetchone()
+            if not deja_fait:
+                await self.db.execute(
+                    "UPDATE detected_verses SET sent_to_propresenter = 0")
+                await self.db.execute(
+                    "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+                    "('projection_flag_reset', '1')")
+                await self.db.commit()
+                logger.info(
+                    "🧹 Historique : indicateur de projection remis à zéro "
+                    "(il n'avait jamais été renseigné)")
+        except Exception as exc:
+            logger.debug(f"Remise à zéro de l'indicateur de projection ignorée : {exc}")
+
+
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS statistics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,7 +238,37 @@ class DatabaseService:
         row = await cursor.fetchone()
         return dict(row) if row else None
     
-    async def update_verse_validation(self, verse_id: int, 
+    async def marquer_projete(self, reference: str, session_id: Optional[int] = None) -> bool:
+        """Note qu'un verset est RÉELLEMENT parti à l'écran.
+
+        Appelée depuis la route de projection, une fois la sortie navigateur
+        confirmée — pas à la détection. C'est toute la différence entre
+        « VersePro a reconnu ce verset » et « l'assemblée l'a lu », et c'est
+        cette seconde information que le rapport de fin de culte annonce.
+
+        On marque la ligne la PLUS RÉCENTE portant cette référence : une même
+        référence peut être détectée plusieurs fois dans un culte, et c'est
+        celle que le régisseur vient de projeter qui compte.
+        """
+        if not reference:
+            return False
+        conditions = "reference = :reference"
+        params: Dict[str, Any] = {"reference": reference}
+        if session_id is not None:
+            conditions += " AND session_id = :session_id"
+            params["session_id"] = session_id
+        cursor = await self.db.execute(f"""
+            UPDATE detected_verses SET sent_to_propresenter = 1
+            WHERE id = (
+                SELECT id FROM detected_verses
+                WHERE {conditions}
+                ORDER BY detected_at DESC, id DESC LIMIT 1
+            )
+        """, params)
+        await self.db.commit()
+        return bool(cursor.rowcount)
+
+    async def update_verse_validation(self, verse_id: int,
                                        validated: bool = True):
         """Marque un verset comme validé manuellement"""
         await self.db.execute("""

@@ -37,10 +37,28 @@ const FAMILLES = [
   }
 ]
 
+const DEFAULT_CATALOGUE = {
+  versions: [
+    { id: 'LSG', nom: 'Louis Segond', annee: 1910, licence: 'domaine-public', origine: 'livree', installee: true },
+    { id: 'KJF', nom: 'King James Française', annee: 2006, licence: 'domaine-public', origine: 'livree', installee: true },
+    { id: 'DBY', nom: 'Darby', annee: 1885, licence: 'domaine-public', origine: 'publique', download_url: 'https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreJND.json' },
+    { id: 'OST', nom: 'Ostervald', annee: 1867, licence: 'domaine-public', origine: 'publique', download_url: 'https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreBBB.json' },
+    { id: 'MAR', nom: 'Martin', annee: 1744, licence: 'domaine-public', origine: 'publique', download_url: 'https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreBDM1744.json' },
+    { id: 'CRA', nom: 'Crampon', annee: 1904, licence: 'domaine-public', origine: 'publique', download_url: 'https://raw.githubusercontent.com/scrollmapper/bible_databases/master/formats/json/FreCrampon.json' },
+    { id: 'SEM', nom: 'Bible du Semeur', annee: 2015, licence: 'sous-droits', editeur: 'Biblica', origine: 'tierce' },
+    { id: 'NBS', nom: 'Nouvelle Bible Segond', annee: 2002, licence: 'sous-droits', editeur: 'Société biblique française', origine: 'tierce' },
+    { id: 'TOB', nom: 'Traduction œcuménique', annee: 2010, licence: 'sous-droits', editeur: 'Cerf / SBF', origine: 'tierce' },
+    { id: 'FC', nom: 'Français courant', annee: 1997, licence: 'sous-droits', editeur: 'Société biblique française', origine: 'tierce' },
+    { id: 'S21', nom: 'Segond 21', annee: 2007, licence: 'sous-droits', editeur: 'Société biblique de Genève', origine: 'tierce' },
+    { id: 'PDV', nom: 'Parole de Vie', annee: 2000, licence: 'sous-droits', editeur: 'Société biblique française', origine: 'tierce' }
+  ],
+  dossier: ''
+}
+
 export default function BibleImport() {
   const addToast = useStore(s => s.addToast)
   const fetchBibles = useStore(s => s.fetchBibles)
-  const [catalogue, setCatalogue] = useState({ versions: [], dossier: '' })
+  const [catalogue, setCatalogue] = useState(DEFAULT_CATALOGUE)
   const [sigle, setSigle] = useState('')
   const [occupe, setOccupe] = useState(false)
   const [aRedemarrer, setARedemarrer] = useState(false)
@@ -49,8 +67,13 @@ export default function BibleImport() {
   const charger = useCallback(async () => {
     try {
       const r = await fetch(`${BACKEND_BASE}/api/v1/bibles/catalogue`)
-      if (r.ok) setCatalogue(await r.json())
-    } catch { /* la section reste vide, le reste des réglages fonctionne */ }
+      if (r.ok) {
+        const data = await r.json()
+        if (data && Array.isArray(data.versions) && data.versions.length > 0) {
+          setCatalogue(data)
+        }
+      }
+    } catch { /* le catalogue par défaut reste affiché */ }
   }, [])
 
   useEffect(() => { charger() }, [charger])

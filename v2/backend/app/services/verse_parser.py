@@ -125,8 +125,35 @@ STANDARD_BOOK_MAP = {
     "lettre a philemon": "Phm", "lettre aux hebreux": "He",
     "lettre de jacques": "Jc", "premiere lettre de pierre": "1 P",
     "deuxieme lettre de pierre": "2 P", "premiere lettre de jean": "1 Jn",
-    "deuxieme lettre de jean": "2 Jn", "troisieme lettre de jean": "3 Jn",
     "lettre de jude": "Jude", "apocalypse ou revelation accordee a jean": "Ap",
+
+    # Noms des 66 livres en Éwé (Eʋegbe)
+    "mose 1": "Gen", "mose 2": "Ex", "mose 3": "Lév", "mose 4": "Nb", "mose 5": "Dt",
+    "mose i": "Gen", "mose ii": "Ex", "mose iii": "Lév", "mose iv": "Nb", "mose v": "Dt",
+    "yosua": "Jos", "vonudronlawo": "Jg", "vɔnudrɔ̃lawo": "Jg", "rut": "Rt",
+    "samuel 1": "1 S", "samuel 2": "2 S", "fiawo 1": "1 R", "fiawo 2": "2 R",
+    "kronika 1": "1 Ch", "kronika 2": "2 Ch", "ezra": "Esd", "nehemia": "Neh",
+    "ester": "Est", "hiob": "Job", "psalmowo": "Ps", "hakpanyawo": "Ps", "lododowo": "Pr",
+    "nyagblola": "Ec", "nyagblɔla": "Ec", "hawo": "Ct", "yesaya": "És",
+    "yeremia": "Jér", "konyifahawo": "Lm", "hezekiel": "Éz", "daniel": "Dn",
+    "hosea": "Os", "yoel": "Jl", "amos": "Am", "obadia": "Abd",
+    "yona": "Jon", "mika": "Mi", "nahum": "Na", "habakuk": "Hab",
+    "zefania": "So", "hagai": "Ag", "zekaria": "Za", "malaki": "Ml",
+    "mateo": "Mt", "marko": "Mc", "luka": "Lc", "yohanes": "Jn",
+    "dowowowo": "Ac", "dɔwɔwɔwo": "Ac", "romatowo": "Rm", "romatɔwo": "Rm",
+    "korintotowo 1": "1 Co", "korintotɔwo 1": "1 Co",
+    "korintotowo 2": "2 Co", "korintotɔwo 2": "2 Co",
+    "galatiatowo": "Ga", "galatiatɔwo": "Ga",
+    "efesotowo": "Éph", "efesotɔwo": "Éph",
+    "filipitowo": "Ph", "filipitɔwo": "Ph",
+    "kolosetowo": "Col", "kolosetɔwo": "Col",
+    "tesalonikatowo 1": "1 Th", "tesalonikatɔwo 1": "1 Th",
+    "tesalonikatowo 2": "2 Th", "tesalonikatɔwo 2": "2 Th",
+    "timoteo 1": "1 Tm", "timoteo 2": "2 Tm", "tito": "Tt", "filemon": "Phm",
+    "hebritowo": "He", "hebritɔwo": "He", "yakobo": "Jc",
+    "petro 1": "1 P", "petro 2": "2 P",
+    "yohanes 1": "1 Jn", "yohanes 2": "2 Jn", "yohanes 3": "3 Jn",
+    "yuda": "Jude", "nyadedefia": "Ap", "nyaɖeɖefia": "Ap",
 }
 
 def get_standard_abbr(book_name: str) -> Optional[str]:
@@ -1149,7 +1176,8 @@ class VerseParserService:
         self,
         text: str,
         skip_text_search: bool = False,
-        active_context: Optional[Dict[str, Any]] = None
+        active_context: Optional[Dict[str, Any]] = None,
+        collect_all: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Parse un texte et extrait la référence biblique (explicite ou par recherche textuelle)
@@ -1158,12 +1186,41 @@ class VerseParserService:
             text: Texte transcrit contenant potentiellement une référence
             skip_text_search: Si True, ignore la recherche textuelle en fallback
             active_context: Dictionnaire optionnel avec {"book_abbr": "Mt", "chapter": 8} pour sauts relatifs
+            collect_all: Renvoie TOUTES les références explicites de l'énoncé,
+                dans l'ordre où elles ont été prononcées, au lieu de la seule
+                dernière. Voir la note ci-dessous.
 
         Returns:
-            Dictionnaire avec la référence structurée ou None
+            Dictionnaire avec la référence structurée ou None.
+            Avec `collect_all=True` : une liste de dictionnaires, éventuellement
+            vide — jamais None.
+
+        POURQUOI `collect_all` EXISTE. Cette fonction ne rendait qu'UNE
+        référence : les motifs sont tous trouvés (finditer), triés par position
+        DÉCROISSANTE, et la première valide est renvoyée — donc la dernière
+        prononcée. Le choix se défend sur un partiel, où la fenêtre glisse et où
+        le prédicateur en est à la plus récente.
+
+        Sur un énoncé CLOS, il fait disparaître tout le reste. Constaté en
+        production, sur une heure de prédication transcrite par NEMOTRON — le
+        moteur local réellement utilisé, Vosk n'étant plus qu'un repli :
+
+            22:57  « …tel est votre un corinthiens 2 16, vous avez la même
+                     onction… L'évidence un Jean chapitre 2 verset 20 »
+                   rendue : 1 Jn 2:20 seule — 1 Co 2:16 perdue.
+
+            22:24  « …par ses blessures, j'ai été guéri. Un pierre 2 24. Non
+                     pas que je vais être guéri… Ephésiens chapitre un
+                     verset 19 dit que »
+                   rendue : Ep 1:19 seule — 1 P 2:24 perdue.
+
+        Rejoués, neuf énoncés de cette session rendent cinq références de plus.
+        Un prédicateur qui annonce son plan (« nous verrons Jean 3, puis
+        Romains 8, et nous finirons par Apocalypse 21 ») perdait les deux tiers
+        de ses annonces, sans trace ni journal.
         """
         if not text:
-            return None
+            return [] if collect_all else None
 
         # 1. Correction d'homophones sémantiques vocaux
         cleaned_text = self._clean_homophones(text)
@@ -1196,6 +1253,20 @@ class VerseParserService:
             (self.CHAPTER_ONLY_PATTERN_INDEX,),
         ]
         is_direct_input = skip_text_search
+        # Récolte de `collect_all` : dans l'ORDRE DE PAROLE, dédoublonnée.
+        toutes: List[Dict[str, Any]] = []
+        vues_cles: set = set()
+
+        def retenir(reference: Dict[str, Any], position: int) -> None:
+            cle = (
+                reference.get("book_abbr"), reference.get("chapter"),
+                reference.get("verse_start"), reference.get("verse_end"),
+            )
+            if cle in vues_cles:
+                return
+            vues_cles.add(cle)
+            toutes.append((position, reference))
+
         for group in pattern_groups:
             if group == (self.LOOSE_PATTERN_INDEX,) and not has_cue and not is_direct_input:
                 continue
@@ -1298,12 +1369,45 @@ class VerseParserService:
                                     f"(3-grammes={best_rank[0]}, 2-grammes={best_rank[3]}, "
                                     f"mots={best_rank[1]}, couverture={best_rank[2]:.2f})"
                                 )
+                                if collect_all:
+                                    retenir(reference, match.start())
+                                    continue
                                 return reference
 
+                        if collect_all:
+                            retenir(reference, match.start())
+                            continue
                         logger.info(f"📖 Référence explicite détectée: {reference['reference']}")
                         return reference
                     else:
                         logger.debug(f"⚠️ Référence explicite invalide rejetée: {match.group()}")
+
+        if collect_all:
+            # Ordre de PAROLE : le tri interne va du plus récent au plus ancien
+            # pour que « la dernière prononcée » l'emporte sur un partiel. Ici
+            # on rend la phrase telle qu'elle a été dite, parce que c'est cet
+            # ordre qui a du sens pour la régie : le premier verset annoncé est
+            # celui que le prédicateur va lire.
+            ordonnees = [ref for _, ref in sorted(toutes, key=lambda c: c[0])]
+            # Le motif « chapitre seul » remonte AUSSI sur un texte qui a déjà
+            # donné un verset : « Jean chapitre trois verset seize » produit
+            # Jean 3:16 puis Jean 3. Annoncer les deux remplirait la file de
+            # cartes en double, dont l'une moins précise que l'autre.
+            avec_verset = {
+                (r.get("book_abbr"), r.get("chapter"))
+                for r in ordonnees if r.get("verse_start") is not None
+            }
+            ordonnees = [
+                r for r in ordonnees
+                if r.get("verse_start") is not None
+                or (r.get("book_abbr"), r.get("chapter")) not in avec_verset
+            ]
+            if len(ordonnees) > 1:
+                logger.info(
+                    f"📖 {len(ordonnees)} références explicites dans l'énoncé : "
+                    + ", ".join(r["reference"] for r in ordonnees)
+                )
+            return ordonnees
 
         if skip_text_search:
             return None

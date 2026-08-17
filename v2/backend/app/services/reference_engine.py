@@ -54,6 +54,16 @@ class BibleReferenceEngine:
 
         self.last_detected_ref = None
         self.last_detected_at = 0.0
+        # MÉMOIRE DE DÉDUPLICATION À PLUSIEURS ENTRÉES.
+        #
+        # Elle n'en retenait qu'UNE : la dernière référence annoncée. Or les
+        # fenêtres d'analyse se recouvrent largement (96 mots), donc la même
+        # référence revient dans plusieurs énoncés consécutifs — et il suffit
+        # qu'une autre s'intercale pour que le garde-fou saute. Relevé sur une
+        # heure de prédication réelle : 50 détections pour 35 références
+        # distinctes, soit 15 cartes en double, dont « Éphésiens 1:19 » quatre
+        # fois et « 1 Pierre 2:24 » trois fois.
+        self._emis_recemment: Dict[str, float] = {}
         # Les derniers énoncés CLOS, donnés à l'IA comme contexte. Une allusion
         # vit dans son fil : « il tenait les bras levés » ne désigne rien seul,
         # précédé de « Moïse était sur la colline » il désigne Exode 17.
@@ -280,9 +290,29 @@ class BibleReferenceEngine:
             if p_act and p_act.get("book_abbr") and p_act.get("chapter"):
                 active_ctx = {"book_abbr": p_act["book_abbr"], "chapter": p_act["chapter"]}
 
-        reference = await self.verse_parser.parse(
-            reference_scope, skip_text_search=True, active_context=active_ctx
-        )
+        # Sur un ÉNONCÉ CLOS, on récolte toutes les références de la phrase.
+        # Sur un partiel, la fenêtre glisse encore : la dernière prononcée
+        # reste la bonne réponse, et annoncer les précédentes ferait clignoter
+        # la file à chaque mot.
+        autres_references: list = []
+        if final_state:
+            trouvees = await self.verse_parser.parse(
+                reference_scope, skip_text_search=True,
+                active_context=active_ctx, collect_all=True,
+            )
+            completes = [r for r in trouvees if r.get("verse_start") is not None]
+            if completes:
+                # La PREMIÈRE annoncée est celle que le prédicateur va lire :
+                # « ouvrons Jean 3:16, puis nous irons en Romains 8 ». Les
+                # suivantes attendent dans la file, prêtes en un clic.
+                reference = completes[0]
+                autres_references = completes[1:]
+            else:
+                reference = trouvees[0] if trouvees else None
+        else:
+            reference = await self.verse_parser.parse(
+                reference_scope, skip_text_search=True, active_context=active_ctx
+            )
         chapter_anchor = reference if reference and reference.get("verse_start") is None else None
 
         # Une référence complète reste instantanée sur les partiels. Sur un
@@ -293,6 +323,8 @@ class BibleReferenceEngine:
                 conflict = await self._explicit_conflict(reference_scope, reference)
                 if conflict:
                     return conflict
+            if autres_references:
+                reference["references_multiples"] = autres_references
             return reference
 
         # Le chapitre seul s'affiche immédiatement pendant que le prédicateur
@@ -632,13 +664,96 @@ class BibleReferenceEngine:
         ref_key = f"{ref.get('book_abbr')}_{ref.get('chapter')}_{ref.get('verse_start')}_{ref.get('verse_end') or ''}"
         now = time.monotonic()
 
-        if ref_key == self.last_detected_ref and now - self.last_detected_at < DEDUPLICATION_SECONDS:
+        if self._deja_emis(ref_key, now):
             return None
+
+        # CONTRADICTION DE VERSET : deux numéros différents du MÊME chapitre à
+        # quelques secondes d'intervalle. C'est la signature d'un chiffre mal
+        # entendu, pas de deux citations.
+        #
+        # Relevé le 11 août, à la même seconde, sur la même phrase :
+        #     « Parlez à votre montagne, Marc chapitre 11 verset 23 »
+        #     « Parlez à votre montagne, Marc chapitre 11 verset 29 »
+        # et de même Romains 5:14 / Romains 5:4. Les deux passent le seuil
+        # d'autopilotage à 0,98 — motif explicite, verset bel et bien prononcé
+        # — donc aucun filtre de confiance ne les sépare. L'un des deux est
+        # forcément faux, et rien ne dit lequel.
+        #
+        # On ne tranche donc pas : le second reste une carte à valider. Le
+        # premier est déjà à l'écran, le régisseur voit les deux et choisit.
+        if self._contredit_recent(ref, now):
+            ref["requires_review"] = True
+            ref["verset_conteste"] = True
+            ref["explanation"] = (
+                f"Un autre verset de {ref.get('book')} {ref.get('chapter')} vient "
+                "d'être détecté : un des deux numéros a probablement été mal "
+                "entendu. À valider avant projection."
+            )
+            logger.warning(
+                f"⚠️ Verset contesté : {ref.get('reference')} arrive juste après "
+                "un autre verset du même chapitre"
+            )
 
         self.last_detected_ref = ref_key
         self.last_detected_at = now
+        self._emis_recemment[ref_key] = now
+
+        # Les références supplémentaires de l'énoncé passent par la même
+        # mémoire : sans quoi le recouvrement des fenêtres les rejouerait à
+        # chaque énoncé suivant.
+        supplementaires = []
+        for extra in ref.pop("references_multiples", []) or []:
+            cle = (
+                f"{extra.get('book_abbr')}_{extra.get('chapter')}"
+                f"_{extra.get('verse_start')}_{extra.get('verse_end') or ''}"
+            )
+            if self._deja_emis(cle, now):
+                continue
+            self._emis_recemment[cle] = now
+            extra["decision_generation"] = generation
+            extra["explanation"] = (
+                "Annoncée dans la même phrase que "
+                f"{ref.get('reference')} — à valider avant projection."
+            )
+            # Jamais projetée d'office : sur plusieurs références enchaînées,
+            # une seule peut aller à l'écran, et c'est la première annoncée.
+            extra["requires_review"] = True
+            extra["annonce_multiple"] = True
+            supplementaires.append(extra)
+        if supplementaires:
+            ref["references_multiples"] = supplementaires
 
         return {
             "type": "reference_detected",
             "payload": ref
         }
+
+    # Fenêtre de contradiction : au-delà, deux versets du même chapitre sont
+    # une lecture suivie (« verset 3 … verset 4 »), pas un chiffre mal entendu.
+    CONTRADICTION_SECONDS = 12.0
+
+    def _contredit_recent(self, ref: Dict[str, Any], now: float) -> bool:
+        """Un AUTRE verset du même livre et chapitre vient-il d'être annoncé ?"""
+        prefixe = f"{ref.get('book_abbr')}_{ref.get('chapter')}_"
+        depart = ref.get("verse_start")
+        for cle, quand in self._emis_recemment.items():
+            if now - quand >= self.CONTRADICTION_SECONDS:
+                continue
+            if not cle.startswith(prefixe):
+                continue
+            morceaux = cle[len(prefixe):].split("_")
+            if morceaux and morceaux[0] != str(depart):
+                return True
+        return False
+
+    def _deja_emis(self, ref_key: str, now: float) -> bool:
+        """Vrai si cette référence est partie il y a moins de DEDUPLICATION_SECONDS."""
+        if self._emis_recemment:
+            perimees = [
+                cle for cle, quand in self._emis_recemment.items()
+                if now - quand >= DEDUPLICATION_SECONDS
+            ]
+            for cle in perimees:
+                del self._emis_recemment[cle]
+        vu = self._emis_recemment.get(ref_key)
+        return vu is not None and now - vu < DEDUPLICATION_SECONDS

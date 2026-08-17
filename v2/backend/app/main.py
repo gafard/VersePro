@@ -397,7 +397,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VersePro v2",
     description="Détection automatique de versets bibliques avec IA",
-    version="2.1.4",
+    version="2.1.5",
     lifespan=lifespan
 )
 
@@ -442,7 +442,7 @@ async def root():
     return {
         "name": "VersePro v2",
         "status": "running",
-        "version": "2.1.4"
+        "version": "2.1.5"
     }
 
 
@@ -1172,11 +1172,30 @@ async def websocket_audio(websocket: WebSocket):
             # floues, sémantiques ou IA restent soumises à validation.
             exact_methods = {"explicit", "text_phrase", "text_index"}
             minimum = 0.90 if method == "text_index" else (0.95 if method in exact_methods else 0.75)
+            # Plusieurs références dans une même phrase : une seule peut aller
+            # à l'écran, et c'est la première annoncée — celle que le
+            # prédicateur va lire. Les autres attendent dans la file.
+            if ref.get("annonce_multiple"):
+                return False
+            # UN VERSET DÉDUIT NE VA PLUS À L'ÉCRAN TOUT SEUL.
+            #
+            # `chapter_contextual_text` est le cas où le prédicateur n'annonce
+            # QUE le chapitre — « laissez-moi vous donner un exemple tiré de
+            # 2 Rois chapitre 6 » — et où le verset est retrouvé en comparant
+            # la phrase au texte du chapitre. C'est une déduction, souvent
+            # juste, jamais certaine : le numéro n'a pas été prononcé.
+            #
+            # Relevé sur une heure de prédication réelle : « 2 Rois 6:11 » et
+            # « Romains 10:8 » (trois fois) sont partis à l'antenne alors que
+            # seul le chapitre avait été dit — dans le second cas, le « 2 » de
+            # « parle de 2 types de justice » a servi de numéro de verset. Sur
+            # cette session, 50 détections sur 50 ont été projetées d'office.
+            #
+            # La déduction reste précieuse : elle continue d'alimenter la file
+            # en carte, prête en un clic. Elle ne s'impose simplement plus à
+            # l'assemblée sans qu'un régisseur l'ait regardée.
             return (
-                (
-                    method in exact_methods
-                    or method in ("chapter_contextual_text", "relative_jump")
-                )
+                (method in exact_methods or method == "relative_jump")
                 and confidence >= minimum
                 and ref.get("verse_start") is not None
                 and not ref.get("requires_review")
@@ -1353,6 +1372,16 @@ async def websocket_audio(websocket: WebSocket):
                             f"({fusion['reason']}, recouvrement {fusion['overlap']})"
                         )
                     await process_detected_reference(decision, analysis_text, generation, source="semantic")
+
+                # Les autres références de la MÊME phrase. Elles étaient
+                # simplement perdues : la cascade n'en rendait qu'une, la
+                # dernière prononcée. Relevé sur une heure de prédication,
+                # « Samuel 16:7 » disparaissait ainsi derrière « Jean 4:24 »
+                # annoncé deux phrases plus loin, sans laisser de trace.
+                for extra in decision.get("references_multiples") or []:
+                    if not is_current(generation):
+                        break
+                    await process_detected_reference(extra, analysis_text, generation)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
