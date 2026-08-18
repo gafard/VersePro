@@ -6,6 +6,7 @@ import ChapterModal from './ChapterModal.jsx'
 import BibleVersionsModal from './BibleVersionsModal.jsx'
 import LiveHighlightIcon from './LiveHighlightIcons.jsx'
 import { BACKEND_BASE, BACKEND_WS_BASE, openExternal } from '../env.js'
+import { versetsVoisins as calculerVoisins } from '../runtime/verse-window.js'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -171,6 +172,9 @@ export default function LiveDetection({ setActiveTab }) {
   }), shallow)
 
   const [manualReference, setManualReference] = useState('')
+  // Longueur du chapitre à l'antenne : sans elle, impossible de savoir qu'on
+  // est au DERNIER verset, donc impossible de décaler la bande de contexte.
+  const [chapitreCourant, setChapitreCourant] = useState(null)
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
   const [visibleRejection, setVisibleRejection] = useState(null)
   const [clock, setClock] = useState(() => new Date())
@@ -677,6 +681,34 @@ export default function LiveDetection({ setActiveTab }) {
       nextC: nextC ? { ref: nextC, label: `Chap. ${chapNum + 1} ►` } : null,
     }
   }, [onAirDisplay])
+
+  // Longueur du chapitre à l'antenne. /api/v1/bible/chapter existait dans les
+  // appels de ChapterModal mais pas dans le backend : la route vient d'être
+  // créée, et c'est elle qui donne le nombre de versets.
+  useEffect(() => {
+    const ref = onAirDisplay?.reference
+    if (!ref) { setChapitreCourant(null); return }
+    let annule = false
+    const version = onAirDisplay?.version || activeBible || ''
+    fetch(`${BACKEND_BASE}/api/v1/bible/chapter?q=${encodeURIComponent(ref)}&version=${version}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!annule && d?.count) setChapitreCourant(d) })
+      .catch(() => {})
+    return () => { annule = true }
+  }, [onAirDisplay?.reference, onAirDisplay?.version, activeBible])
+
+  // LA BANDE DE CONTEXTE — dix versets autour de celui qui est à l'antenne.
+  //
+  // Cinq avant, cinq après. Mais un prédicateur qui ouvre au verset 1 n'a rien
+  // derrière lui : la fenêtre se décale alors pour montrer dix versets en
+  // avant, et symétriquement dix en arrière sur le dernier verset du chapitre.
+  // Toujours dix propositions, jamais cinq boutons morts.
+  const versetsVoisins = useMemo(() => {
+    const total = chapitreCourant?.count
+    const courant = onAirNavChips?.verseNum
+    const numeros = calculerVoisins(courant, total)
+    return numeros.length ? { numeros, courant, total } : null
+  }, [chapitreCourant, onAirNavChips])
 
   const followProgress = useMemo(() => {
     if (!followMode || !onAirDisplay?.text) return null
@@ -1309,6 +1341,33 @@ export default function LiveDetection({ setActiveTab }) {
                   Préparer
                 </button>
               </div>
+              {/* Dix versets autour de celui qui est à l'antenne. Le régisseur
+                  qui doit suivre un prédicateur qui recule de trois versets ne
+                  devrait pas avoir à retaper une référence. */}
+              {versetsVoisins && (
+                <div className="live-quick-row flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                  <span className="text-[10px] text-text-faint font-semibold uppercase whitespace-nowrap mr-1">
+                    {onAirNavChips.bookName} {onAirNavChips.chapNum} :
+                  </span>
+                  {versetsVoisins.numeros.map((v) => (
+                    <button
+                      key={v}
+                      className={`live-quick-chip text-[10.5px] px-2 py-0.5 font-medium flex-shrink-0 transition-all ${
+                        v < versetsVoisins.courant
+                          ? 'bg-surface-3 text-text-dim hover:bg-surface-2 hover:text-white'
+                          : 'bg-surface-2 text-text-dim hover:bg-sky-600 hover:text-white'
+                      }`}
+                      title={`Projeter ${onAirNavChips.bookName} ${onAirNavChips.chapNum}:${v}`}
+                      onClick={() => sendReference(`${onAirNavChips.bookName} ${onAirNavChips.chapNum}:${v}`)}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                  <span className="text-[10px] text-text-faint whitespace-nowrap ml-1 flex-shrink-0">
+                    / {versetsVoisins.total}
+                  </span>
+                </div>
+              )}
               <div className="live-quick-row flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                 {onAirNavChips ? (
                   <>
