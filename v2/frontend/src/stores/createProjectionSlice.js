@@ -28,12 +28,21 @@ const readPreparedVerses = () => {
 //
 // Sans attente ni blocage : si le moteur ne répond pas, la régie continue
 // exactement comme avant, simplement sans ce renfort.
+let signalerPlanAccepte = () => {}
+
 const envoyerPlanAuMoteur = (items) => {
   fetch(`${BACKEND_BASE}/api/v1/plan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ references: items.map((item) => item.reference).filter(Boolean) }),
-  }).catch(() => {})
+  })
+    // On affiche ce que le MOTEUR a retenu, pas ce que la liste contient.
+    // Une entrée écrite à la main peut ne pas se parser ; annoncer « 12
+    // références » quand le moteur n'en connaît que 9 donnerait au régisseur
+    // une confiance qu'il n'a pas lieu d'avoir.
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => signalerPlanAccepte(d && typeof d.count === 'number' ? d.count : 0))
+    .catch(() => signalerPlanAccepte(0))
 }
 
 const persistPreparedVerses = (items) => {
@@ -45,12 +54,18 @@ const persistPreparedVerses = (items) => {
   }
 }
 
-export const createProjectionSlice = (set, get) => ({
+export const createProjectionSlice = (set, get) => {
+  signalerPlanAccepte = (count) => set({ planCount: count })
+  return ({
   propresenterConnected: false,
   autoSend: false,
   autopilotMode: true, // true: envoie direct, false: met en attente dans la file
   projectionQueue: [], // Liste des versets détectés en attente de projection
   preparedVerses: readPreparedVerses(), // Déroulé préparé, conservé entre deux lancements
+  // Nombre de références que le MOTEUR a retenues du plan. Null tant qu'il
+  // n'a rien confirmé : un régisseur doit pouvoir distinguer « le moteur
+  // s'appuie sur douze références » de « il n'en connaît aucune ».
+  planCount: null,
   onAir: null,
 
   activeBible: 'LSG',
@@ -575,3 +590,4 @@ export const createProjectionSlice = (set, get) => ({
     }
   }
 })
+}
