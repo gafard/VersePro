@@ -5,6 +5,7 @@ import TranscriptTicker from './TranscriptTicker.jsx'
 import ChapterModal from './ChapterModal.jsx'
 import BibleVersionsModal from './BibleVersionsModal.jsx'
 import LiveHighlightIcon from './LiveHighlightIcons.jsx'
+import FollowModal from './FollowModal.jsx'
 import { BACKEND_BASE, BACKEND_WS_BASE, openExternal } from '../env.js'
 import { versetsVoisins as calculerVoisins } from '../runtime/verse-window.js'
 
@@ -181,6 +182,19 @@ export default function LiveDetection({ setActiveTab }) {
   // l'autre, et plus personne ne savait ce que faisait la touche. On tranche
   // en le rendant EXPLICITE et réglable : par défaut Entrée projette, comme
   // le fait le code depuis toujours.
+  // Densité de la file. Retenue d'un culte à l'autre : c'est une préférence
+  // de régie, pas un état de session.
+  const [fileCompacte, setFileCompacte] = useState(() => {
+    try { return localStorage.getItem('versepro_file_compacte') === 'oui' } catch { return false }
+  })
+  const basculerDensite = () => {
+    setFileCompacte((actuel) => {
+      const suivant = !actuel
+      try { localStorage.setItem('versepro_file_compacte', suivant ? 'oui' : 'non') } catch {}
+      return suivant
+    })
+  }
+
   const [entreeProjette, setEntreeProjette] = useState(() => {
     try { return localStorage.getItem('versepro_entree_projette') !== 'non' } catch { return true }
   })
@@ -196,6 +210,7 @@ export default function LiveDetection({ setActiveTab }) {
   const [clock, setClock] = useState(() => new Date())
   const [followMode, setFollowMode] = useState(false)
   const [preflightOpen, setPreflightOpen] = useState(false)
+  const [followModalOpen, setFollowModalOpen] = useState(false)
   const [projectingIds, setProjectingIds] = useState(new Set())
   const [flippingIds, setFlippingIds] = useState(new Set())
   const [annotationSelections, setAnnotationSelections] = useState({})
@@ -994,6 +1009,9 @@ export default function LiveDetection({ setActiveTab }) {
 
   return (
     <div className="live-shell">
+      {followModalOpen && (
+        <FollowModal isOpen={followModalOpen} onClose={() => setFollowModalOpen(false)} />
+      )}
       {preflightOpen && (
         <div className="vp-modal-backdrop">
           <div className="vp-modal preflight-modal" role="dialog" aria-modal="true" aria-label="Contrôle avant direct">
@@ -1144,6 +1162,9 @@ export default function LiveDetection({ setActiveTab }) {
               <button className="vp-btn vp-btn--sm w-full" onClick={() => { runPreflight(); setPreflightOpen(true) }}>
                 Contrôle avant direct
               </button>
+              <button className="vp-btn vp-btn--ghost vp-btn--sm w-full flex items-center justify-center gap-1.5 text-sky-400 font-medium hover:bg-sky-950/30" onClick={() => setFollowModalOpen(true)}>
+                📱 QR Code Mobile (/follow)
+              </button>
               <button className="vp-btn vp-btn--ghost vp-btn--sm w-full" onClick={openProjectionWindow}>
                 Écran Secours
               </button>
@@ -1247,6 +1268,22 @@ export default function LiveDetection({ setActiveTab }) {
             <div className="live-queue-head flex-shrink-0">
               <div className="flex items-center gap-3">
                 <h2>À valider <span className="count">{pendingItems.length}</span></h2>
+                {/* Densité : quand le prédicateur enchaîne, quatre cartes
+                    remplissent la colonne et le reste passe sous la ligne de
+                    flottaison — au moment précis où il ne faut pas chercher. */}
+                <button
+                  type="button"
+                  className={`live-densite text-[10px] px-2 py-0.5 font-semibold rounded transition-all ${
+                    fileCompacte ? 'bg-sky-600/20 text-sky-300' : 'bg-surface-3 text-text-dim hover:bg-surface-2'
+                  }`}
+                  onClick={basculerDensite}
+                  aria-pressed={fileCompacte}
+                  title={fileCompacte
+                    ? 'Affichage compact : plus de versets à l’écran. Cliquez pour revenir aux cartes détaillées.'
+                    : 'Cartes détaillées. Cliquez pour resserrer et voir plus de versets à la fois.'}
+                >
+                  {fileCompacte ? '☰ compact' : '▤ détaillé'}
+                </button>
                 
                 {/* Triggers: Auto-Scroll & Diffusion en direct */}
                 <div className="flex items-center gap-4 text-xs font-semibold text-[var(--text-dim)]">
@@ -1305,7 +1342,7 @@ export default function LiveDetection({ setActiveTab }) {
               </div>
             )}
 
-            <div ref={queueScrollRef} className="live-queue-scroll flex-1 overflow-y-auto pr-1">
+            <div ref={queueScrollRef} className={`live-queue-scroll flex-1 overflow-y-auto pr-1 ${fileCompacte ? 'is-compact' : ''}`}>
               {displayQueue.length === 0 ? (
                 <div className="live-empty">
                   <strong>Aucun verset en attente</strong>
