@@ -4407,3 +4407,37 @@ select:focus-visible,
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── File compacte ────────────────────────────────────────────────────────
+   Quand le prédicateur enchaîne — et le plan de prédication en produit
+   désormais plusieurs d'un coup — quatre cartes remplissent la colonne et le
+   reste passe sous la ligne de flottaison. L'opérateur fait défiler pendant
+   que la prédication avance : exactement le moment où il ne devrait pas
+   avoir à chercher.
+
+   La densité change le RENDU, pas la structure : un second composant à
+   maintenir divergerait du premier au premier correctif. Ici, une classe sur
+   le conteneur suffit, et tout ce qui vit dans la carte reste unique.
+
+   On resserre, on n'ampute pas : la référence, l'état et les actions
+   demeurent. Seuls disparaissent le texte du verset au-delà d'une ligne et
+   les explications — ce qu'on lit quand on doute, pas quand on suit. */
+.live-queue-scroll.is-compact .live-card {
+  padding: 5px 10px;
+  border-radius: calc(var(--vp-radius) * 0.6);
+  box-shadow: none;
+  animation-duration: 90ms;
+}
+.live-queue-scroll.is-compact .live-card + .live-card { margin-top: 4px; }
+.live-queue-scroll.is-compact .live-card p,
+.live-queue-scroll.is-compact .live-card .live-card-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.live-queue-scroll.is-compact .live-card .live-card-explain,
+.live-queue-scroll.is-compact .live-card .live-ai-note { display: none; }
+.live-queue-scroll.is-compact .vp-btn { padding-top: 2px; padding-bottom: 2px; font-size: 10.5px; }
