@@ -144,7 +144,7 @@ class Settings(BaseSettings):
     LOCAL_SEMANTIC_THRESHOLD: float = 0.8385
     LOCAL_SEMANTIC_MARGIN: float = 0.005
     LOCAL_SEMANTIC_TOP_K: int = 5
-    LOCAL_SEMANTIC_AUTO_DOWNLOAD: bool = False
+    LOCAL_SEMANTIC_AUTO_DOWNLOAD: bool = True
     # Fusion hybride (détection des paraphrases) : recouvrement lexical minimal
     # de confirmation, et bonus d'accord entre récupérateurs indépendants.
     HYBRID_OVERLAP_MIN: float = 0.34
