@@ -782,6 +782,61 @@ async def remove_overlay_image():
     return overlay_store.status()
 
 
+@router.get("/bible/chapter")
+async def lire_chapitre(q: str, version: str = ""):
+    """Renvoie tous les versets d'un chapitre, avec leur nombre.
+
+    ChapterModal appelait déjà cette route — qui n'existait pas. Elle prenait
+    un 404 et retombait silencieusement sur /bible/search, c'est-à-dire sur
+    une recherche plafonnée à 50 résultats au lieu du chapitre demandé.
+
+    Le nombre de versets est ce qui permet de savoir qu'on est au DERNIER
+    verset d'un chapitre : sans lui, une bande de contexte ne peut pas se
+    décaler quand elle bute sur la fin.
+    """
+    from ..main import verse_parser
+    if not verse_parser or not q:
+        raise HTTPException(status_code=503, detail="Parseur indisponible")
+
+    analyse = await verse_parser.parse(q, skip_text_search=True)
+    if not analyse:
+        # « Jean 3 » ne se parse pas seul : les motifs exigent « chapitre » ou
+        # un verset. C'est pourtant la forme naturelle pour demander un
+        # chapitre — on réessaie sous celle que le parseur reconnaît.
+        analyse = await verse_parser.parse(
+            re.sub(r"^(.*?)\s+(\d+)$", r"\1 chapitre \2", q.strip()),
+            skip_text_search=True,
+        )
+    if not analyse or not analyse.get("book_abbr") or not analyse.get("chapter"):
+        raise HTTPException(status_code=404, detail=f"Chapitre introuvable : {q}")
+
+    loader = verse_parser.bible_loader
+    version_id = (version or loader.active_version or "").upper()
+    edition = loader.versions.get(version_id) or loader.versions.get(loader.active_version)
+    if not edition:
+        raise HTTPException(status_code=503, detail="Aucune édition biblique chargée")
+
+    livre = edition.get(analyse["book_abbr"].lower()) or {}
+    versets = livre.get(analyse["chapter"]) or {}
+    if not versets:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{analyse['book_abbr']} {analyse['chapter']} absent de {version_id}",
+        )
+
+    return {
+        "book": analyse.get("book"),
+        "book_abbr": analyse.get("book_abbr"),
+        "chapter": analyse["chapter"],
+        "version": version_id,
+        "count": len(versets),
+        "verses": [
+            {"verse": int(num), "text": texte}
+            for num, texte in sorted(versets.items(), key=lambda kv: int(kv[0]))
+        ],
+    }
+
+
 @router.get("/bibles/catalogue")
 async def bible_catalogue():
     """Ce qui est réellement utilisable, et ce qui ne l'est pas.
