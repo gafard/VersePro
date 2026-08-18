@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     HYBRID_WINDOW_WORDS: int = 32
 
     # Barrière vocale (Silero VAD local) : filtre musique/silences avant transcription
-    VOICE_GATE_ENABLED: bool = False
+    VOICE_GATE_ENABLED: bool = True
 
     # vMix
     VMIX_ENABLED: bool = False
