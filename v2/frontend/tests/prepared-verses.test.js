@@ -112,3 +112,35 @@ test('la même référence n’est pas ajoutée deux fois au déroulé', async (
     globalThis.setTimeout = originalTimeout
   }
 })
+
+test('la pastille du plan annonce ce que le MOTEUR a retenu', async () => {
+  // Une entrée écrite à la main peut ne pas se parser. Afficher la longueur
+  // de la liste donnerait au régisseur une confiance sans objet : le moteur
+  // ne départagera les versets mal entendus que sur ce qu'il a compris.
+  const originalFetch = globalThis.fetch
+  const originalStorage = globalThis.localStorage
+  const saved = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => saved.get(key) || null,
+    setItem: (key, value) => saved.set(key, value)
+  }
+  globalThis.fetch = async (url) => {
+    const cible = String(url)
+    const corps = /\/api\/v1\/plan$/.test(cible)
+      ? { status: 'ok', count: 2 }          // 3 envoyées, 2 comprises
+      : { results: [searchResult] }
+    return new Response(JSON.stringify(corps), {
+      status: 200, headers: { 'Content-Type': 'application/json' }
+    })
+  }
+  useStore.setState({ preparedVerses: [], toasts: [], onAir: null, planCount: null })
+
+  try {
+    await useStore.getState().prepareReference('Jn 3:16')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(useStore.getState().planCount, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+    globalThis.localStorage = originalStorage
+  }
+})

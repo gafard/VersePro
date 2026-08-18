@@ -141,7 +141,7 @@ export default function LiveDetection({ setActiveTab }) {
     autoSend, setAutoSend,
     projectionQueue, projectVerseFromQueue, replaceQueuedVerse, rejectVerseFromQueue, clearDetectedVerses,
     previewSlide, previewBusy, previewReference, takePreview, clearPreview, fetchPreview,
-    preparedVerses, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
+    preparedVerses, planCount, prepareReference, projectPreparedVerse, removePreparedVerse, clearPreparedVerses,
     lastAiRejection,
     onAir, clearProjectionScreen,
     statistics,
@@ -160,7 +160,7 @@ export default function LiveDetection({ setActiveTab }) {
     autoSend: s.autoSend, setAutoSend: s.setAutoSend,
     projectionQueue: s.projectionQueue, projectVerseFromQueue: s.projectVerseFromQueue, replaceQueuedVerse: s.replaceQueuedVerse, rejectVerseFromQueue: s.rejectVerseFromQueue, clearDetectedVerses: s.clearDetectedVerses,
     previewSlide: s.previewSlide, previewBusy: s.previewBusy, previewReference: s.previewReference, takePreview: s.takePreview, clearPreview: s.clearPreview, fetchPreview: s.fetchPreview,
-    preparedVerses: s.preparedVerses, prepareReference: s.prepareReference, projectPreparedVerse: s.projectPreparedVerse, removePreparedVerse: s.removePreparedVerse, clearPreparedVerses: s.clearPreparedVerses,
+    preparedVerses: s.preparedVerses, planCount: s.planCount, prepareReference: s.prepareReference, projectPreparedVerse: s.projectPreparedVerse, removePreparedVerse: s.removePreparedVerse, clearPreparedVerses: s.clearPreparedVerses,
     lastAiRejection: s.lastAiRejection,
     onAir: s.onAir, clearProjectionScreen: s.clearProjectionScreen,
     statistics: s.statistics,
@@ -1079,6 +1079,18 @@ export default function LiveDetection({ setActiveTab }) {
               <span className={`vp-chip ${sundaySafeMode || shadowMode ? 'is-ok' : 'is-warn'}`}>
                 {shadowMode ? 'Ombre' : sundaySafeMode ? 'Mode sûr' : 'Auto autorisé'}
               </span>
+              {/* Le plan de prédication renforce la détection en silence : il
+                  départage deux versets que le micro confond. Sans ce compteur,
+                  rien ne distingue « le moteur s'appuie sur douze références »
+                  de « il n'en connaît aucune » — et l'écart est grand. */}
+              {planCount ? (
+                <span
+                  className="vp-chip is-ok"
+                  title={`Le moteur attend ${planCount} référence(s) du plan de prédication et s'en sert pour départager les versets mal entendus.`}
+                >
+                  Plan · {planCount}
+                </span>
+              ) : null}
             </summary>
             <div className="live-outils-corps">
               <button className="vp-btn vp-btn--sm w-full" onClick={() => { runPreflight(); setPreflightOpen(true) }}>
