@@ -264,6 +264,37 @@ async def preflight_check(probe_cloud: bool = False):
     }
 
 
+def _get_local_ip() -> str:
+    """Détecte l'adresse IP locale LAN de la machine pour le partage de l'écran mobile."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+@router.get("/network/info")
+async def get_network_info():
+    """Renvoie les coordonnées réseau locales pour la connexion des téléphones mobiles (/follow, /stage)."""
+    from ..core.config import settings
+    ip = _get_local_ip()
+    port = getattr(settings, "PORT", 8000)
+    base_url = f"http://{ip}:{port}"
+    return {
+        "local_ip": ip,
+        "port": port,
+        "base_url": base_url,
+        "follow_url": f"{base_url}/follow",
+        "stage_url": f"{base_url}/stage",
+        "output_url": f"{base_url}/output",
+    }
+
+
 @router.post("/safety/panic")
 async def activate_panic_mode():
     """Coupe les automatismes et efface immédiatement toutes les sorties."""
