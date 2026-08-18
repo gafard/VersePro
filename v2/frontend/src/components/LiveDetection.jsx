@@ -175,6 +175,22 @@ export default function LiveDetection({ setActiveTab }) {
   // Longueur du chapitre à l'antenne : sans elle, impossible de savoir qu'on
   // est au DERNIER verset, donc impossible de décaler la bande de contexte.
   const [chapitreCourant, setChapitreCourant] = useState(null)
+  // ENTRÉE PROJETTE-T-IL ? Le code la câblait sur la projection pendant que le
+  // commentaire d'à côté affirmait le contraire (« Entrée = préparer sans
+  // projection »). Deux intentions se sont succédé sans que l'une efface
+  // l'autre, et plus personne ne savait ce que faisait la touche. On tranche
+  // en le rendant EXPLICITE et réglable : par défaut Entrée projette, comme
+  // le fait le code depuis toujours.
+  const [entreeProjette, setEntreeProjette] = useState(() => {
+    try { return localStorage.getItem('versepro_entree_projette') !== 'non' } catch { return true }
+  })
+  const basculerEntree = () => {
+    setEntreeProjette((actuel) => {
+      const suivant = !actuel
+      try { localStorage.setItem('versepro_entree_projette', suivant ? 'oui' : 'non') } catch {}
+      return suivant
+    })
+  }
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
   const [visibleRejection, setVisibleRejection] = useState(null)
   const [clock, setClock] = useState(() => new Date())
@@ -1307,8 +1323,11 @@ export default function LiveDetection({ setActiveTab }) {
               )}
             </div>
             
-            {/* Entrée = préparer sans projection. La projection immédiate reste
-                une action distincte pour éviter les envois accidentels. */}
+            {/* Ce que fait la touche Entrée est désormais un RÉGLAGE, affiché
+                à côté du champ. Une régie qui projette sur Entrée va vite ;
+                une régie qui prépare ne se trompe jamais devant l'assemblée.
+                Les deux se défendent — ce qui ne se défendait pas, c'était de
+                ne pas savoir laquelle était active. */}
             <div className="live-manual-bar mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
               <div className="live-manual-actions">
                 <input
@@ -1321,7 +1340,8 @@ export default function LiveDetection({ setActiveTab }) {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      handleSendManual()
+                      if (entreeProjette) handleSendManual()
+                      else handlePrepareManual()
                     }
                   }}
                 />
@@ -1339,6 +1359,21 @@ export default function LiveDetection({ setActiveTab }) {
                   title="Monter en préparation, sans rien envoyer à la salle"
                 >
                   Préparer
+                </button>
+                <button
+                  type="button"
+                  className={`live-entree-bascule text-[10px] px-2 py-0.5 font-semibold whitespace-nowrap flex-shrink-0 rounded transition-all ${
+                    entreeProjette
+                      ? 'bg-sky-600/20 text-sky-300 hover:bg-sky-600/30'
+                      : 'bg-surface-3 text-text-dim hover:bg-surface-2'
+                  }`}
+                  onClick={basculerEntree}
+                  aria-pressed={entreeProjette}
+                  title={entreeProjette
+                    ? 'La touche Entrée projette immédiatement à l’antenne. Cliquez pour qu’elle prépare à la place.'
+                    : 'La touche Entrée prépare sans projeter. Cliquez pour qu’elle projette immédiatement.'}
+                >
+                  ⏎ {entreeProjette ? 'projette' : 'prépare'}
                 </button>
               </div>
               {/* Dix versets autour de celui qui est à l'antenne. Le régisseur
