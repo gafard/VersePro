@@ -7,10 +7,20 @@ on:
 
 jobs:
   backend:
-    name: Tests backend (pytest)
-    runs-on: ubuntu-latest
+    # VersePro est distribué sous macOS et Windows, et ne tournait en
+    # intégration que sous Linux. Un défaut propre à Windows ne pouvait donc
+    # être découvert qu'en production — c'est exactement ce qui est arrivé.
+    # La matrice ferme cet angle mort ; Linux reste dans la liste parce qu'il
+    # est le plus rapide et attrape l'essentiel en premier.
+    name: Tests backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
     defaults:
       run:
+        shell: bash
         working-directory: v2/backend
     steps:
       - uses: actions/checkout@v7
@@ -22,6 +32,7 @@ jobs:
           cache-dependency-path: v2/backend/requirements.txt
 
       - name: Dépendances système (PyAudio)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y portaudio19-dev
 
       - name: Dépendances Python
@@ -29,10 +40,11 @@ jobs:
 
       - name: Tests
         env:
-          # ONNX/Silero se fige sur le runner Ubuntu alors que VersePro n'est
-          # pas distribué sous Linux. Le workflow Release exécute ce test sur
-          # les deux plateformes réellement livrées : macOS et Windows.
-          VERSEPRO_SKIP_NATIVE_VAD_TEST: "1"
+          # ONNX/Silero se fige sur le runner Ubuntu. Sur les plateformes
+          # réellement livrées, le test DOIT tourner : c'est là qu'une barrière
+          # vocale sourde se voit — elle a bloqué 100 % d'une prédication sans
+          # que rien ne le signale.
+          VERSEPRO_SKIP_NATIVE_VAD_TEST: ${{ runner.os == 'Linux' && '1' || '0' }}
         # Les tests réseau/API passent d'abord dans un interpréteur propre. Les
         # runtimes ONNX/ASR chargés par les autres tests peuvent conserver de
         # nombreux threads natifs sur les petits runners Linux et affamer la
@@ -51,6 +63,7 @@ jobs:
             -vv --timeout=30
 
       - name: Audit des dépendances Python
+        if: runner.os == 'Linux'
         run: |
           pip install pip-audit
           pip-audit

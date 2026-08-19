@@ -1032,7 +1032,9 @@ async def websocket_audio(websocket: WebSocket):
         try:
             while True:
                 data = await websocket.receive_bytes()
-                logger.debug(f"🎙️ Chunk audio reçu: {len(data)} bytes")
+                # TRACE et non DEBUG : vingt-trois lignes par seconde pendant toute la
+                # prédication, sur le chemin chaud de l'audio.
+                logger.trace(f"🎙️ Chunk audio reçu: {len(data)} bytes")
 
                 # Porte vocale : les chunks sans parole (musique, silence) sont ignorés
                 if voice_gate is not None:
@@ -1622,11 +1624,6 @@ async def websocket_control(websocket: WebSocket):
         logger.error(f"❌ Erreur contrôle manuel: {e}")
 
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=settings.DEBUG,
-        log_level="info"
-    )
+# Pas de bloc `__main__` ici. Il en existait un qui lançait uvicorn sur
+# 0.0.0.0 — donc exposait la régie sur tout le réseau — en contradiction avec
+# run_server.py, le vrai point d'entrée, qui écoute sur 127.0.0.1.

@@ -31,7 +31,9 @@ onnxruntime==1.25.1
 httpx>=0.27.0
 
 # ProPresenter Integration
-aiohttp>=3.9.0
+# 3.14.3 : plancher au-dessus de PYSEC-2026-3545/3546/3547. Un `>=3.9.0`
+# n'excluait pas les versions vulnérables.
+aiohttp>=3.14.3
 
 # Rendu des cartouches NDI (sortie NDI)
 pillow>=10.0.0
