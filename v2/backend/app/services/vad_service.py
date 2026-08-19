@@ -17,7 +17,24 @@ from typing import Optional
 import numpy as np
 from loguru import logger
 
-FRAME_SIZE = 512          # 32 ms à 16 kHz (imposé par Silero VAD v5)
+FRAME_SIZE = 512          # 32 ms à 16 kHz : le PAS d'avancement
+# LES 64 ÉCHANTILLONS QUI RENDAIENT LA BARRIÈRE SOURDE.
+#
+# L'export ONNX de Silero v5 n'attend pas 512 échantillons mais 576 : 64 de
+# CONTEXTE repris de la trame précédente, puis les 512 nouveaux. Nourri de 512
+# seulement, le modèle ne refuse rien — il répond simplement presque zéro à
+# tout. Mesuré sur de la parole française claire :
+#
+#     fenêtre 512 : probabilité moyenne 0,0014 —   0/417 trames au-dessus de 0,5
+#     fenêtre 576 : probabilité moyenne 0,9538 — 354/371 trames au-dessus de 0,5
+#
+# Et sur 30 minutes de prédication réelle, la porte bloquait 100 % des blocs.
+# Le jour où VOICE_GATE_ENABLED est passé à True, VersePro devenait sourd :
+# aucun mot transcrit, aucune détection, dans toutes les églises à la fois.
+#
+# Rien ne l'a signalé, parce que le test de non-régression vérifie que le
+# SILENCE est bloqué — ce qu'une porte qui bloque tout fait admirablement.
+CONTEXTE_SIZE = 64
 SPEECH_THRESHOLD = 0.5    # probabilité minimale pour ouvrir la porte
 HANGOVER_CHUNKS = 6       # ~1,5 s de grâce après la dernière parole (chunks de 256 ms)
 
@@ -55,14 +72,19 @@ class VoiceGate:
         self._sr = np.array(sample_rate, dtype=np.int64)
         self._hangover = 0
         self._leftover = np.empty(0, dtype=np.float32)
+        # Les 64 derniers échantillons de la trame précédente, exigés en tête
+        # de la suivante. Zéros au démarrage, comme le fait Silero lui-même.
+        self._contexte = np.zeros(CONTEXTE_SIZE, dtype=np.float32)
         # Statistiques d'efficacité (exposées au client)
         self.chunks_total = 0
         self.chunks_passed = 0
 
     def _frame_prob(self, frame: np.ndarray) -> float:
+        entree = np.concatenate([self._contexte, frame])
+        self._contexte = frame[-CONTEXTE_SIZE:].copy()
         out, self._state = self.session.run(
             None,
-            {"input": frame.reshape(1, -1), "state": self._state, "sr": self._sr},
+            {"input": entree.reshape(1, -1), "state": self._state, "sr": self._sr},
         )
         return float(out[0][0])
 
