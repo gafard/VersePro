@@ -122,7 +122,15 @@ jobs:
           silence = np.zeros(4096, dtype=np.int16).tobytes()
           assert gate.accept(silence) is False
           assert gate.stats()["chunks_blocked"] == 1
-          print("VAD Silero natif OK")
+
+          # ET QU'ELLE S'OUVRE. Refuser le silence ne prouve rien : une porte
+          # morte le fait aussi. Nourri d'une fenêtre incomplète, Silero
+          # répondait presque zéro à TOUT et bloquait 100 % d'une prédication
+          # réelle — cette vérification passait quand même.
+          bruit = (np.random.randn(4096) * 0.2 * 32767).astype(np.int16).tobytes()
+          gate2 = VoiceGate(sample_rate=16000)
+          assert gate2.accept(bruit) is True, "la barrière vocale ne s'ouvre sur rien"
+          print("VAD Silero natif OK (bloque le silence, s'ouvre sur du signal)")
           PY
 
       - name: Geler le backend

@@ -20,7 +20,26 @@ try:
 except Exception:
     pass
 
+def _configurer_journal() -> None:
+    """Le journal ne doit pas coûter plus cher que le direct qu'il observe.
+
+    Aucun sink n'était configuré : loguru écrivait donc TOUT, niveau DEBUG
+    compris. Or la boucle audio journalise un bloc reçu toutes les 43 ms —
+    soit vingt-trois lignes par seconde, formatées et écrites pendant que la
+    reconnaissance vocale travaille. Le journal d'un poste a atteint 18 Mo.
+
+    Le niveau se règle par VERSEPRO_LOG_LEVEL pour un diagnostic ponctuel.
+    """
+    import sys as _sys
+    from loguru import logger
+
+    niveau = os.environ.get("VERSEPRO_LOG_LEVEL", "INFO").upper()
+    logger.remove()
+    logger.add(_sys.stderr, level=niveau, enqueue=True, backtrace=False, diagnose=False)
+
+
 def main() -> None:
+    _configurer_journal()
     host = os.environ.get("VERSEPRO_HOST", "127.0.0.1")
     port = int(os.environ.get("VERSEPRO_PORT", "8001"))
 

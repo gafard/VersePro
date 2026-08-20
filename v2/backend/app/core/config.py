@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
     
     # Application
-    DEBUG: bool = True
+    DEBUG: bool = False
     APP_NAME: str = "VersePro v2"
     VERSION: str = "2.1.6"
     API_TOKEN: str = ""
