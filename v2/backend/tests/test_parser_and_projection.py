@@ -131,25 +131,6 @@ def test_curated_philippians_phrase_beats_nearby_strength_verse():
     assert result["reference"] == "Philippiens 4:13"
 
 
-def test_voice_gate_blocks_silence_and_reports_stats():
-    """La barrière vocale doit fermer la porte sur du silence pur."""
-    from app.services.vad_service import VoiceGate, vad_available
-
-    if os.environ.get("VERSEPRO_SKIP_NATIVE_VAD_TEST") == "1":
-        pytest.skip("Inférence VAD vérifiée sur les runners macOS et Windows de la release")
-    if not vad_available():
-        pytest.skip("Modèle silero_vad.onnx absent")
-
-    import numpy as np
-    gate = VoiceGate(sample_rate=16000)
-    silence = np.zeros(4096, dtype=np.int16).tobytes()
-
-    # Plusieurs chunks de silence : tous bloqués (aucune parole, pas de grâce initiale)
-    results = [gate.accept(silence) for _ in range(4)]
-    assert not any(results)
-    assert gate.stats()["chunks_blocked"] == 4
-
-
 def test_natural_french_phrasings_and_ordinals():
     """Les formulations orales réelles doivent détecter le BON livre, vite."""
     import time

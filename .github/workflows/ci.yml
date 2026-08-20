@@ -50,12 +50,6 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Tests
-        env:
-          # ONNX/Silero se fige sur le runner Ubuntu. Sur les plateformes
-          # réellement livrées, le test DOIT tourner : c'est là qu'une barrière
-          # vocale sourde se voit — elle a bloqué 100 % d'une prédication sans
-          # que rien ne le signale.
-          VERSEPRO_SKIP_NATIVE_VAD_TEST: ${{ runner.os == 'Linux' && '1' || '0' }}
         # Les tests réseau/API passent d'abord dans un interpréteur propre. Les
         # runtimes ONNX/ASR chargés par les autres tests peuvent conserver de
         # nombreux threads natifs sur les petits runners Linux et affamer la

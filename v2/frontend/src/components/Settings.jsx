@@ -371,7 +371,6 @@ export default function Settings() {
     ai_agent_enabled: true,
     ai_confidence_threshold: 95,
     ai_filtering_mode: 'strict',
-    voice_gate_enabled: false,
     asr_default_engine: 'auto',
     local_semantic_enabled: true,
     local_semantic_threshold: 0.865,
@@ -492,7 +491,6 @@ export default function Settings() {
       ai_agent_enabled: Boolean(settings.ai_agent_enabled),
       ai_confidence_threshold: settings.ai_confidence_threshold || 95,
       ai_filtering_mode: settings.ai_filtering_mode || 'strict',
-      voice_gate_enabled: Boolean(settings.voice_gate_enabled),
       asr_default_engine: settings.asr_default_engine || 'auto',
       local_semantic_enabled: settings.local_semantic_enabled !== false,
       local_semantic_threshold: Number(settings.local_semantic_threshold || 0.865),
@@ -709,24 +707,6 @@ export default function Settings() {
               </Row>
             </Accordion>
 
-            <Accordion
-              title="Barrière vocale (anti-musique)"
-              icon={<IconShield color="#0ea5e9" />}
-              description={`Détection Silero VAD : bloque les segments musicaux pour ne transcrire que la voix.${!settings?.voice_gate_available ? ' — Modèle silero_vad.onnx absent du dossier data/.' : ''}`}
-            >
-              <Row label="Activer la barrière">
-                <label className="settings-switch">
-                  <input
-                    type="checkbox"
-                    aria-label="Activer la barrière vocale anti-musique"
-                    checked={form.voice_gate_enabled}
-                    disabled={!settings?.voice_gate_available}
-                    onChange={(e) => updateField('voice_gate_enabled', e.target.checked)}
-                  />
-                  <span />
-                </label>
-              </Row>
-            </Accordion>
           </div>
 
           {/* TAB 3: MOTEURS */}

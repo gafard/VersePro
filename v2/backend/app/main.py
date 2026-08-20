@@ -879,18 +879,24 @@ async def websocket_audio(websocket: WebSocket):
     # Dernier partiel Nemotron transmis : on ne renvoie que ce qui a changé.
     dernier_partiel_nemotron = ""
 
-    # Barrière vocale : ignore musique et silences avant transcription (optionnelle)
-    voice_gate = None
-    if settings.VOICE_GATE_ENABLED:
-        try:
-            from .services.vad_service import VoiceGate, vad_available
-            if vad_available():
-                voice_gate = await asyncio.to_thread(VoiceGate, settings.AUDIO_SAMPLE_RATE)
-                logger.info("🎚️ Barrière vocale active sur cette session")
-            else:
-                logger.warning("⚠️ VOICE_GATE_ENABLED mais modèle silero_vad.onnx absent de data/")
-        except Exception as vg_err:
-            logger.error(f"❌ Barrière vocale indisponible : {vg_err}")
+    # PLUS DE BARRIÈRE VOCALE SUR LE CHEMIN AUDIO.
+    #
+    # Elle promettait d'écarter musique et silences avant transcription. Deux
+    # raisons de la retirer, pas une.
+    #
+    # La première est mesurée : nourrie d'une fenêtre incomplète, elle bloquait
+    # 100 % de trente minutes de prédication réelle. Le défaut est corrigé,
+    # mais il avait dormi des mois sans que rien ne le signale, parce qu'une
+    # porte qui bloque tout passe toutes les vérifications d'une porte qui
+    # bloque le silence.
+    #
+    # La seconde est de fond, et c'est elle qui tranche : VersePro sert des
+    # églises où la musique accompagne la prédication et où l'on prie à voix
+    # haute. Un filtre qui décide de ce qui est « de la parole » se trompe
+    # précisément là. Le filtre « son difficile » avait déjà été retiré pour
+    # ce motif — celui-ci revenait par une autre porte.
+    #
+    # Un verset raté coûte plus cher qu'un peu de son transcrit pour rien.
     
     # Callback pour Deepgram
     async def on_transcript_received(result):
@@ -1035,20 +1041,6 @@ async def websocket_audio(websocket: WebSocket):
                 # TRACE et non DEBUG : vingt-trois lignes par seconde pendant toute la
                 # prédication, sur le chemin chaud de l'audio.
                 logger.trace(f"🎙️ Chunk audio reçu: {len(data)} bytes")
-
-                # Porte vocale : les chunks sans parole (musique, silence) sont ignorés
-                if voice_gate is not None:
-                    is_speech = await asyncio.to_thread(voice_gate.accept, data)
-                    if not is_speech:
-                        if use_nemotron and nemotron_service:
-                            echantillons_silence = np.zeros(len(data) // 2, dtype=np.int16)
-                            await asyncio.to_thread(nemotron_service.accept_waveform, echantillons_silence)
-                            nemotron_service.tick_pause()
-                            enonce = nemotron_service.prendre_enonce_fini()
-                            if enonce:
-                                await queue_transcript(enonce, True)
-                                dernier_partiel_nemotron = ""
-                        continue
 
                 # Si on utilise en théorie Deepgram mais que la session est inactive (déconnexion 1011 ou erreur)
                 if not use_vosk and not use_nemotron and (

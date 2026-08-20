@@ -16,14 +16,6 @@ router = APIRouter()
 SECRET_SETTING_KEYS = {"deepgram_api_key", "openrouter_api_key", "gemini_api_key"}
 
 
-def _vad_available() -> bool:
-    try:
-        from ..services.vad_service import vad_available
-        return vad_available()
-    except Exception:
-        return False
-
-
 def _mask_secret(value: str) -> str:
     """Expose only a short hint so API keys never leave the backend in clear text."""
     if not value:
@@ -73,7 +65,6 @@ class SettingsUpdate(BaseModel):
     gemini_api_key: Optional[str] = None
     ai_confidence_threshold: Optional[int] = None
     ai_filtering_mode: Optional[str] = None
-    voice_gate_enabled: Optional[bool] = None
     asr_default_engine: Optional[str] = None
     local_semantic_enabled: Optional[bool] = None
     local_semantic_threshold: Optional[float] = None
@@ -1137,8 +1128,6 @@ async def get_settings():
         "gemini_api_key_hint": _mask_secret(settings.GEMINI_API_KEY),
         "ai_confidence_threshold": settings.AI_CONFIDENCE_THRESHOLD,
         "ai_filtering_mode": settings.AI_FILTERING_MODE,
-        "voice_gate_enabled": settings.VOICE_GATE_ENABLED,
-        "voice_gate_available": _vad_available(),
         "asr_default_engine": settings.ASR_DEFAULT_ENGINE,
         "nemotron_status": nemotron_service.status() if nemotron_service else {},
         "local_semantic_enabled": settings.LOCAL_SEMANTIC_ENABLED,
@@ -1297,9 +1286,6 @@ async def update_settings(settings_update: SettingsUpdate):
         settings.AI_FILTERING_MODE = str(update["ai_filtering_mode"])
         await db.set_setting("ai_filtering_mode", settings.AI_FILTERING_MODE)
 
-    if "voice_gate_enabled" in update:
-        settings.VOICE_GATE_ENABLED = bool(update["voice_gate_enabled"])
-        await db.set_setting("voice_gate_enabled", settings.VOICE_GATE_ENABLED)
 
     if update.get("asr_default_engine"):
         engine = str(update["asr_default_engine"])
