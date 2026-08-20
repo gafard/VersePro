@@ -28,8 +28,35 @@ struct BackendProcess {
     config: BackendConfig,
 }
 
+/// Taille au-delà de laquelle le journal du backend est archivé.
+///
+/// Le fichier est ouvert en `append` et ne l'était par personne d'autre : il
+/// grossissait donc sans fin, culte après culte. Un poste a atteint 18 Mo —
+/// le backend y écrivait alors une ligne par bloc audio, vingt-trois par
+/// seconde. Le niveau de journalisation est corrigé côté Python, mais rien
+/// n'empêchait le fichier de croître indéfiniment.
+///
+/// On garde UNE génération précédente : assez pour diagnostiquer le culte de
+/// la veille, pas assez pour remplir le disque d'une régie.
+const TAILLE_MAX_JOURNAL: u64 = 5 * 1024 * 1024;
+
+fn faire_tourner_journal(log_path: &std::path::Path) {
+    let trop_gros = std::fs::metadata(log_path)
+        .map(|m| m.len() > TAILLE_MAX_JOURNAL)
+        .unwrap_or(false);
+    if !trop_gros {
+        return;
+    }
+    let archive = log_path.with_extension("log.1");
+    // Un échec de rotation ne doit jamais empêcher le backend de démarrer :
+    // un journal encombrant vaut mieux qu'une régie qui refuse de s'ouvrir.
+    let _ = std::fs::remove_file(&archive);
+    let _ = std::fs::rename(log_path, &archive);
+}
+
 fn spawn_backend(config: &BackendConfig) -> std::io::Result<Child> {
     let log_path = config.data_dir.join("backend-desktop.log");
+    faire_tourner_journal(&log_path);
     let stdout = OpenOptions::new().create(true).append(true).open(&log_path)?;
     let stderr = stdout.try_clone()?;
     let mut cmd = Command::new(&config.executable);
