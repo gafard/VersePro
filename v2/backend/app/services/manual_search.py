@@ -16,11 +16,31 @@ from __future__ import annotations
 from array import array
 from collections import Counter
 from difflib import SequenceMatcher
+import math
 import re
 import unicodedata
 from typing import Any, Dict, List
 
 from loguru import logger
+
+
+def radical(mot: str) -> str:
+    """Forme repliée d'un mot, pour que le pluriel rejoigne le singulier.
+
+    « Le peuple a mis du sang sur les linteaux des portes » ne trouvait rien,
+    alors que « linteau » au singulier menait droit à Exode 12:7 : le mot du
+    verset est « linteau », celui de la phrase « linteaux », et l'index les
+    tenait pour deux mots étrangers.
+
+    Repli volontairement grossier — on retire un s ou un x final sur les mots
+    d'au moins cinq lettres. Il n'a pas à être juste linguistiquement, il a à
+    être IDENTIQUE des deux côtés : c'est ce qui fait se rencontrer la requête
+    et le texte. Les mots courts sont épargnés, où retirer une lettre change
+    le sens (« fils », « lois », « dieux »).
+    """
+    if len(mot) >= 5 and mot[-1] in "sx":
+        return mot[:-1]
+    return mot
 
 
 def normalize_fragment(text: str) -> str:
@@ -118,7 +138,11 @@ class ManualVerseIndex:
 
                         # Une seule occurrence par mot, verset et traduction.
                         # array('I') évite plusieurs dizaines de Mo d'objets int.
-                        for word in set(normalized.split()):
+                        mots = set(normalized.split())
+                        # Le radical entre dans l'index à côté du mot entier :
+                        # la requête sera repliée de la même façon.
+                        mots |= {radical(m) for m in mots if len(m) >= 5}
+                        for word in mots:
                             if len(word) < 2:
                                 continue
                             posting = self._postings.get(word)
@@ -138,10 +162,30 @@ class ManualVerseIndex:
         )
 
     def _candidate_ids(self, words: List[str], max_candidates: int = 3000) -> List[int]:
+        """Les versets les plus prometteurs, pondérés par la RARETÉ des mots.
+
+        L'ancienne sélection exigeait que TOUS les mots de la requête
+        coexistent dans un même verset. Une phrase naturelle en contient
+        forcément qui n'y sont pas, donc elle ne rendait rien — et plus on
+        donnait d'information, moins on trouvait :
+
+            « sang sur les linteaux des portes »            -> Exode 12:7
+            « a mis du sang sur les linteaux des portes »   -> RIEN
+            « le peuple de dieu a mis du sang sur … »       -> RIEN
+
+        C'est l'inverse du comportement attendu, et c'est ce qui faisait perdre
+        VersePro contre un opérateur qui tape la même phrase dans Google.
+
+        Un mot présent dans trois versets — « linteau » — en dit infiniment
+        plus qu'un mot présent dans neuf mille — « peuple ». On additionne donc
+        la rareté des mots trouvés, au lieu de réclamer une coïncidence
+        parfaite. Les mots vides ne coûtent rien, les mots rares décident, et
+        une phrase plus longue ne peut qu'aider.
+        """
         unique_words = list(dict.fromkeys(word for word in words if len(word) >= 2))
         available = []
         for word in unique_words:
-            posting = self._postings.get(word)
+            posting = self._postings.get(word) or self._postings.get(radical(word))
             if posting:
                 available.append((word, set(posting)))
                 continue
@@ -168,9 +212,10 @@ class ManualVerseIndex:
         if not available:
             return []
 
-        # Les mots rares sont les plus discriminants. Une intersection trouve
-        # instantanément les fragments exacts, où qu'ils soient dans le verset.
         available.sort(key=lambda item: len(item[1]))
+
+        # L'intersection reste la meilleure réponse quand elle existe : c'est
+        # le fragment cité mot pour mot, et il doit sortir en tête.
         intersection = set(available[0][1])
         for _, posting_set in available[1:]:
             intersection.intersection_update(posting_set)
@@ -179,12 +224,21 @@ class ManualVerseIndex:
         if intersection:
             return list(intersection)[:max_candidates]
 
-        # Une faute peut faire disparaître un mot de l'index. On garde alors
-        # l'union des quatre mots les plus rares, classée par recouvrement.
-        counts: Counter[int] = Counter()
-        for _, posting_set in available[:4]:
-            counts.update(posting_set)
-        return [doc_id for doc_id, _ in counts.most_common(max_candidates)]
+        # Sinon, on additionne la rareté. log(N / documents contenant le mot) :
+        # « linteau », dans trois versets sur trente et un mille, pèse mille
+        # fois « peuple ».
+        total = max(1, len(self.entries))
+        poids: Dict[int, float] = {}
+        for _, posting_set in available:
+            idf = math.log(total / max(1, len(posting_set)))
+            if idf <= 0.5:      # mot trop banal pour désigner quoi que ce soit
+                continue
+            for doc_id in posting_set:
+                poids[doc_id] = poids.get(doc_id, 0.0) + idf
+        if not poids:
+            return []
+        classes = sorted(poids.items(), key=lambda item: -item[1])
+        return [doc_id for doc_id, _ in classes[:max_candidates]]
 
     def _next_entry(self, entry: Dict[str, Any]) -> Dict[str, Any] | None:
         next_id = self._key_to_id.get((
@@ -194,8 +248,15 @@ class ManualVerseIndex:
         ))
         return self.entries[next_id] if next_id is not None else None
 
-    @staticmethod
-    def _score(query: str, query_words: List[str], candidate: str) -> float:
+    def _idf(self, mot: str) -> float:
+        """Rareté d'un mot : log(versets / versets le contenant)."""
+        posting = self._postings.get(mot) or self._postings.get(radical(mot))
+        if not posting:
+            return 0.0
+        return math.log(max(1, len(self.entries)) / max(1, len(posting)))
+
+    def _score(self, query: str, query_words: List[str], candidate: str,
+               idf_requete: Dict[str, float] | None = None) -> float:
         if not candidate:
             return 0.0
         if query == candidate or f" {query} " in f" {candidate} ":
@@ -206,14 +267,27 @@ class ManualVerseIndex:
             # Pour un seul mot, seuls les mots entiers exacts sont assez sûrs.
             return 0.98 if query_words[0] in candidate_words else 0.0
 
-        query_set = set(query_words)
-        candidate_set = set(candidate_words)
+        # Les deux côtés sont repliés : « linteaux » doit rencontrer
+        # « linteau », sans quoi le mot le plus discriminant de la phrase est
+        # justement celui qui ne compte pas.
+        query_set = {radical(mot) for mot in query_words}
+        candidate_set = {radical(mot) for mot in candidate_words}
         lexical = len(query_set & candidate_set) / max(1, len(query_set))
-        # Ne pas lancer des milliers de comparaisons de fenêtres lorsqu'une
-        # phrase de trois mots n'en partage même pas la moitié avec le verset.
-        # Les vraies paraphrases passent par l'index sémantique ; ce chemin-ci
-        # est destiné aux fragments textuels et petites fautes.
-        if len(query_words) >= 3 and lexical < 0.5:
+
+        # LE VERROU QUI FERMAIT LA PORTE AUX PHRASES NATURELLES.
+        #
+        # Il exigeait que la MOITIÉ des mots de la requête figurent dans le
+        # verset. « Le peuple de Dieu a mis du sang sur les linteaux des
+        # portes » n'en partage qu'un tiers avec Exode 12:7 — et pourtant
+        # « linteau » suffit à le désigner sans ambiguïté. Le commentaire
+        # renvoyait ces cas à l'index sémantique ; mesuré, celui-ci ne place
+        # même pas Exode 12:7 dans ses cinq premiers.
+        #
+        # On compte donc les mots QUI COMPTENT. Deux mots d'au moins cinq
+        # lettres partagés avec le verset valent mieux que la moitié d'une
+        # phrase pleine d'articles.
+        substantiels = {mot for mot in query_set & candidate_set if len(mot) >= 5}
+        if len(query_words) >= 3 and lexical < 0.5 and len(substantiels) < 2:
             return 0.0
         if len(query_words) == 2 and lexical == 0.0:
             return 0.0
@@ -223,7 +297,30 @@ class ManualVerseIndex:
         # La fenêtre locale capture les fautes ("rugisant"), le recouvrement
         # protège contre une ressemblance orthographique fortuite, et l'ordre
         # départage les versets faits des mêmes mots.
-        return 0.50 * window + 0.32 * lexical + 0.18 * ordered
+        cite = 0.50 * window + 0.32 * lexical + 0.18 * ordered
+
+        # CE QUI PRÉCÈDE NOTE UNE CITATION, PAS UNE DESCRIPTION.
+        #
+        # La fenêtre contiguë pèse la moitié du score : quelqu'un qui récite le
+        # verset la remplit, quelqu'un qui le DÉCRIT ne la remplit jamais.
+        # « Le peuple de Dieu a mis du sang sur les linteaux des portes »
+        # n'atteignait donc pas le seuil, alors que le mot « linteau » suffit à
+        # désigner Exode 12 sans ambiguïté dans toute la Bible.
+        #
+        # Second chemin : quelle PART DE L'INFORMATION de la phrase se retrouve
+        # dans le verset ? Les articles ne pèsent rien, les mots rares pèsent
+        # tout. Une conversation de régie — « réunion, planning, projecteur » —
+        # ne partage aucune masse rare avec un texte biblique et reste dehors.
+        if not idf_requete:
+            return cite
+        masse_totale = sum(idf_requete.values())
+        if masse_totale <= 0:
+            return cite
+        masse_partagee = sum(
+            poids for mot, poids in idf_requete.items() if mot in candidate_set
+        )
+        decrit = masse_partagee / masse_totale
+        return max(cite, decrit)
 
     def _rank_hits(self, hits: Dict[tuple, Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
         ranked = sorted(
@@ -244,6 +341,14 @@ class ManualVerseIndex:
             return []
 
         candidate_ids = self._candidate_ids(query_words)
+
+        # Rareté de chaque mot de la requête, calculée UNE fois : le score la
+        # relit pour des milliers de candidats.
+        idf_requete = {}
+        for mot in {radical(m) for m in query_words if len(m) >= 2}:
+            poids = self._idf(mot)
+            if poids > 0.5:      # sous ce seuil le mot est un article
+                idf_requete[mot] = poids
 
         # Passe 1 — sous-chaîne exacte. C'est le cas normal de la recherche
         # manuelle et il doit répondre pendant la frappe. L'ancienne boucle
@@ -296,7 +401,7 @@ class ManualVerseIndex:
             entry = self.entries[doc_id]
             next_entry = self._next_entry(entry)
             for version_id, normalized_text in entry["normalized"].items():
-                score = self._score(normalized_query, query_words, normalized_text)
+                score = self._score(normalized_query, query_words, normalized_text, idf_requete)
                 end_verse = None
                 method = "manual_exact" if score >= 0.999 else "manual_approx"
                 matched_text = entry["texts"].get(version_id, "")
@@ -306,7 +411,7 @@ class ManualVerseIndex:
                 # verset unique.
                 if score < 0.999 and next_entry and version_id in next_entry["normalized"]:
                     joined = f"{normalized_text} {next_entry['normalized'][version_id]}"
-                    joined_score = self._score(normalized_query, query_words, joined)
+                    joined_score = self._score(normalized_query, query_words, joined, idf_requete)
                     if joined_score > score + 0.005:
                         score = joined_score
                         end_verse = int(next_entry["verse"])

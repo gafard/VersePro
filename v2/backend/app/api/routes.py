@@ -515,9 +515,22 @@ async def bible_search(q: str, limit: int = 6):
         manual_candidates = await manual_task
         semantic_candidates = await semantic_task if semantic_task else []
 
-        # Les fragments exacts priment. Les paraphrases sémantiques complètent
-        # ensuite la liste, sans doublon ni projection automatique.
-        for cand in [*manual_candidates, *semantic_candidates]:
+        # LE CLASSEMENT SE FAIT AU SCORE, PAS À LA PROVENANCE.
+        #
+        # La liste empilait tout le lexical avant tout le sémantique. Un
+        # fragment exact (1,0) doit effectivement primer — mais une
+        # approximation lexicale à 0,65 passait aussi devant une paraphrase
+        # sémantique à 0,86. Mesuré sur « jésus a marché sur les eaux » : la
+        # bonne réponse, Matthieu 14:29, était trouvée et se retrouvait
+        # enterrée sous trois versets de traversée de mer.
+        #
+        # L'ordre de la liste EST la réponse : l'opérateur lit la première.
+        fusion = sorted(
+            [*manual_candidates, *semantic_candidates],
+            key=lambda c: float(c.get("score") or c.get("confidence") or 0),
+            reverse=True,
+        )
+        for cand in fusion:
             key = cand.get("reference") or (
                 f"{cand.get('book_abbr')} {cand.get('chapter')}:{cand.get('verse_start') or cand.get('verse')}"
             )
@@ -542,6 +555,48 @@ async def bible_search(q: str, limit: int = 6):
                 )
             seen.add(cand["reference"])
             results.append(cand)
+
+    # 3. L'IA, EN DERNIER — et seulement ici, dans la recherche manuelle.
+    #
+    # Elle n'était appelée que pendant le direct, où elle est le plus risquée :
+    # un faux positif y part à l'écran. Elle était donc absente de l'endroit
+    # où elle est à la fois SÛRE et décisive.
+    #
+    # Une recherche manuelle est délibérée : l'opérateur a tapé sa phrase, il
+    # lit les propositions, et rien ne se projette sans son clic. Une seconde
+    # d'attente n'est rien face aux quinze secondes qu'un régisseur passe à
+    # chercher la même chose dans Google — c'est précisément la comparaison qui
+    # décide si VersePro sert à quelque chose.
+    #
+    # Et c'est la seule voie pour les descriptions dont AUCUN mot ne figure
+    # dans le texte : « le fils prodigue » ne se trouve nulle part dans Luc 15,
+    # qui dit « le plus jeune fils ». Ni l'index lexical ni les vecteurs ne
+    # peuvent franchir ça ; un modèle de langue, oui.
+    if len(results) < 3 and len(query.split()) >= 3:
+        from ..main import ai_service
+        if ai_service and getattr(ai_service, "enabled", False):
+            with suppress(Exception):
+                suggestion = await asyncio.wait_for(
+                    ai_service.detect_bible_reference(query, candidates=results or None),
+                    timeout=6.0,
+                )
+                ref_ia = (suggestion or {}).get("reference")
+                if ref_ia and ref_ia not in seen:
+                    # Vérifiée dans la Bible locale : l'IA propose, le corpus
+                    # dispose. Une référence inventée ne sort jamais d'ici.
+                    confirme = await verse_parser.parse(ref_ia, skip_text_search=True)
+                    if confirme and confirme.get("verse_start") is not None:
+                        confirme = dict(confirme)
+                        confirme["detection_method"] = "ai_suggestion"
+                        confirme["source"] = "ai"
+                        confirme["requires_review"] = True
+                        confirme["confidence"] = min(
+                            float(suggestion.get("confidence") or 0.7), 0.9)
+                        confirme["explanation"] = (
+                            "Proposition de l'assistant, vérifiée dans la Bible locale. "
+                            "À relire avant projection."
+                        )
+                        results.append(confirme)
 
     return {"results": results[:limit]}
 
