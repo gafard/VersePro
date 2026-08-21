@@ -31,6 +31,22 @@ const ASR_LABELS = {
   nemotron: 'Nemotron local'
 }
 
+const METHOD_LABELS = {
+  explicit: 'Référence',
+  chapter_candidate: 'Chapitre',
+  adjacent: 'Verset suivant',
+  text_phrase: 'Citation connue',
+  text_index: 'Texte exact',
+  text_substring: 'Texte exact',
+  text_fuzzy: 'Citation approchée',
+  manual_exact: 'Fragment exact',
+  manual_cross_verse: 'Passage exact',
+  manual_approx: 'Fragment approché',
+  manual_semantic: 'Paraphrase',
+  ai_suggestion: 'Suggestion IA',
+  ai_semantic: 'Suggestion IA',
+}
+
 /** Décale le numéro de verset d'une référence "Livre C:V" (navigation de lecture) */
 function shiftVerse(reference, delta) {
   const match = /^(.+?)\s+(\d+):(\d+)/.exec(reference || '')
@@ -223,6 +239,15 @@ export default function LiveDetection({ setActiveTab }) {
   const [chapterModalRef, setChapterModalRef] = useState(null)
   const [versionsModalOpen, setVersionsModalOpen] = useState(false)
   const queueScrollRef = useRef(null)
+
+  // Suggestions d'autocomplétion pour la barre de recherche manuelle
+  const [manualSuggestions, setManualSuggestions] = useState([])
+  const [manualSearching, setManualSearching] = useState(false)
+  const [manualActiveIndex, setManualActiveIndex] = useState(0)
+  const [showManualSuggestions, setShowManualSuggestions] = useState(false)
+  const manualDebounceRef = useRef(null)
+  const manualSeqRef = useRef(0)
+  const manualBarRef = useRef(null)
 
   const [dismissedPpAlert, setDismissedPpAlert] = useState(() => {
     try { return localStorage.getItem('versepro_dismiss_pp_alert') === 'true' } catch { return false }
@@ -441,10 +466,52 @@ export default function LiveDetection({ setActiveTab }) {
     }
   }, [])
 
+  // Fermeture des suggestions manuelles lors d'un clic extérieur
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (manualBarRef.current && !manualBarRef.current.contains(e.target)) {
+        setShowManualSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // ── Actions ────────────────────────────────────────────────────
+  const handleManualInputChange = (val) => {
+    setManualReference(val)
+    clearTimeout(manualDebounceRef.current)
+    const trimmed = val.trim()
+    if (trimmed.length < 2) {
+      setManualSuggestions([])
+      setShowManualSuggestions(false)
+      return
+    }
+
+    manualDebounceRef.current = setTimeout(async () => {
+      const seq = ++manualSeqRef.current
+      setManualSearching(true)
+      try {
+        const response = await fetch(`${BACKEND_BASE}/api/v1/bible/search?q=${encodeURIComponent(trimmed)}&limit=6`)
+        const data = await response.json()
+        if (seq === manualSeqRef.current) {
+          const res = data.results || []
+          setManualSuggestions(res)
+          setManualActiveIndex(0)
+          setShowManualSuggestions(res.length > 0)
+        }
+      } catch {
+        if (seq === manualSeqRef.current) setManualSuggestions([])
+      } finally {
+        if (seq === manualSeqRef.current) setManualSearching(false)
+      }
+    }, 150)
+  }
+
   const handleSendManual = async () => {
     const ref = manualReference.trim()
     if (!ref) return
+    setShowManualSuggestions(false)
     await sendReference(ref)
     setManualReference('')
   }
@@ -452,6 +519,7 @@ export default function LiveDetection({ setActiveTab }) {
   const handlePrepareManual = async () => {
     const ref = manualReference.trim()
     if (!ref || preparingReference) return
+    setShowManualSuggestions(false)
     setPreparingReference(true)
     try {
       const prepared = await prepareReference(ref)
@@ -1365,19 +1433,116 @@ export default function LiveDetection({ setActiveTab }) {
                 une régie qui prépare ne se trompe jamais devant l'assemblée.
                 Les deux se défendent — ce qui ne se défendait pas, c'était de
                 ne pas savoir laquelle était active. */}
-            <div className="live-manual-bar mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
+            <div ref={manualBarRef} className="live-manual-bar relative mt-3 pt-3 border-t border-border-weak flex-shrink-0 flex flex-col gap-2">
+              {showManualSuggestions && manualSuggestions.length > 0 && (
+                <div
+                  className="absolute bottom-full mb-2 left-0 right-0 max-h-[340px] overflow-y-auto bg-surface-raised border border-border-strong rounded-card shadow-elev-4 z-50 p-1.5 animate-slide-in backdrop-blur-md"
+                  role="listbox"
+                >
+                  <div className="px-2.5 py-1.5 text-[10.5px] font-mono text-text-faint flex items-center justify-between border-b border-border mb-1">
+                    <span>{manualSuggestions.length} proposition{manualSuggestions.length > 1 ? 's' : ''} trouvée{manualSuggestions.length > 1 ? 's' : ''}</span>
+                    <span>↑↓ naviguer · Entrée projeter · Échap fermer</span>
+                  </div>
+                  {manualSuggestions.map((result, idx) => {
+                    const isActive = idx === manualActiveIndex
+                    const methodLabel = METHOD_LABELS[result.detection_method] || result.detection_method || 'Proposition'
+                    return (
+                      <div
+                        key={`${result.reference}-${idx}`}
+                        className={`block w-full text-left rounded-input p-2.5 cursor-pointer transition-colors duration-150 ${
+                          isActive ? 'bg-sky-950/60 border border-sky-500/40 text-white' : 'hover:bg-surface-elevated text-text-primary'
+                        }`}
+                        onMouseEnter={() => setManualActiveIndex(idx)}
+                        onClick={() => {
+                          sendReference(result.reference)
+                          setManualReference('')
+                          setShowManualSuggestions(false)
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <strong className="text-[13.5px] font-semibold text-text-primary">
+                            {result.reference}
+                          </strong>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                              result.source === 'ai' || result.detection_method?.includes('ai')
+                                ? 'bg-amber-500/20 text-amber-300 font-semibold'
+                                : 'bg-surface-elevated text-text-dim'
+                            }`}>
+                              {methodLabel}
+                              {result.matched_version ? ` · ${result.matched_version}` : ''}
+                              {result.confidence ? ` · ${Math.round(result.confidence * 100)} %` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 text-[10.5px] font-semibold rounded bg-sky-600 hover:bg-sky-500 text-white transition-colors ml-1"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                sendReference(result.reference)
+                                setManualReference('')
+                                setShowManualSuggestions(false)
+                              }}
+                              title="Projeter immédiatement à l'écran"
+                            >
+                              Projeter
+                            </button>
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 text-[10.5px] rounded bg-surface-3 hover:bg-surface-2 text-text-dim hover:text-white transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                previewReference(result.reference)
+                                setManualReference('')
+                                setShowManualSuggestions(false)
+                              }}
+                              title="Monter en préparation"
+                            >
+                              Préparer
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-1 text-[12px] leading-snug text-text-secondary line-clamp-2">
+                          {result.matched_text || result.text || ''}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               <div className="live-manual-actions">
                 <input
                   ref={manualInputRef}
                   className="vp-input flex-1 py-1.5 text-sm"
                   type="text"
                   value={manualReference}
-                  onChange={(e) => setManualReference(e.target.value)}
+                  onChange={(e) => handleManualInputChange(e.target.value)}
+                  onFocus={() => {
+                    if (manualSuggestions.length > 0 && manualReference.trim().length >= 2) {
+                      setShowManualSuggestions(true)
+                    }
+                  }}
                   placeholder="Saisir un verset (ex : Jn 3:16, Romains 8:28…)"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Escape') {
                       e.preventDefault()
-                      handleSendManual()
+                      setShowManualSuggestions(false)
+                    } else if (e.key === 'ArrowDown' && showManualSuggestions && manualSuggestions.length > 0) {
+                      e.preventDefault()
+                      setManualActiveIndex((i) => Math.min(manualSuggestions.length - 1, i + 1))
+                    } else if (e.key === 'ArrowUp' && showManualSuggestions && manualSuggestions.length > 0) {
+                      e.preventDefault()
+                      setManualActiveIndex((i) => Math.max(0, i - 1))
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault()
+                      if (showManualSuggestions && manualSuggestions.length > 0 && manualSuggestions[manualActiveIndex]) {
+                        const sel = manualSuggestions[manualActiveIndex]
+                        sendReference(sel.reference)
+                        setManualReference('')
+                        setShowManualSuggestions(false)
+                      } else {
+                        handleSendManual()
+                      }
                     }
                   }}
                 />
@@ -1390,7 +1555,7 @@ export default function LiveDetection({ setActiveTab }) {
                 </button>
                 <button
                   className="vp-btn vp-btn--ghost px-3 text-xs"
-                  onClick={() => { previewReference(manualReference.trim()); setManualReference('') }}
+                  onClick={() => { previewReference(manualReference.trim()); setManualReference(''); setShowManualSuggestions(false) }}
                   disabled={!manualReference.trim() || previewBusy}
                   title="Monter en préparation, sans rien envoyer à la salle"
                 >
