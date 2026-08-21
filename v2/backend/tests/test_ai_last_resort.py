@@ -31,7 +31,7 @@ class FakeAI:
         self.contexte_recu = None
         self.candidats_recus = None
 
-    async def detect_bible_reference(self, text, candidates=None, contexte=None):
+    async def detect_bible_reference(self, text, candidates=None, contexte=None, exiger_candidats=True, **kwargs):
         self.calls += 1
         self.contexte_recu = list(contexte or [])
         self.candidats_recus = list(candidates or [])

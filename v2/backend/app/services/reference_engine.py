@@ -531,7 +531,25 @@ class BibleReferenceEngine:
                 # sera alors validée directement contre la Bible et ne pourra
                 # jamais être projetée automatiquement.
                 res = await self.ai_service.detect_bible_reference(
-                    query, candidates=shortlist, contexte=list(self._contexte_recent)
+                    query, candidates=shortlist, contexte=list(self._contexte_recent),
+                    # LE VERROU QUI CONTREDISAIT CE COMMENTAIRE.
+                    #
+                    # `_validate_candidate_result` rejetait toute suggestion dès
+                    # que la shortlist était vide — c'est-à-dire précisément
+                    # dans le cas de dernier recours que ce bloc est censé
+                    # traiter. L'IA n'avait donc le droit que de REORDONNER ce
+                    # que le local avait déjà trouvé, jamais d'apporter ce
+                    # qu'il avait manqué.
+                    #
+                    # Rien ne le justifiait, et trois garde-fous existent déjà
+                    # en aval, tous vérifiés : le seuil de confiance, la
+                    # vérification de la référence dans la Bible locale
+                    # (« écartée : référence introuvable »), et le passage
+                    # obligatoire en validation manuelle — une suggestion IA
+                    # porte requires_review et sa méthode `ai_semantic` ne
+                    # figure dans aucune liste projetable. Elle ne peut donc
+                    # JAMAIS aller à l'écran seule, verrouillée deux fois.
+                    exiger_candidats=False,
                 )
             except asyncio.CancelledError:
                 raise
