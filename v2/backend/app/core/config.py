@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Application
     DEBUG: bool = False
     APP_NAME: str = "VersePro v2"
-    VERSION: str = "2.1.6"
+    VERSION: str = "2.1.7"
     API_TOKEN: str = ""
     # Origines de la fenêtre applicative. Tauri 2 sert la fenêtre depuis
     # « http://tauri.localhost » sous Windows — en HTTP, là où Tauri 1 utilisait
