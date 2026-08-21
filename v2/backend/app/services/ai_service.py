@@ -189,9 +189,42 @@ class AIService:
         self,
         result: Optional[Dict[str, Any]],
         candidates: Optional[List[Dict[str, Any]]],
+        exiger_candidats: bool = True,
     ) -> Optional[Dict[str, Any]]:
-        if not result or not candidates:
+        """Retient une suggestion IA, ou la rejette.
+
+        LE VERROU QUI RENDAIT L'IA INUTILE. La règle était : la référence
+        proposée doit figurer dans la liste des candidats trouvés localement.
+        Elle protège le direct — un modèle n'invente pas un verset qui part à
+        l'écran — mais elle réduit l'IA à REORDONNER ce qu'on avait déjà.
+
+        Or on ne l'appelle que quand le local n'a rien trouvé. Liste vide,
+        donc suggestion rejetée, systématiquement. Mesuré : sur « les murailles
+        de Jéricho sont tombées », le modèle répond « Josué 6:20 » à 95 % en
+        1,6 seconde — la bonne réponse — et elle était jetée.
+
+        `exiger_candidats=False` lève la contrainte pour la recherche MANUELLE,
+        où le garde-fou est ailleurs : l'appelant vérifie la référence dans la
+        Bible locale, et rien ne se projette sans un clic de la régie. Le
+        direct, lui, garde la règle stricte.
+        """
+        if not result:
             return None
+        if not candidates:
+            if exiger_candidats:
+                return None
+            reference = (result.get("reference") or "").strip()
+            if not reference:
+                return None
+            # Sans liste locale, la confiance reste plafonnée : la référence
+            # sera vérifiée dans la Bible par l'appelant, mais elle n'a été
+            # confirmée par aucun autre étage.
+            return {
+                "reference": reference,
+                "confidence": min(int(result.get("confidence") or 0), 85),
+                "source": "ai",
+                "requires_review": True,
+            }
         by_reference = {
             self._normalize_reference(candidate.get("reference", "")): candidate
             for candidate in candidates
@@ -227,6 +260,7 @@ class AIService:
         text: str,
         candidates: Optional[List[Dict[str, Any]]] = None,
         contexte: Optional[List[str]] = None,
+        exiger_candidats: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """
         Analyse sémantiquement le texte pour détecter une référence biblique (implicite ou explicite).
@@ -248,21 +282,21 @@ class AIService:
 
         # 1. OpenRouter
         if self.openrouter_key:
-            ref = self._validate_candidate_result(await self._call_openrouter(text, candidates, contexte), candidates)
+            ref = self._validate_candidate_result(await self._call_openrouter(text, candidates, contexte), candidates, exiger_candidats)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
 
         # 2. Gemini Direct
         if self.api_key:
-            ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates, contexte), candidates)
+            ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates, contexte), candidates, exiger_candidats)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
 
         # 3. Ollama Local
         if self.ollama_active:
-            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates, contexte), candidates)
+            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates, contexte), candidates, exiger_candidats)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref

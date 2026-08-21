@@ -577,7 +577,10 @@ async def bible_search(q: str, limit: int = 6):
         if ai_service and getattr(ai_service, "enabled", False):
             with suppress(Exception):
                 suggestion = await asyncio.wait_for(
-                    ai_service.detect_bible_reference(query, candidates=results or None),
+                    ai_service.detect_bible_reference(
+                        query, candidates=results or None,
+                        exiger_candidats=False,
+                    ),
                     timeout=6.0,
                 )
                 ref_ia = (suggestion or {}).get("reference")
