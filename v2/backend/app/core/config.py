@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # Version de l'application et contrôle de secours pour le mode navigateur.
     # L'application Tauri utilise son Updater signé ; cette URL simplifiée ne
     # sert que lorsque l'interface tourne hors du conteneur de bureau.
-    APP_VERSION: str = "2.1.6"
+    APP_VERSION: str = "2.1.7"
     UPDATE_CHECK_URL: str = ""
     UPDATE_CHECK_TIMEOUT: float = 6.0
 
