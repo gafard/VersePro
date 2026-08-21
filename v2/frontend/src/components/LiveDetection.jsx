@@ -1377,8 +1377,7 @@ export default function LiveDetection({ setActiveTab }) {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      if (entreeProjette) handleSendManual()
-                      else handlePrepareManual()
+                      handleSendManual()
                     }
                   }}
                 />
@@ -1396,21 +1395,6 @@ export default function LiveDetection({ setActiveTab }) {
                   title="Monter en préparation, sans rien envoyer à la salle"
                 >
                   Préparer
-                </button>
-                <button
-                  type="button"
-                  className={`live-entree-bascule text-[10px] px-2 py-0.5 font-semibold whitespace-nowrap flex-shrink-0 rounded transition-all ${
-                    entreeProjette
-                      ? 'bg-sky-600/20 text-sky-300 hover:bg-sky-600/30'
-                      : 'bg-surface-3 text-text-dim hover:bg-surface-2'
-                  }`}
-                  onClick={basculerEntree}
-                  aria-pressed={entreeProjette}
-                  title={entreeProjette
-                    ? 'La touche Entrée projette immédiatement à l’antenne. Cliquez pour qu’elle prépare à la place.'
-                    : 'La touche Entrée prépare sans projeter. Cliquez pour qu’elle projette immédiatement.'}
-                >
-                  ⏎ {entreeProjette ? 'projette' : 'prépare'}
                 </button>
               </div>
               {/* Dix versets autour de celui qui est à l'antenne. Le régisseur
