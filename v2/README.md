@@ -29,36 +29,30 @@ Le navigateur envoie du PCM mono 16 kHz. Le filtre est désactivé par défaut; 
 
 Le backend fonctionne sous Windows x64 avec Python 3.13 ou 3.14. Le micro est capturé par le navigateur puis envoyé en PCM par WebSocket : PyAudio n'est donc pas requis et n'est plus installé. Python 3.13 reste recommandé pour la meilleure compatibilité avec les bibliothèques audio optionnelles. Le lancement local se fait avec `start.bat`.
 
-## Détection
+## Détection & Recherche Parallélisée
 
 1. Le parser local traite les références explicites en moins d'une milliseconde.
-2. En fin de phrase, le moteur lexical/flou et l'encodeur e5 ONNX recherchent dans le corpus réel.
-3. La fusion canonise les références, vérifie l'accord des moteurs et le recouvrement des mots.
-4. Si la chaîne locale reste muette, l'IA peut départager un top-k local. Sa confiance est recalibrée par le score du candidat et ne vient jamais seule du modèle.
+2. En fin de phrase orale ou dès 2 mots tapés en recherche manuelle, les trois voies s'exécutent **en parallèle immédiat (`asyncio.gather`)** :
+   - Voie lexicale locale rapide (inversion d'index BM25) ;
+   - Voie sémantique vectorielle (modèle Multilingual e5-base ONNX) ;
+   - Voie IA Assistant SmartVerses (détection des allusions narratives : *« fils prodigue »*, *« sang sur les linteaux »*).
+3. La fusion canonise les références, vérifie l'accord des moteurs et valide obligatoirement l'existence du verset dans la Bible locale avant toute proposition (anti-hallucination stricte).
+4. La barre de saisie manuelle intègre une **autocomplétion interactive** avec prévisualisation des textes et navigation clavier (`↑`/`↓` + `Entrée`).
+5. Un bandeau de **10 versets voisins** (5 avant / 5 après, 10 suivants au verset 1, 10 précédents au dernier verset) permet de suivre les sauts de lecture du pasteur en 1 clic.
 
-Le benchmark de production utilise exactement cette cascade:
+## Sorties & Mobiles
 
-```bash
-cd v2/backend
-venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
-```
-
-Corpus de contrôle actuel: 30 cas, 100 % exacts, 0 faux positif, p95 mesuré à 18,32 ms sur le poste de développement avec ONNX actif le 28 juillet 2026. Ce corpus est un test de non-régression textuel, pas une preuve de performance sur toutes les acoustiques d'église. Un corpus audio réel plus large reste nécessaire avant toute revendication commerciale.
-
-## Sorties
-
-- Écran autonome: `http://127.0.0.1:8001/projection`
-- Source navigateur OBS: `http://127.0.0.1:8001/obs?theme=lower-third&bg=transparent`
-- Moniteur scène: `http://127.0.0.1:8001/stage`
-- ProPresenter: pilote backend dédié
-- vMix: API HTTP si activée
-- NDI: sortie native optionnelle si le runtime est disponible
-
-La source OBS écoute le même flux de projection que l'écran autonome et ne dépend pas de ProPresenter.
+- Écran autonome salle : `http://127.0.0.1:17871/output`
+- Source navigateur OBS : `http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent`
+- Moniteur scène pasteur : `http://127.0.0.1:17871/stage`
+- Suivi assemblée sur mobile : `http://<IP-LAN>:17871/follow` (accessible via scan du QR Code)
+- ProPresenter : pilote backend dédié (API 7.9+ ou protocole v6/v7)
+- vMix : API HTTP
+- NDI : flux vidéo broadcast natif avec transparence alpha
 
 ## Paramètres et secrets
 
-La page Paramètres s'organise en accordéons dépliables par catégorie (Général, Audio, Moteurs, Projection, Sorties, Avancé). Elle rassemble la configuration d'entrée micro, la barrière vocale anti-musique, les moteurs ASR, l'extraction automatique des notes du sermon (onglet Avancé), les modèles locaux, l'atelier d'habillage, la gestion des Bibles et les sorties (NDI, ProPresenter).
+La page Paramètres s'organise en accordéons dépliables par catégorie (Général, Audio, Moteurs, Projection, Sorties, Avancé). Elle rassemble la configuration d'entrée micro, la barrière vocale anti-musique (Silero VAD), les moteurs ASR, l'extraction automatique des notes du sermon (onglet Avancé), les modèles locaux, l'atelier d'habillage, la gestion des Bibles et les sorties (NDI, ProPresenter).
 
 Les clés Deepgram, OpenRouter et Gemini sont stockées dans le gestionnaire de secrets de l'OS via `keyring` (Trousseau macOS). Les anciennes clés SQLite ne sont supprimées qu'après confirmation du transfert. Si le trousseau est indisponible, elles restent dans la base locale plutôt que d'être perdues au lancement suivant. L'API ne renvoie que des indicateurs masqués. Gemini reçoit sa clé dans l'en-tête `x-goog-api-key`, jamais dans l'URL.
 

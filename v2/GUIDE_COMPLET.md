@@ -97,13 +97,25 @@ retrouvés localement.
 
 Cette zone montre exactement la scène de projection, avec navigation dans un passage long. Des outils de surlignage live (🟡 Jaune, 🔴 Rouge, 🧹 Effacer) permettent de mettre en valeur les mots importants à l'écran pendant la prédication. **Effacer** rend immédiatement les sorties noires.
 
-### Déroulé préparé
+### Recherche manuelle & Autocomplétion intelligente
 
-Dans la barre de recherche, saisir une référence puis appuyer sur `Entrée` ajoute le passage au **Déroulé du culte** sans le projeter. Pour importer l'intégralité d'un sermon, collez le texte dans **Paramètres > Avancé** pour en extraire et ajouter automatiquement tous les versets.
+La barre de recherche manuelle située en bas de la régie offre deux modes d'action clairs :
+- **`[ Projeter ]`** (ou touche **`Entrée`**) : envoie immédiatement le verset à l'écran salle ;
+- **`[ Préparer ]`** : ajoute le verset au déroulé en attente sans rien afficher au public.
 
-Cliquer sur un passage préparé le projette ; le bouton **Projeter** placé près
-du champ garde l'envoi immédiat pour les besoins du direct. Un passage peut être
-retiré individuellement ou toute la préparation peut être vidée avec annulation.
+Dès la saisie de 2 lettres ou de mots-clés thématiques (*« brebis perdue »*, *« armure de Dieu »*), un volet flottant présente les 2 à 6 meilleures propositions issues de la recherche hybride (lexicale + sémantique vectorielle + IA SmartVerses) avec aperçu du texte. Utilisez **`↑`** et **`↓`** pour naviguer et **`Entrée`** pour projeter.
+
+### Bandeau de navigation rapide (10 Versets Voisins)
+
+Dès qu'un passage est projeté à l'antenne, VersePro déploie sous la barre de recherche un bandeau de **10 boutons de versets voisins** :
+- **5 versets avant & 5 versets après** au milieu d'un chapitre (ex: `11..15`, `17..21` pour *Jean 3:16*) ;
+- **10 versets suivants** si le verset 1 est projeté ;
+- **10 versets précédents** si le dernier verset du chapitre est affiché.  
+Un simple clic sur un numéro projette le verset instantanément, évitant toute ressaisie au clavier si le pasteur saute d'un verset à l'autre.
+
+### À l'antenne
+
+Cette zone montre exactement la scène de projection, avec navigation dans un passage long. Des outils de surlignage live (🟡 Jaune, 🔴 Rouge, 🧹 Effacer) permettent de mettre en valeur les mots importants à l'écran pendant la prédication. **Effacer** rend immédiatement les sorties noires.
 
 ### Suivi lecture
 
@@ -120,36 +132,29 @@ détection ni la décision de projection.
 | Diffusion automatique | Seules les références explicites, vérifiées et éligibles peuvent partir directement. |
 | Arrêt d'urgence | Coupe le micro, les automatisations et le suivi, puis efface toutes les sorties. |
 
-Pour une première installation, utiliser le mode ombre pendant un culte, puis
-le mode dimanche sûr. L'automatisation n'est à activer qu'après validation sur
-des enregistrements représentatifs de la salle.
-
 ## Choisir le moteur vocal
 
-| Moteur | Quand l'utiliser | Limite principale |
+| Moteur | Quand l'utiliser | Caractéristiques |
 | --- | --- | --- |
-| Deepgram | Internet stable, faible latence, direct exigeant | Dépend du réseau et d'une clé API |
-| Whisper local | Accents, multilingue, musique ou bruit, confidentialité | Traitement par fenêtres de 2,4 s par défaut |
-| Vosk local large | Secours français continu, CPU modéré | Moins robuste que Whisper sur les accents et environnements complexes |
-| Auto | Deepgram puis moteur local déjà préparé | La qualité du repli dépend du modèle téléchargé |
+| Deepgram | Internet stable, faible latence, direct exigeant | Modèle Nova-2 / Nova-3 cloud ultra-rapide |
+| Nemotron 3.5-ASR | Transcription neuronale locale principale | Haute précision vocale, streaming temps réel local |
+| Vosk local large | Secours français continu hors-ligne | Léger en ressources CPU |
+| Auto | Tente Deepgram, puis Nemotron ou Vosk | Bascule automatique en cas de coupure Internet |
 
-La rapidité réelle dépend du poste, du réseau et de la salle. Elle doit être
-mesurée avec le préflight et des extraits audio du lieu, pas déduite du seul nom
-du moteur.
-
-## Sorties
+## Sorties & Mobiles
 
 Dans l'application empaquetée, le backend local écoute par défaut sur le port
 `17871`. En développement, il écoute généralement sur `8001`.
 
-| Sortie | Adresse ou connexion |
-| --- | --- |
-| Écran autonome | `http://127.0.0.1:17871/projection` |
-| Source navigateur OBS | `http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent` |
-| Moniteur scène | `http://127.0.0.1:17871/stage` |
-| ProPresenter | Hôte, port et message configurés dans Paramètres |
-| vMix | API HTTP et entrée titre configurées dans Paramètres |
-| NDI | Sortie native facultative si le runtime NDI est installé |
+| Sortie | Adresse ou connexion | Rôle |
+| --- | --- | --- |
+| Écran autonome salle | `http://127.0.0.1:17871/output` | Vidéoprojecteur public plein écran (`F11`) |
+| Source navigateur OBS | `http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent` | Bandeau direct streaming avec transparence |
+| Moniteur scène pasteur | `http://127.0.0.1:17871/stage` | Retour pupitre (verset géant + chrono) |
+| Suivi Assemblée mobile | `http://<IP-LAN>:17871/follow` | Lecture synchrone sur smartphone via QR Code |
+| ProPresenter | Hôte, port et message dans Paramètres | Télécommande de l'API ProPresenter 7.9+ |
+| vMix | API HTTP et entrée titre dans Paramètres | Intégration régie vMix |
+| NDI | Sortie native vidéo IP | Flux broadcast temps réel avec canal alpha |
 
 OBS doit utiliser la source navigateur locale sur le même poste. Le pont
 ProPresenter peut viser une autre machine du réseau local. Chaque pilote renvoie

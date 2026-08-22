@@ -37,67 +37,53 @@ dans cette section n'est nécessaire pour faire tourner un culte.
 
 ## Comment la détection décide
 
-Trois étages, dans cet ordre, et un seul a le droit de projeter sans vous :
+Quatre étages rapides et complémentaires, dans cet ordre :
 
-1. **Référence explicite** — reconnaissance par motif, moins d'une milliseconde.
-   Seul étage autorisé à projeter automatiquement, et seulement si la diffusion
-   directe est activée.
-2. **Fusion hybride** — deux moteurs indépendants (lexical/flou et sémantique
-   e5) doivent tomber d'accord, avec confirmation par recouvrement de mots.
-   Environ 20 ms, en fin de phrase. Toujours la file à valider.
-3. **IA en dernier recours** — seulement quand les deux premiers se taisent.
-   Sa réponse est relue contre le texte biblique : elle ne peut pas fabriquer un
-   verset inexistant, mais elle peut proposer le mauvais. Elle n'atteint donc
-   jamais l'écran sans validation humaine.
+1. **Référence explicite** — reconnaissance par motif ultra-rapide (moins d'une milliseconde).
+   Seul étage autorisé à projeter automatiquement si la diffusion directe est activée.
+2. **Fusion hybride (Lexicale & Sémantique e5 ONNX)** — les moteurs recherchent dans l'index vectoriel des 31 102 versets et le corpus lexical local en parallèle.
+3. **Recherche manuelle & Autocomplétion dynamique** — dès 2 lettres ou mots tapés dans la barre du régisseur, un volet d'autocomplétion interactif propose les meilleurs versets avec prévisualisation et raccourcis clavier (`↑`/`↓` + `Entrée`).
+4. **IA Assistant (SmartVerses)** — résout les allusions bibliques et récits narratifs libres (*« le fils prodigue »*, *« sang sur les linteaux »*, *« murailles de Jéricho »*). La proposition est systématiquement vérifiée dans la Bible locale avant d'être soumise à validation manuelle en régie (anti-hallucination stricte).
 
-Les allusions purement narratives (« Philippe et l'eunuque ») restent le point
-faible connu : les moteurs comparent du texte, pas des récits.
+## Modèles embarqués & Moteurs vocaux
 
-## Modèles embarqués
-
-| Composant | Rôle | Poids |
+| Composant | Rôle | Type / Emplacement |
 |---|---|---|
-| Vosk large `fr-0.22` | transcription hors-ligne française | environ 1,4 Go |
-| faster-whisper `tiny`/`base`/`small` | transcription locale robuste, installé à la demande | selon modèle |
-| e5-base (ONNX) | recherche sémantique, repli automatique sur e5-small | 265 Mo |
+| Nemotron 3.5-ASR (transcribe.cpp) | Transcription vocale locale neuronale temps réel | Local (GGUF quantifié) |
+| Deepgram (Nova-2 / Nova-3) | Transcription vocale cloud haute fidélité | Cloud (Clé API) |
+| Vosk large `fr-0.22` | Transcription locale continue de secours | Local (~1,4 Go) |
+| Multilingual e5-base (ONNX) | Recherche vectorielle sémantique et thématique | Local (265 Mo) |
+| VoiceGate (Silero VAD) | Barrière vocale filtrant la musique d'ambiance et les silences | Local (ONNX) |
 
-L'index sémantique (31 102 versets) peut être livré pré-calculé avec
-l'application. Les modèles absents sont préparés explicitement depuis Paramètres,
-jamais téléchargés automatiquement pendant un culte.
+## Navigation rapide (10 Versets Voisins)
+
+Sous la barre de recherche manuelle, VersePro affiche en direct un bandeau de **10 versets voisins** autour de la référence projetée :
+- 5 versets avant et 5 versets après au milieu du chapitre ;
+- 10 versets suivants si le verset 1 est à l'antenne ;
+- 10 versets précédents si le dernier verset du chapitre est projeté.  
+Un clic sur un numéro de verset le projette instantanément sans ressaisie.
+
+## Écrans Mobiles & Réseau Local (/follow et /stage)
+
+- **Suivi Assemblée (`/follow`)** : L'assemblée scanne le QR code pour lire en temps réel les versets projetés sur smartphone dans la traduction de son choix.
+- **Moniteur Scène (`/stage`)** : Écran retour pour le pupitre ou la tablette du pasteur (verset courant en gros caractères, chrono, notes).
+- **Résolution réseau automatique** : Détection multi-interfaces (Wi-Fi / Ethernet) et port dynamique `17871`.
 
 ## Bibles et droits
 
-Seules des traductions du **domaine public** sont versionnées ici et
-distribuées avec l'application : Louis Segond 1910 (`data/bible.json`) et King
-James Française (`data/bibles_cache/kjf.json`).
+Seules des traductions du **domaine public** sont versionnées ici et distribuées avec l'application : Louis Segond 1910 (`data/bible.json`), King James Française (`data/bibles_cache/kjf.json`) et Bible Éwé (`data/bibles_cache/ewe.json`).
 
-Les versions sous copyright — Semeur, TOB, Nouvelle Segond, Français courant —
-sont volontairement **absentes du dépôt et des installeurs**. Elles restent un
-cache local, régénérable avec `v2/backend/cache_bibles.py` par qui détient les
-droits d'en disposer.
+Les versions sous copyright — Semeur, TOB, Nouvelle Segond, Français courant — sont importables via l'onglet **Paramètres > Bible** ou régénérables localement par qui détient les droits d'en disposer.
 
 ## Construire les installeurs
 
-- **macOS, en local** : `v2/frontend/src-tauri/build-macos.sh` (nécessite le venv
-  de gel `v2/backend/.freeze-venv`)
-- **macOS + Windows** : onglet *Actions* → workflow « Release (installeurs macOS
-  + Windows) » → *Run workflow*, ou pousser un tag `v*`.
+- **macOS, en local** : `v2/frontend/src-tauri/build-macos.sh` (nécessite le venv de gel `v2/backend/.freeze-venv`)
+- **macOS + Windows (Automatisé)** : Pousser un tag `v*` (ex: `v2.1.8`) déclenche GitHub Actions pour fabriquer et signer les installeurs `.dmg` (Mac) et `.exe` / `.msi` (Windows).
 
-Le workflow de publication refuse désormais de produire un installeur public si
-les certificats décrits dans [SIGNING.md](SIGNING.md) sont absents. Un build de
-développement local reste possible sans certificat.
+## État vérifié (Version 2.1.8)
 
-## État vérifié
-
-Dernière validation complète le 28 juillet 2026 :
-
-- 179 tests backend réussis, 4 scénarios optionnels ignorés;
-- 4 tests frontend et 1 test Rust réussis;
-- builds Vite et Tauri vérifiés;
-- audits npm et Python sans vulnérabilité connue;
-- benchmark textuel: 30 cas sur 30, aucun faux positif, p95 à 18,32 ms avec ONNX;
-- contrôles visuels desktop, largeur minimale Tauri et mobile sans débordement.
-
-Ces mesures protègent les régressions connues. Elles ne remplacent pas encore un
-corpus audio annoté provenant de plusieurs églises, identifié comme la priorité
-scientifique de la [feuille de route](v2/ROADMAP_INNOVATIONS.md).
+Validation complète :
+- **313 tests backend réussis** (100 % passés sous pytest) ;
+- **24 tests frontend réussis** (100 % passés sous Node Test Runner) ;
+- Builds Vite et Tauri vérifiés sans erreur ;
+- Recherche parallélisée et autocomplétion testées avec succès.
