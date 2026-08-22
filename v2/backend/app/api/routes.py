@@ -526,6 +526,12 @@ async def bible_search(q: str, limit: int = 6):
             if not ai_task:
                 return None
             try:
+                # 5 s. Essayé à 12 s pour laisser respirer llama3.1:8b, qui
+                # dépasse ce budget sur le prompt réel : sept secondes de plus,
+                # aucun résultat de plus sur les phrases descriptives testées.
+                # Une recherche lente qui ne trouve rien est pire qu'une rapide
+                # qui ne trouve rien. Le budget ne bougera que le jour où l'IA
+                # rapportera quelque chose de mesurable.
                 return await asyncio.wait_for(ai_task, timeout=5.0)
             except Exception:
                 return None

@@ -27,8 +27,66 @@ from loguru import logger
 # explose sans rien apporter : la liste est déjà ordonnée par pertinence.
 CANDIDATS_SCORES_MAX = 400
 
+# LES MOTS-OUTILS FAUSSAIENT LE GARDE-FOU QUI DEVAIT PROTÉGER LE SCORING.
+#
+# `_score` s'arrête tôt quand le recouvrement lexical est faible — c'est ce qui
+# doit éviter des milliers de fenêtres glissantes. Mais le recouvrement était
+# calculé sur TOUS les mots, articles compris. « la femme qui a touché le bord
+# de son vêtement » partage « la / qui / a / le / de / son » avec presque
+# n'importe quel verset : le seuil de 0,5 était franchi partout, et la fenêtre
+# glissante tournait pour chaque candidat.
+#
+# Mesuré : 54 240 constructions de SequenceMatcher pour UNE requête, 624 007
+# appels à find_longest_match, 44 s passées dans `_score`. La barre de
+# recherche expirait avant de répondre, et l'opérateur en concluait que
+# VersePro ne trouvait rien — alors qu'il cherchait encore.
+#
+# Le recouvrement se calcule donc sur les mots PORTEURS. Les mots-outils
+# restent dans la requête pour la fenêtre glissante et l'ordre, où ils
+# décrivent la formulation ; ils ne servent simplement plus à décider si un
+# verset mérite qu'on l'examine.
+MOTS_OUTILS = frozenset({
+    "a", "au", "aux", "avec", "ce", "ces", "cet", "cette", "dans", "de", "des",
+    "du", "elle", "en", "est", "et", "eux", "il", "ils", "je", "la", "le",
+    "les", "leur", "lui", "ma", "mais", "me", "mes", "mon", "ne", "nos",
+    "notre", "nous", "on", "ont", "ou", "par", "pas", "pour", "qu", "que",
+    "qui", "sa", "se", "ses", "son", "sont", "sur", "ta", "te", "tes", "toi",
+    "ton", "tu", "un", "une", "vos", "votre", "vous", "y", "etait", "ete",
+    "avait", "aux", "afin", "ainsi", "cela", "comme", "plus", "tout", "tous",
+})
+
+
+def _mots_porteurs(mots):
+    """Les mots qui désignent quelque chose. Jamais vide si l'entrée ne l'est pas."""
+    porteurs = [m for m in mots if m not in MOTS_OUTILS]
+    return porteurs or list(mots)
+
 # Mots examinés au plus par seau de préfixe lors de la recherche floue.
 VOISINS_FLOUS_MAX = 600
+
+# LES MOTS QUI COÛTENT TOUT ET NE DÉSIGNENT RIEN.
+#
+# `_candidate_ids` construisait un `set` Python pour CHAQUE mot de la requête,
+# y compris « de », « les », « qui ». Mesuré sur l'index à huit traductions :
+#
+#     de         18 731 versets        linteaux      3 versets
+#     les        10 803 versets        tombees       4 versets
+#     qui         7 673 versets        murailles    30 versets
+#
+# Construire trois ensembles de dizaines de milliers d'entiers pour découvrir
+# ensuite qu'ils n'excluent presque rien, c'est payer le prix fort pour zéro
+# information. Chronométré sur des phrases réelles :
+#
+#     « les murailles de jéricho sont tombées »       28,5 s
+#     « la femme qui a touché le bord de son vêtement » 14,6 s
+#
+# Une régie ne peut pas attendre trente secondes en plein culte : la requête
+# expirait avant de répondre, et l'opérateur concluait que VersePro ne trouvait
+# pas — alors qu'il trouvait, trop tard.
+#
+# Au-delà de cette part du corpus, un mot est ignoré pour la SÉLECTION des
+# candidats. Il continue de compter dans le score, où il ne coûte rien.
+PART_MOT_BANAL = 0.08
 
 
 def normalize_fragment(text: str) -> str:
@@ -147,11 +205,25 @@ class ManualVerseIndex:
 
     def _candidate_ids(self, words: List[str], max_candidates: int = 3000) -> List[int]:
         unique_words = list(dict.fromkeys(word for word in words if len(word) >= 2))
+
+        # Plafond au-delà duquel un mot ne discrimine plus. On le teste sur la
+        # LONGUEUR de la liste, avant de construire le moindre ensemble : c'est
+        # précisément la construction qui coûtait les secondes.
+        plafond = max(400, int(len(self.entries) * PART_MOT_BANAL))
+        connus = [(m, self._postings[m]) for m in unique_words if self._postings.get(m)]
+        porteurs = {m for m, post in connus if len(post) <= plafond}
+        if not porteurs and connus:
+            # Phrase entièrement banale (« que dit la parole ») : on garde
+            # quand même les trois mots les moins répandus, sinon la recherche
+            # ne rendrait rien là où elle rendait quelque chose avant.
+            porteurs = {m for m, _ in sorted(connus, key=lambda c: len(c[1]))[:3]}
+
         available = []
         for word in unique_words:
             posting = self._postings.get(word)
             if posting:
-                available.append((word, set(posting)))
+                if word in porteurs:
+                    available.append((word, set(posting)))
                 continue
 
             # Petite erreur de frappe ou d'ASR : « rugisant » doit retrouver
@@ -225,7 +297,7 @@ class ManualVerseIndex:
             # Pour un seul mot, seuls les mots entiers exacts sont assez sûrs.
             return 0.98 if query_words[0] in candidate_words else 0.0
 
-        query_set = set(query_words)
+        query_set = set(_mots_porteurs(query_words))
         candidate_set = set(candidate_words)
         lexical = len(query_set & candidate_set) / max(1, len(query_set))
         # Ne pas lancer des milliers de comparaisons de fenêtres lorsqu'une

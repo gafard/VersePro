@@ -280,23 +280,39 @@ class AIService:
         if cache_key in self._reference_cache:
             return self._reference_cache[cache_key]
 
-        # 1. OpenRouter
+        # 1. LE MODÈLE LOCAL D'ABORD, quand il est là.
+        #
+        # L'ordre était l'inverse : OpenRouter, Gemini, puis Ollama. Mesuré sur
+        # ce poste, où les crédits OpenRouter sont épuisés :
+        #
+        #     OpenRouter  ~4 s  -> HTTP 402, après ses propres réessais
+        #     Gemini      ~2 s  -> HTTP 404
+        #     Ollama      2,8 s -> RÉPOND JUSTE
+        #
+        # L'appelant coupe à 5 s. Le modèle qui fonctionne n'était donc JAMAIS
+        # atteint : l'IA semblait inutile alors qu'elle tournait très bien, en
+        # local, sur la machine. Une panne de facturation d'un service tiers
+        # suffisait à éteindre une fonctionnalité vendue comme hors ligne.
+        #
+        # Le local passe devant : il est gratuit, il ne sort pas la prédication
+        # du bâtiment, et il répond dans le budget. Le cloud reste en secours
+        # pour les postes sans modèle installé.
+        if self.ollama_active:
+            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates, contexte), candidates, exiger_candidats)
+            if ref:
+                self._cache_put(self._reference_cache, cache_key, ref)
+                return ref
+
+        # 2. OpenRouter
         if self.openrouter_key:
             ref = self._validate_candidate_result(await self._call_openrouter(text, candidates, contexte), candidates, exiger_candidats)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
 
-        # 2. Gemini Direct
+        # 3. Gemini Direct
         if self.api_key:
             ref = self._validate_candidate_result(await self._call_gemini_direct(text, candidates, contexte), candidates, exiger_candidats)
-            if ref:
-                self._cache_put(self._reference_cache, cache_key, ref)
-                return ref
-
-        # 3. Ollama Local
-        if self.ollama_active:
-            ref = self._validate_candidate_result(await self._call_ollama_local(text, candidates, contexte), candidates, exiger_candidats)
             if ref:
                 self._cache_put(self._reference_cache, cache_key, ref)
                 return ref
