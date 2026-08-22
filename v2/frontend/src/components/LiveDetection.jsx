@@ -774,6 +774,8 @@ export default function LiveDetection({ setActiveTab }) {
     return {
       ref,
       bookName,
+      chapNum,
+      verseNum,
       prevV: prevV ? { ref: prevV, label: `◄ Verset ${verseNum - 1}` } : null,
       nextV: nextV ? { ref: nextV, label: `Verset ${verseNum + 1} ►` } : null,
       prevC: prevC ? { ref: prevC, label: `◄ Chap. ${chapNum - 1}` } : null,
@@ -796,17 +798,16 @@ export default function LiveDetection({ setActiveTab }) {
     return () => { annule = true }
   }, [onAirDisplay?.reference, onAirDisplay?.version, activeBible])
 
-  // LA BANDE DE CONTEXTE — dix versets autour de celui qui est à l'antenne.
-  //
-  // Cinq avant, cinq après. Mais un prédicateur qui ouvre au verset 1 n'a rien
-  // derrière lui : la fenêtre se décale alors pour montrer dix versets en
-  // avant, et symétriquement dix en arrière sur le dernier verset du chapitre.
-  // Toujours dix propositions, jamais cinq boutons morts.
+  // LA BANDE DE CONTEXTE — dix versets autour de celui qui est à l'antenne :
+  // 5 versets avant et 5 versets après.
+  // Si v=1 (premier verset) : 10 versets suivants.
+  // Si v=dernier : 10 versets précédents.
   const versetsVoisins = useMemo(() => {
-    const total = chapitreCourant?.count
     const courant = onAirNavChips?.verseNum
+    if (!courant || !onAirNavChips?.bookName) return null
+    const total = chapitreCourant?.count || Math.max(courant + 10, 50)
     const numeros = calculerVoisins(courant, total)
-    return numeros.length ? { numeros, courant, total } : null
+    return numeros.length ? { numeros, courant, total: chapitreCourant?.count || total } : null
   }, [chapitreCourant, onAirNavChips])
 
   const followProgress = useMemo(() => {
