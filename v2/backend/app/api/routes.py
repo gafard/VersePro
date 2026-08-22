@@ -255,29 +255,72 @@ async def preflight_check(probe_cloud: bool = False):
     }
 
 
-def _get_local_ip() -> str:
-    """Détecte l'adresse IP locale LAN de la machine pour le partage de l'écran mobile."""
+def _get_all_local_ips() -> list[str]:
+    """Renvoie la liste des adresses IP locales de la machine (LAN/Wi-Fi)."""
     import socket
+    import re
+    import subprocess
+    
+    ips = []
+    
+    # 1. Socket UDP vers broadcast / passerelle (fonctionne même sans connexion internet)
+    for target in ('10.255.255.255', '192.168.1.255', '8.8.8.8'):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.3)
+            s.connect((target, 80))
+            ip = s.getsockname()[0]
+            s.close()
+            if ip and not ip.startswith("127.") and ip not in ips:
+                ips.append(ip)
+        except Exception:
+            pass
+
+    # 2. Hostname interfaces
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.5)
-        s.connect(('8.8.8.8', 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
+        hostname = socket.gethostname()
+        for ip in socket.gethostbyname_ex(hostname)[2]:
+            if not ip.startswith("127.") and not ip.startswith("169.254.") and ip not in ips:
+                ips.append(ip)
     except Exception:
-        return "127.0.0.1"
+        pass
+
+    # 3. Interfaces système ifconfig
+    try:
+        res = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=1)
+        matches = re.findall(r"inet\s+(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)", res.stdout)
+        for cand in matches:
+            if cand not in ips:
+                ips.append(cand)
+    except Exception:
+        pass
+
+    return ips or ["127.0.0.1"]
+
+
+def _get_local_ip() -> str:
+    """Détecte l'adresse IP locale LAN principale de la machine."""
+    ips = _get_all_local_ips()
+    return ips[0] if ips else "127.0.0.1"
 
 
 @router.get("/network/info")
-async def get_network_info():
+async def get_network_info(request: Request):
     """Renvoie les coordonnées réseau locales pour la connexion des téléphones mobiles (/follow, /stage)."""
     from ..core.config import settings
-    ip = _get_local_ip()
-    port = getattr(settings, "PORT", 8000)
+    all_ips = _get_all_local_ips()
+    ip = all_ips[0] if all_ips else "127.0.0.1"
+    
+    # Résolution du port réel d'écoute :
+    # 1. request.url.port (si présent)
+    # 2. VERSEPRO_PORT env var (ex: 17871 dans l'application Tauri)
+    # 3. settings.PORT si défini
+    # 4. Repli 17871
+    port = request.url.port or int(os.environ.get("VERSEPRO_PORT", getattr(settings, "PORT", 17871)))
     base_url = f"http://{ip}:{port}"
     return {
         "local_ip": ip,
+        "available_ips": all_ips,
         "port": port,
         "base_url": base_url,
         "follow_url": f"{base_url}/follow",
