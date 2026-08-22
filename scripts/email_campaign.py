@@ -44,26 +44,29 @@ def create_email_content(church_name: str, city: str, contact_name: str) -> tupl
 
     body_text = f"""{greeting}
 
+Nous vous contactons de la part de Selah Studios, un studio technologique chrétien dédié à la conception de logiciels, d'applications modernes et de solutions d'intelligence artificielle au service de l'Église et de l'Évangile.
+
 Chaque dimanche, pendant que la parole de Dieu est proclamée, l'équipe en régie accomplit un travail précieux mais souvent stressant : chercher les versets cités à la hâte, suivre les sauts de lecture et taper les références sans faire d'erreur devant l'assemblée.
 
 Pour libérer vos régisseurs et rendre la prédication encore plus fluide, nous avons développé VersePro.
 
 Comment fonctionne VersePro ?
-• Détection vocale instantanée : Dès que le pasteur cite un passage (« Lisons dans Jean 3 verset 16... »), le verset s'affiche automatiquement en moins d'une seconde.
-• Intelligence contextuelle : Si le prédicateur évoque une histoire biblique sans donner le chapitre (« le fils prodigue », « la traversée de la mer Rouge »), le système retrouve immédiatement le texte.
-• Navigation en 1 clic : 10 boutons de versets voisins permettent de suivre les sauts de lecture du prédicateur sans rien retaper au clavier.
-• Suivi mobile pour l'assemblée : Les fidèles peuvent scanner un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.
-• Compatible avec votre matériel existant : Fonctionne directement avec votre vidéoprojecteur, OBS, vMix ou ProPresenter.
+• 🎙️ Détection vocale instantanée : Dès que le pasteur cite un passage (« Lisons dans Jean 3 verset 16... »), le verset s'affiche automatiquement en moins d'une seconde.
+• 🧠 Intelligence contextuelle : Si le prédicateur évoque une histoire biblique sans donner le chapitre (« le fils prodigue », « les murailles de Jéricho »), le système retrouve immédiatement le texte.
+• ⏩ Navigation en 1 clic : 10 boutons de versets voisins permettent de suivre les sauts de lecture du prédicateur sans rien retaper au clavier.
+• 📱 Suivi mobile pour l'assemblée : Les fidèles peuvent scanner un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.
+• 🔌 Compatible avec votre matériel existant : Fonctionne directement avec votre vidéoprojecteur, OBS, vMix ou ProPresenter.
 
-VersePro est un projet indépendant, 100 % gratuit pour les églises et utilisable entièrement hors-ligne.
+💡 À propos de Selah Studios & VersePro :
+Selah Studios développe des outils numériques pour équiper les ministères chrétiens avec un niveau d'excellence technique et ergonomique maximal. VersePro est un projet 100 % gratuit pour les églises locales, conçu pour fonctionner en toute autonomie et hors-ligne.
 
-Si votre équipe média souhaite découvrir le logiciel et faire un premier essai sans engagement pour un prochain culte, faites-le nous savoir en répondant simplement à cet email : nous vous transmettrons l'accès et le guide d'utilisation régisseur.
+Si votre équipe média souhaite découvrir le logiciel et faire un premier essai sans engagement pour un prochain culte, faites-le nous savoir en répondant simplement à cet email : nous vous transmettrons l'accès complet et le kit de démarrage régisseur.
 
-Que le Seigneur bénisse richement votre ministère à {city}.
+Que le Seigneur bénisse abondamment votre assemblée et votre ministère à {city}.
 
-Fraternellement,
+Fraternellement en Christ,
 
-L'équipe Selah Studios (VersePro)
+L'équipe Selah Studios
 selahstudios.ai@gmail.com
 """
 
@@ -73,26 +76,33 @@ selahstudios.ai@gmail.com
     <meta charset="utf-8">
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #2d3748; background-color: #f7fafc; margin: 0; padding: 20px; }}
-        .container {{ max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 10px; padding: 30px; border: 1px solid #e2e8f0; }}
-        .header {{ border-bottom: 2px solid #3182ce; padding-bottom: 15px; margin-bottom: 20px; }}
-        .brand {{ font-size: 20px; font-weight: bold; color: #1a202c; }}
+        .container {{ max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }}
+        .header {{ border-bottom: 2px solid #3182ce; padding-bottom: 15px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }}
+        .brand {{ font-size: 22px; font-weight: 800; color: #1a202c; letter-spacing: -0.5px; }}
         .brand span {{ color: #3182ce; }}
-        h2 {{ font-size: 16px; color: #2b6cb0; margin-top: 20px; }}
-        ul {{ padding-left: 20px; }}
-        li {{ margin-bottom: 8px; }}
-        .highlight-box {{ background: #ebf8ff; border-left: 4px solid #3182ce; padding: 12px 16px; border-radius: 4px; margin: 20px 0; font-size: 14px; }}
-        .footer {{ margin-top: 30px; padding-top: 15px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #718096; }}
+        .tagline {{ font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }}
+        h2 {{ font-size: 16px; color: #2b6cb0; margin-top: 24px; }}
+        ul {{ padding-left: 20px; margin: 12px 0; }}
+        li {{ margin-bottom: 8px; font-size: 14.5px; }}
+        .about-box {{ background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-size: 13.5px; color: #4a5568; line-height: 1.5; }}
+        .highlight-box {{ background: #ebf8ff; border-left: 4px solid #3182ce; padding: 14px 18px; border-radius: 4px; margin: 20px 0; font-size: 14px; color: #2b6cb0; }}
+        .footer {{ margin-top: 32px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #718096; }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <div class="brand">Verse<span>Pro</span> · Selah Studios</div>
+            <div>
+                <div class="brand">Verse<span>Pro</span></div>
+                <div class="tagline">Par Selah Studios · Technologies pour l'Église</div>
+            </div>
         </div>
         
         <p>{greeting}</p>
         
-        <p>Chaque dimanche, pendant que la parole de Dieu est proclamée, l'équipe en régie accomplit un travail précieux mais souvent stressant : chercher les versets à la hâte, suivre les sauts de lecture et taper les références sans faire d'erreur devant l'assemblée.</p>
+        <p>Nous vous contactons de la part de <strong>Selah Studios</strong>, un studio technologique chrétien dédié au développement de logiciels, d'applications modernes et de solutions d'intelligence artificielle conçus pour équiper l'Église et soutenir la proclamation de l'Évangile.</p>
+        
+        <p>Chaque dimanche, pendant que la parole de Dieu est proclamée, l'équipe en régie accomplit un travail précieux mais souvent stressant : chercher les versets cités à la hâte, suivre les sauts de lecture et taper les références sans faire d'erreur devant l'assemblée.</p>
         
         <p>Pour libérer vos régisseurs et rendre la prédication encore plus fluide, nous avons développé <strong>VersePro</strong>.</p>
         
@@ -105,18 +115,18 @@ selahstudios.ai@gmail.com
             <li><strong>🔌 Compatible avec votre régie</strong> : Fonctionne avec votre vidéoprojecteur salle, OBS, vMix et ProPresenter.</li>
         </ul>
         
-        <div class="highlight-box">
-            <strong>💡 Gratuit & Autonome :</strong> VersePro est 100 % gratuit pour les églises et fonctionne parfaitement hors-ligne sans connexion internet obligatoire le dimanche.
+        <div class="about-box">
+            <strong>🕊️ Notre Vision chez Selah Studios :</strong> Mettre le meilleur de la technologie moderne, du design et de l'ingénierie logicielle au service des ministères chrétiens. VersePro est <strong>100 % gratuit pour les églises</strong> et conçu pour fonctionner en toute autonomie et hors-ligne le dimanche.
         </div>
         
         <p>Si votre équipe média souhaite découvrir le logiciel et faire un premier essai sans engagement pour un prochain culte, <strong>répondez simplement à cet email</strong> : nous vous transmettrons avec plaisir l'accès complet et le kit de démarrage régisseur.</p>
         
-        <p>Que le Seigneur bénisse richement votre ministère à {city}.</p>
+        <p>Que le Seigneur bénisse abondamment votre assemblée et votre ministère à {city}.</p>
         
         <div class="footer">
-            <p>Fraternellement,<br>
+            <p>Fraternellement en Christ,<br>
             <strong>L'équipe Selah Studios</strong><br>
-            <a href="mailto:selahstudios.ai@gmail.com" style="color: #3182ce;">selahstudios.ai@gmail.com</a></p>
+            <a href="mailto:selahstudios.ai@gmail.com" style="color: #3182ce; font-weight: 600;">selahstudios.ai@gmail.com</a></p>
         </div>
     </div>
 </body>
