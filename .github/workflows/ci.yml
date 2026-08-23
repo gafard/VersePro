@@ -62,7 +62,7 @@ jobs:
             tests/test_projection_version.py \
             tests/test_propresenter_protocol.py \
             -vv --timeout=15
-          python -m pytest tests/ test_parser.py \
+          python -m pytest tests/ \
             --ignore=tests/test_projection_version.py \
             --ignore=tests/test_propresenter_protocol.py \
             -vv --timeout=30

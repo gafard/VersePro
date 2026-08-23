@@ -43,10 +43,11 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs & Internal scripts
 *.log
 logs/
 history.json
+scripts/
 
 # VersePro v2 runtime artifacts
 v2/backend/.env
