@@ -165,7 +165,9 @@ def run(dry_run: bool = True):
     print(f"✉️ Mode : {'SIMULATION (Dry-Run)' if dry_run else 'ENVOI RÉEL'}")
     print("=" * 60)
 
-    password = os.environ.get("GMAIL_APP_PASSWORD", "")
+    password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    # Nettoyage automatique des espaces et espaces insécables (\xa0) copiés depuis Google
+    password = password.replace(" ", "").replace("\xa0", "").replace("\t", "").strip()
     server = None
 
     if not dry_run:
