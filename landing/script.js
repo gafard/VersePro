@@ -120,82 +120,10 @@ demoButton?.addEventListener('click', () => {
   demoButton.textContent = 'à l’antenne ✓'
 })
 
-const donationEndpoint = '/api/donations'
-const donationLink = document.querySelector('[data-open-donation]')
-const donationDialog = document.querySelector('#donation-dialog')
-const donationForm = document.querySelector('[data-donation-form]')
-const donationStatus = document.querySelector('[data-donation-status]')
-const donationSubmit = donationForm?.querySelector('[type="submit"]')
-
-const setDonationStatus = (message = '', isError = false) => {
-  if (!donationStatus) return
-  donationStatus.textContent = message
-  donationStatus.classList.toggle('is-error', isError)
-}
-
-const enableMoneyFusion = () => {
-  if (!donationLink || !donationDialog) return
-  donationLink.href = '#soutenir'
-  donationLink.addEventListener('click', (event) => {
-    event.preventDefault()
-    setDonationStatus()
-    donationDialog.showModal()
-  })
-}
-
-fetch(donationEndpoint, { headers: { Accept: 'application/json' } })
-  .then((response) => response.ok ? response.json() : Promise.reject(new Error('donation unavailable')))
-  .then((status) => {
-    if (status?.enabled === true) enableMoneyFusion()
-  })
-  .catch(() => {})
-
-document.querySelector('[data-close-donation]')?.addEventListener('click', () => donationDialog?.close())
-donationDialog?.addEventListener('click', (event) => {
-  if (event.target === donationDialog) donationDialog.close()
-})
-
-document.querySelectorAll('[data-amount]').forEach((button) => {
-  button.addEventListener('click', () => {
-    const amount = donationForm?.elements.namedItem('amount')
-    if (amount) amount.value = button.dataset.amount
-    document.querySelectorAll('[data-amount]').forEach((item) => item.classList.toggle('is-selected', item === button))
-  })
-})
-
 const DIRECT_MONEYFUSION_URL = 'https://my.moneyfusion.net/6a8a6993ff0cbef4d3e52f9b'
 
-donationForm?.addEventListener('submit', async (event) => {
-  event.preventDefault()
-  if (!donationForm.reportValidity()) return
-
-  donationSubmit.disabled = true
-  setDonationStatus('Redirection vers la page de paiement sécurisée…')
-
-  try {
-    const formData = new FormData(donationForm)
-    const payload = {
-      amount: Number(formData.get('amount')),
-      name: String(formData.get('name') || '').trim(),
-      phone: String(formData.get('phone') || '').trim()
-    }
-
-    const response = await fetch(donationEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    
-    if (response.ok) {
-      const result = await response.json()
-      if (result?.statut === true && result?.url) {
-        window.location.assign(result.url)
-        return
-      }
-    }
-  } catch (error) {
-    // Si l'API serveur Vercel n'est pas configurée, on redirige directement vers le lien public MoneyFusion
-  }
-
-  window.location.assign(DIRECT_MONEYFUSION_URL)
+document.querySelectorAll('[data-open-donation]').forEach((link) => {
+  link.href = DIRECT_MONEYFUSION_URL
+  link.target = '_blank'
+  link.rel = 'noreferrer'
 })
