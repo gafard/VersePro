@@ -8,7 +8,7 @@ nom_eglise,ville,pays,contact,email,site_web
 Église M,Valence,France,Équipe Pastorale & Régie,contact@eglise-m.fr,https://eglise-m.fr
 Église Protestante Unie de Montpellier,Montpellier,France,Pasteurs Sébastien Gengembre & Émeline Daudé,accueil@erf-montpellier.org,https://epudf.org
 Église Protestante Unie de Nantes,Nantes,France,Pasteurs Pierrot Munch & Rafaële Gondran,secretariat.temple.44@gmail.com,https://epudf.org
-Église Évangélique Baptiste de l'Orléanais,Orléans,France,Pasteur Benjamin Angerville,contact@eglise-baptiste-orleans.org,http://www.eglise-baptiste-orleans.org
+Église Évangélique Baptiste de l'Orléanais,Orléans,France,Pasteur Benjamin Angerville,pasteur@eglise-baptiste-orleans.org,http://www.eglise-baptiste-orleans.org
 Église Évangélique Baptiste de Chambéry,Chambéry,France,Conseil d'anciens & Régie,contact@eglise-baptiste-chambery.fr,https://eglise-baptiste-chambery.fr
 Église Protestante Évangélique L'Oasis,Olivet (Orléans),France,Conseil Pastoral,contact@eglise-evangelique-olivet.org,https://eglise-evangelique-olivet.org
 Église Évangélique d'Ussel,Ussel,France,Pasteur Jean-Hugues Legrand,contact@eglise-evangelique-ussel.fr,https://eglise-evangelique-ussel.fr
@@ -16,7 +16,7 @@ nom_eglise,ville,pays,contact,email,site_web
 Église Évangélique de Villard,Lausanne,Suisse,Pasteur Vincenzo Ravera,vincenzo.ravera@eglisevillard.ch,https://eglisevillard.ch
 Église Évangélique de Lausanne-Malley (FREE),Lausanne,Suisse,Pasteur Eliézer Martinez,eliezer.martinez@lafree.ch,https://lafree.ch
 Église Évangélique La Chapelle,Clarens (Montreux),Suisse,Direction pastorale,pasteur@chapelledeclarens.org,https://chapelledeclarens.org
-Église Évangélique de Cologny,Cologny (Genève),Suisse,Pasteure V. Moret,info@eecologny.ch,http://www.eecologny.ch
+Église Évangélique de Cologny,Cologny (Genève),Suisse,Pasteure V. Moret,pasteure.vmoret@gmail.com,http://www.eecologny.ch
 Église Évangélique de Réveil de Nyon (EER),Nyon,Suisse,Équipe pastorale & Média,info@eernyon.ch,https://eernyon.ch
 Église Évangélique de Réveil L'Escale,Yverdon-les-Bains,Suisse,Pasteur Luc Hausmann,luc.hausmann@eery.ch,https://eery.ch
 Église Vineyard de Fribourg,Fribourg,Suisse,Pasteur Gabriel Muntu,gmuntuvif@gmail.com,https://fribourg.vineyard.ch
@@ -37,10 +37,10 @@ nom_eglise,ville,pays,contact,email,site_web
 Église Baptiste Évangélique de Lennoxville,Sherbrooke,Canada (Québec),Pasteur Mario Roy,courrier@eglisebaptiste.info,https://eglisebaptiste.info
 Église Espoir,Longueuil,Canada (Québec),Direction pastorale & Média,info@egliseespoir.com,https://egliseespoir.com
 Église Missionnaire Évangélique Baptiste de l'Outaouais (EMEBO),Gatineau,Canada (Québec),Conseil pastoral,info@emebo.ca,https://emebo.ca
-Église Évangélique des Assemblées de Dieu de Côte d'Ivoire (EEADCI),Abidjan (Marcory),Côte d'Ivoire,Bureau Exécutif National & Média,info@eeadci.org,https://eeadci.org
+Église Évangélique des Assemblées de Dieu de Côte d'Ivoire (EEADCI),Abidjan (Marcory),Côte d'Ivoire,Bureau Exécutif National & Média,annuaire@eeadci-admin.ci,https://eeadci.org
 Assemblée de Dieu de Yopougon Port-Bouët 2 (Temple Bethsaïda),Abidjan (Yopougon),Côte d'Ivoire,Secrétariat Pastoral & Média,contact@adyopbethsaida.net,http://www.adyopbethsaida.net
-Assemblée de Dieu El-Kabod,Abidjan,Côte d'Ivoire,Direction pastorale,info@ad-elkabod.ci,http://www.ad-elkabod.ci
-Église Méthodiste Unie de Côte d'Ivoire (EMUCI - Conférence),Abidjan (Plateau),Côte d'Ivoire,Bureau de la Conférence,emuciconf@emu-ci.org,https://emu-ci.org
+Église Vases d'Honneur (Centre Kodesh),Abidjan,Côte d'Ivoire,Pasteur Mohammed Sanogo & Équipe Média,info@vasesdhonneur.info,https://vasesdhonneur.org
+Église Méthodiste Unie de Côte d'Ivoire (EMUCI - Conférence),Abidjan (Plateau),Côte d'Ivoire,Bureau de la Conférence,emucicon@yahoo.fr,https://emu-ci.org
 Église des Assemblées de Dieu du Togo (EADT),Lomé,Togo,Bureau Exécutif National,info@eadtogo.tg,https://eadtogo.tg
 Assemblée de Dieu Temple du Calvaire,Lomé (Assivito),Togo,Équipe Pastorale & Régie,contact@templeducalvaire.com,https://www.templeducalvaire.com
 Union des Églises Évangéliques du Bénin (UEEB),Cotonou / Parakou,Bénin,Bureau Exécutif National,info@ueeb.org,https://ueeb.org
@@ -48,7 +48,7 @@ Temple Jéhovah Jiré (EEAD Zogbadjè),Abomey-Calavi (Cotonou),Bénin,Rév. Dou�
 Église Protestante Méthodiste du Bénin (EPMB),Cotonou,Bénin,Rév. Prof. Kponjesu Amos Hounsa,secretariat@epmbenin.org,https://cevaa.org
 Centre Évangélique Francophone La Borne (CADC),Kinshasa (Ngaliema),RDC,Pasteur Joseph Bondo Kasongo,info@laborne.cd,https://www.laborne.cd
 Centre Missionnaire Philadelphie (CMP - CADC),Kinshasa (Gombe),RDC,Pasteur Ken Luamba,eglisecmp@gmail.com,https://eglisecmp.com
-Centre Évangélique Francophone Parole du Salut,Kinshasa (Gombe),RDC,Pasteur Jean-Claude Safari Ntalagana,paroledusalut2015@gmail.com,https://paroledusalut.org
+Centre Évangélique Francophone Parole du Salut,Kinshasa (Gombe),RDC,Pasteur Jean-Claude Safari Ntalagana,paroledusalut.psk@gmail.com,https://paroledusalut.org
 Église Évangélique du Cameroun (EEC - Siège),Douala (Akwa),Cameroun,Direction Nationale,contact@eecmr.com,http://www.eeccameroun.org
 Union des Églises Baptistes du Cameroun (UEBC),Douala (Bonamouti),Cameroun,Secrétariat Général,directionuebc@yahoo.fr,https://cevaa.org
 Mission du Plein Évangile (Full Gospel Mission),Yaoundé / Douala,Cameroun,Département Communication & Média,com.department@fullgospel-mission.org,https://www.fullgospel-mission.org
