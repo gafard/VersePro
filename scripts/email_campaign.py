@@ -27,8 +27,8 @@ import time
 from pathlib import Path
 
 # Configuration de l'expéditeur
-SENDER_NAME = "Selah Studios"
-SENDER_EMAIL = "selahstudios.ai@gmail.com"
+SENDER_NAME = os.environ.get("SENDER_NAME", "Gafard Gnane (Selah Studios)")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "selahstudios.ai@gmail.com")
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
@@ -44,30 +44,33 @@ def create_email_content(church_name: str, city: str, contact_name: str) -> tupl
 
     body_text = f"""{greeting}
 
-Nous vous contactons de la part de Selah Studios, un studio technologique chrétien dédié à la conception de logiciels, d'applications modernes et de solutions d'intelligence artificielle au service de l'Église et de l'Évangile.
+Je me permets de vous contacter personnellement. Je m'appelle Gafard Gnane, chrétien passionné de technologie et créateur de Selah Studios. 
+
+Selah Studios est un studio de développement technologique qui conçoit des applications, des logiciels innovants et des solutions d'intelligence artificielle (de tous types, mais avec une vocation toute particulière pour équiper l'Église, les serviteurs de Dieu et soutenir la proclamation de l'Évangile).
 
 Chaque dimanche, pendant que la parole de Dieu est proclamée, l'équipe en régie accomplit un travail précieux mais souvent stressant : chercher les versets cités à la hâte, suivre les sauts de lecture et taper les références sans faire d'erreur devant l'assemblée.
 
-Pour libérer vos régisseurs et rendre la prédication encore plus fluide, nous avons développé VersePro.
+C'est pour répondre à ce défi et libérer les régisseurs que j'ai développé VersePro.
 
 Comment fonctionne VersePro ?
-• 🎙️ Détection vocale instantanée : Dès que le pasteur cite un passage (« Lisons dans Jean 3 verset 16... »), le verset s'affiche automatiquement en moins d'une seconde.
-• 🧠 Intelligence contextuelle : Si le prédicateur évoque une histoire biblique sans donner le chapitre (« le fils prodigue », « les murailles de Jéricho »), le système retrouve immédiatement le texte.
-• ⏩ Navigation en 1 clic : 10 boutons de versets voisins permettent de suivre les sauts de lecture du prédicateur sans rien retaper au clavier.
-• 📱 Suivi mobile pour l'assemblée : Les fidèles peuvent scanner un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.
-• 🔌 Compatible avec votre matériel existant : Fonctionne directement avec votre vidéoprojecteur, OBS, vMix ou ProPresenter.
+• 🎙️ Détection vocale instantanée : Dès que le prédicateur cite un passage (« Lisons dans Jean 3 verset 16... »), le verset s'affiche automatiquement en moins d'une seconde.
+• 🧠 Intelligence contextuelle : Si le pasteur évoque une histoire biblique sans donner le chapitre (« le fils prodigue », « les murailles de Jéricho »), le système retrouve immédiatement le bon texte.
+• ⏩ Navigation rapide (10 versets voisins) : Des boutons interactifs permettent de suivre les sauts de lecture du prédicateur en 1 clic, sans rien retaper au clavier.
+• 📱 Suivi mobile pour l'assemblée : Les fidèles scannent un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.
+• 🔌 Compatible avec votre régie : Fonctionne directement avec votre vidéoprojecteur salle, OBS, vMix ou ProPresenter.
 
-💡 À propos de Selah Studios & VersePro :
-Selah Studios développe des outils numériques pour équiper les ministères chrétiens avec un niveau d'excellence technique et ergonomique maximal. VersePro est un projet 100 % gratuit pour les églises locales, conçu pour fonctionner en toute autonomie et hors-ligne.
+💡 Gratuit & Conçu pour le culte :
+VersePro est un projet 100 % gratuit pour les églises locales, conçu pour fonctionner en toute autonomie et entièrement hors-ligne le dimanche.
 
-Si votre équipe média souhaite découvrir le logiciel et faire un premier essai sans engagement pour un prochain culte, faites-le nous savoir en répondant simplement à cet email : nous vous transmettrons l'accès complet et le kit de démarrage régisseur.
+Je serais très heureux et honoré que votre équipe média découvre le logiciel et fasse un premier essai sans engagement pour un prochain culte. Si cela vous intéresse, répondez simplement à cet email : je vous transmettrai personnellement l'accès complet et le kit de démarrage régisseur.
 
 Que le Seigneur bénisse abondamment votre assemblée et votre ministère à {city}.
 
 Fraternellement en Christ,
 
-L'équipe Selah Studios
-selahstudios.ai@gmail.com
+Gafard Gnane
+Fondateur & Développeur · Selah Studios
+{SENDER_EMAIL}
 """
 
     body_html = f"""<!DOCTYPE html>
@@ -75,58 +78,58 @@ selahstudios.ai@gmail.com
 <head>
     <meta charset="utf-8">
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #2d3748; background-color: #f7fafc; margin: 0; padding: 20px; }}
-        .container {{ max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }}
-        .header {{ border-bottom: 2px solid #3182ce; padding-bottom: 15px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.65; color: #2d3748; background-color: #f7fafc; margin: 0; padding: 20px; }}
+        .container {{ max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 36px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }}
+        .header {{ border-bottom: 2px solid #3182ce; padding-bottom: 16px; margin-bottom: 24px; }}
         .brand {{ font-size: 22px; font-weight: 800; color: #1a202c; letter-spacing: -0.5px; }}
         .brand span {{ color: #3182ce; }}
-        .tagline {{ font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }}
-        h2 {{ font-size: 16px; color: #2b6cb0; margin-top: 24px; }}
+        .tagline {{ font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; margin-top: 2px; }}
+        h2 {{ font-size: 16px; color: #2b6cb0; margin-top: 24px; margin-bottom: 10px; }}
         ul {{ padding-left: 20px; margin: 12px 0; }}
         li {{ margin-bottom: 8px; font-size: 14.5px; }}
-        .about-box {{ background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-size: 13.5px; color: #4a5568; line-height: 1.5; }}
-        .highlight-box {{ background: #ebf8ff; border-left: 4px solid #3182ce; padding: 14px 18px; border-radius: 4px; margin: 20px 0; font-size: 14px; color: #2b6cb0; }}
-        .footer {{ margin-top: 32px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #718096; }}
+        .about-box {{ background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin: 22px 0; font-size: 13.5px; color: #4a5568; line-height: 1.55; }}
+        .footer {{ margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 13.5px; color: #718096; }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <div>
-                <div class="brand">Verse<span>Pro</span></div>
-                <div class="tagline">Par Selah Studios · Technologies pour l'Église</div>
-            </div>
+            <div class="brand">Verse<span>Pro</span></div>
+            <div class="tagline">Selah Studios · Technologies & IA pour l'Église</div>
         </div>
         
         <p>{greeting}</p>
         
-        <p>Nous vous contactons de la part de <strong>Selah Studios</strong>, un studio technologique chrétien dédié au développement de logiciels, d'applications modernes et de solutions d'intelligence artificielle conçus pour équiper l'Église et soutenir la proclamation de l'Évangile.</p>
+        <p>Je me permets de vous contacter personnellement. Je m'appelle <strong>Gafard Gnane</strong>, chrétien passionné par la technologie et fondateur de <strong>Selah Studios</strong>.</p>
+        
+        <p>Selah Studios est un studio de développement technologique qui conçoit des applications, des logiciels innovants et des solutions d'intelligence artificielle (de tous types, mais avec une vocation toute particulière pour équiper l'Église, les serviteurs de Dieu et soutenir la proclamation de l'Évangile).</p>
         
         <p>Chaque dimanche, pendant que la parole de Dieu est proclamée, l'équipe en régie accomplit un travail précieux mais souvent stressant : chercher les versets cités à la hâte, suivre les sauts de lecture et taper les références sans faire d'erreur devant l'assemblée.</p>
         
-        <p>Pour libérer vos régisseurs et rendre la prédication encore plus fluide, nous avons développé <strong>VersePro</strong>.</p>
+        <p>C'est pour répondre à ce défi et libérer les régisseurs que j'ai développé <strong>VersePro</strong>.</p>
         
         <h2>Comment fonctionne VersePro ?</h2>
         <ul>
             <li><strong>🎙️ Détection vocale instantanée</strong> : Dès que le prédicateur cite un passage (<em>« Lisons dans Jean 3 verset 16... »</em>), le verset s'affiche automatiquement en moins d'une seconde.</li>
-            <li><strong>🧠 Intelligence contextuelle</strong> : Si le pasteur évoque une histoire biblique sans donner le chapitre (<em>« le fils prodigue »</em>, <em>« les murailles de Jéricho »</em>), le système retrouve immédiatement le bon passage.</li>
-            <li><strong>⏩ Navigation rapide (10 versets voisins)</strong> : Des boutons interactifs permettent de suivre les sauts de lecture du prédicateur en 1 clic, sans rien retaper.</li>
+            <li><strong>🧠 Intelligence contextuelle</strong> : Si le pasteur évoque une histoire biblique sans donner le chapitre (<em>« le fils prodigue »</em>, <em>« les murailles de Jéricho »</em>), le système retrouve immédiatement le bon texte.</li>
+            <li><strong>⏩ Navigation rapide (10 versets voisins)</strong> : Des boutons interactifs permettent de suivre les sauts de lecture du prédicateur en 1 clic, sans rien retaper au clavier.</li>
             <li><strong>📱 Suivi mobile pour l'assemblée</strong> : Les fidèles scannent un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.</li>
             <li><strong>🔌 Compatible avec votre régie</strong> : Fonctionne avec votre vidéoprojecteur salle, OBS, vMix et ProPresenter.</li>
         </ul>
         
         <div class="about-box">
-            <strong>🕊️ Notre Vision chez Selah Studios :</strong> Mettre le meilleur de la technologie moderne, du design et de l'ingénierie logicielle au service des ministères chrétiens. VersePro est <strong>100 % gratuit pour les églises</strong> et conçu pour fonctionner en toute autonomie et hors-ligne le dimanche.
+            <strong>🕊️ Notre engagement chez Selah Studios :</strong> Mettre le meilleur de la technologie moderne, du design et de l'ingénierie logicielle au service des ministères chrétiens. VersePro est <strong>100 % gratuit pour les églises</strong> et conçu pour fonctionner en toute autonomie et hors-ligne le dimanche.
         </div>
         
-        <p>Si votre équipe média souhaite découvrir le logiciel et faire un premier essai sans engagement pour un prochain culte, <strong>répondez simplement à cet email</strong> : nous vous transmettrons avec plaisir l'accès complet et le kit de démarrage régisseur.</p>
+        <p>Je serais très heureux et honoré que votre équipe média découvre le logiciel et fasse un premier essai sans engagement pour un prochain culte. Si cela vous intéresse, <strong>répondez simplement à cet email</strong> : je vous transmettrai personnellement l'accès complet et le kit de démarrage régisseur.</p>
         
         <p>Que le Seigneur bénisse abondamment votre assemblée et votre ministère à {city}.</p>
         
         <div class="footer">
-            <p>Fraternellement en Christ,<br>
-            <strong>L'équipe Selah Studios</strong><br>
-            <a href="mailto:selahstudios.ai@gmail.com" style="color: #3182ce; font-weight: 600;">selahstudios.ai@gmail.com</a></p>
+            <p>Fraternellement en Christ,<br><br>
+            <strong style="color: #2d3748; font-size: 15px;">Gafard Gnane</strong><br>
+            <span style="color: #4a5568;">Fondateur & Développeur · Selah Studios</span><br>
+            <a href="mailto:{SENDER_EMAIL}" style="color: #3182ce; font-weight: 600; text-decoration: none;">{SENDER_EMAIL}</a></p>
         </div>
     </div>
 </body>
