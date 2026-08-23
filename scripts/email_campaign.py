@@ -55,8 +55,6 @@ C'est pour répondre à ce défi et libérer les régisseurs que j'ai développ�
 Comment fonctionne VersePro ?
 • 🎙️ Détection vocale instantanée : Dès que le prédicateur cite un passage (« Lisons dans Jean 3 verset 16... »), le verset s'affiche automatiquement en moins d'une seconde.
 • 🧠 Intelligence contextuelle : Si le pasteur évoque une histoire biblique sans donner le chapitre (« le fils prodigue », « les murailles de Jéricho »), le système retrouve immédiatement le bon texte.
-• ⏩ Navigation rapide (10 versets voisins) : Des boutons interactifs permettent de suivre les sauts de lecture du prédicateur en 1 clic, sans rien retaper au clavier.
-• 📱 Suivi mobile pour l'assemblée : Les fidèles scannent un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.
 • 🔌 Compatible avec votre régie : Fonctionne directement avec votre vidéoprojecteur salle, OBS, vMix ou ProPresenter.
 
 💡 Gratuit & Conçu pour le culte :
@@ -112,8 +110,6 @@ Fondateur & Développeur · Selah Studios
         <ul>
             <li><strong>🎙️ Détection vocale instantanée</strong> : Dès que le prédicateur cite un passage (<em>« Lisons dans Jean 3 verset 16... »</em>), le verset s'affiche automatiquement en moins d'une seconde.</li>
             <li><strong>🧠 Intelligence contextuelle</strong> : Si le pasteur évoque une histoire biblique sans donner le chapitre (<em>« le fils prodigue »</em>, <em>« les murailles de Jéricho »</em>), le système retrouve immédiatement le bon texte.</li>
-            <li><strong>⏩ Navigation rapide (10 versets voisins)</strong> : Des boutons interactifs permettent de suivre les sauts de lecture du prédicateur en 1 clic, sans rien retaper au clavier.</li>
-            <li><strong>📱 Suivi mobile pour l'assemblée</strong> : Les fidèles scannent un QR code pour lire en temps réel les versets sur smartphone dans la traduction de leur choix.</li>
             <li><strong>🔌 Compatible avec votre régie</strong> : Fonctionne avec votre vidéoprojecteur salle, OBS, vMix et ProPresenter.</li>
         </ul>
         
