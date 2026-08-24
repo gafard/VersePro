@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://versepro-green.vercel.app/sitemap.xml

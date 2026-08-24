@@ -216,7 +216,12 @@ button { font: inherit; }
 
 h1, h2, h3, p { margin-top: 0; }
 
-h1 {
+/* Le logotype. Il portait le <h1>, ce qui donnait « versepro » comme unique
+   titre de niveau 1 : ni un moteur de recherche ni un lecteur d'écran n'y
+   apprenait ce que fait le produit. Le <h1> est passé sur la promesse
+   (« la Parole apparaît pendant qu'elle se prêche »), et le mot-symbole garde
+   exactement son apparence ici. */
+.hero-wordmark {
   margin-bottom: 2px;
   font: 600 clamp(57px, 8.3vw, 122px)/0.86 var(--display);
   letter-spacing: -0.02em;
@@ -522,6 +527,19 @@ h1 {
 .release-meta { display: flex; justify-content: space-between; gap: 20px; padding-top: 18px; color: var(--muted); font: 500 10px/1.3 var(--mono); text-transform: uppercase; }
 .release-meta a { color: var(--ink-2); text-decoration: none; }
 
+/* CIBLES TACTILES. Mesuré au doigt sur 375 px : « code source » faisait
+   78 × 13 px, « contact » 50 × 21. Sous 44 px de haut, on vise à côté — et
+   c'est un régisseur debout dans une salle, pas quelqu'un assis au calme.
+   La zone cliquable grandit ; la mise en page ne bouge pas, le texte gardant
+   sa taille. */
+.release-meta a,
+.site-footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 2px;
+}
+
 .support { padding-block: 124px; border-block: 1px solid var(--rule); background: var(--accent); color: var(--accent-ink); }
 .support-inner { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: clamp(44px, 8vw, 110px); align-items: end; }
 .support .eyebrow { color: rgba(31, 16, 5, 0.6); }
@@ -624,7 +642,7 @@ h1 {
   .hero-photo { height: 54%; object-position: 62% top; }
   .hero-shade { background: linear-gradient(0deg, var(--paper) 46%, rgba(10, 10, 12, 0.14) 100%); }
   .hero-copy { margin-left: var(--gutter); padding-top: 360px; }
-  h1 { font-size: clamp(52px, 18vw, 76px); }
+  .hero-wordmark { font-size: clamp(52px, 18vw, 76px); }
   .hero-statement { font-size: clamp(32px, 10.2vw, 46px); }
   .hero-lede { font-size: 17px; }
   .hero-meta { gap: 9px; font-size: 8px; }

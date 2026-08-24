@@ -19,6 +19,30 @@
   <link rel="stylesheet" href="styles.css">
   <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
   <script src="script.js" defer></script>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "VersePro",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "macOS 12+, Windows 10/11",
+  "softwareVersion": "2.1.8",
+  "inLanguage": "fr",
+  "description": "VersePro écoute la prédication, retrouve les références bibliques citées et prépare leur projection en direct. Détection locale, validation humaine avant l'écran, sorties OBS, vMix, NDI et ProPresenter.",
+  "url": "https://versepro-green.vercel.app/",
+  "downloadUrl": "https://github.com/gafard/VersePro/releases/latest",
+  "softwareHelp": "https://versepro-green.vercel.app/assets/GUIDE-UTILISATION.pdf",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "Selah Studios"
+  }
+}
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#contenu">aller au contenu</a>
@@ -52,8 +76,8 @@
 
       <div class="hero-copy">
         <p class="eyebrow"><span></span> projection biblique en temps réel</p>
-        <h1>versepro</h1>
-        <p class="hero-statement">la Parole apparaît<br>pendant qu’elle se prêche.</p>
+        <p class="hero-wordmark" aria-hidden="true">versepro</p>
+        <h1 class="hero-statement">la Parole apparaît<br>pendant qu’elle se prêche.</h1>
         <p class="hero-lede">
           VersePro écoute, retrouve la référence et prépare l’écran. Le régisseur
           valide. L’assemblée lit. Même quand Internet ne suit plus.
@@ -180,7 +204,7 @@
 
     <section class="proof section-shell" aria-label="capacités de VersePro">
       <div class="proof-item reveal"><strong>31 102</strong><span>versets indexés localement</span></div>
-      <div class="proof-item reveal"><strong>7</strong><span>traductions disponibles</span></div>
+      <div class="proof-item reveal"><strong>2 + 7</strong><span>traductions livrées, autres importables</span></div>
       <div class="proof-item reveal"><strong>humain</strong><span>validation avant écran</span></div>
     </section>
 
@@ -232,6 +256,18 @@
             <code style="display: inline-block; background: #080c14; padding: 4px 10px; border-radius: 6px; color: #38bdf8; font-family: monospace; font-size: 12px; margin-top: 4px; border: 1px solid rgba(255,255,255,0.08);">xattr -cr /Applications/VersePro.app</code>
           </li>
         </ul>
+      </div>
+      <div class="win-help-box reveal" style="margin: 14px auto 0; max-width: 750px; padding: 18px 22px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; text-align: left; font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+        <strong style="color: #38bdf8; font-size: 13.5px;">🪟 Aide au premier lancement sur Windows (SmartScreen) :</strong>
+        <p style="margin: 6px 0 8px;">Windows peut afficher « Windows a protégé votre ordinateur ». L'installateur n'est pas encore signé — c'est ce que financent les dons.</p>
+        <ul style="padding-left: 20px; margin-bottom: 0;">
+          <li>Cliquez sur <strong>Informations complémentaires</strong>, puis sur <strong>Exécuter quand même</strong>.</li>
+        </ul>
+      </div>
+
+      <div class="config-box reveal" style="margin: 14px auto 0; max-width: 750px; padding: 18px 22px; border: 1px solid var(--rule); border-radius: 12px; text-align: left; font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+        <strong style="font-size: 13.5px; color: var(--text);">Configuration requise</strong>
+        <p style="margin: 6px 0 0;">macOS 12 ou plus récent (puce Apple Silicon) · Windows 10/11 64 bits · <strong>4 Go de RAM libres</strong> · environ 1 Go de disque. Le moteur local charge ses index au démarrage : comptez une vingtaine de secondes au premier lancement.</p>
       </div>
     </section>
 
