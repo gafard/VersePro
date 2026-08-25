@@ -4,6 +4,7 @@ import { shallow } from 'zustand/shallow'
 import { BACKEND_BASE, isTauri } from '../env.js'
 import OverlayEditor from './OverlayEditor.jsx'
 import BibleImport from './BibleImport.jsx'
+import BackgroundLibrary from './BackgroundLibrary.jsx'
 
 // --- Modern Vector SVG Icons ---
 const IconActivity = ({ size = 18, color = 'currentColor' }) => (
@@ -209,7 +210,7 @@ const ONGLETS = [
  * paraîtraient énormes dans une petite boîte ; à l'échelle, ils s'affichent
  * comme sur le vidéoprojecteur.
  */
-function StylePreview({ theme = 'broadcast', style = 'default' }) {
+function StylePreview({ theme = 'broadcast', style = 'default', refreshKey = '' }) {
   const boite = useRef(null)
   const [echelle, setEchelle] = useState(0.25)
   useEffect(() => {
@@ -223,7 +224,7 @@ function StylePreview({ theme = 'broadcast', style = 'default' }) {
   }, [])
   // `demo` demande à la page d'afficher un verset d'exemple si rien n'est
   // projeté : sans lui, l'aperçu reste noir tant que le culte n'a pas commencé.
-  const url = `${BACKEND_BASE}/output?theme=${theme}&style=${style}&demo=1`
+  const url = `${BACKEND_BASE}/output?theme=${theme}&style=${style}&demo=1&refresh=${refreshKey}`
   return (
     <div className="style-preview" ref={boite}>
       <iframe
@@ -375,6 +376,14 @@ export default function Settings() {
     local_semantic_enabled: true,
     local_semantic_threshold: 0.865,
     projection_theme: 'presentation',
+    background_enabled: false,
+    background_asset: '',
+    background_fit: 'cover',
+    background_position_x: 50,
+    background_position_y: 50,
+    background_overlay_color: '#000000',
+    background_overlay_opacity: 0.42,
+    background_blur: 0,
     projection_style: 'default',
     show_bible_version: true,
     dual_translations: 'LSG,KJF'
@@ -495,6 +504,14 @@ export default function Settings() {
       local_semantic_enabled: settings.local_semantic_enabled !== false,
       local_semantic_threshold: Number(settings.local_semantic_threshold || 0.865),
       projection_theme: settings.projection_theme || 'presentation',
+      background_enabled: Boolean(settings.background_enabled),
+      background_asset: settings.background_asset || '',
+      background_fit: settings.background_fit || 'cover',
+      background_position_x: Number(settings.background_position_x ?? 50),
+      background_position_y: Number(settings.background_position_y ?? 50),
+      background_overlay_color: settings.background_overlay_color || '#000000',
+      background_overlay_opacity: Number(settings.background_overlay_opacity ?? 0.42),
+      background_blur: Number(settings.background_blur ?? 0),
       projection_style: settings.projection_style || 'default',
       show_bible_version: settings.show_bible_version !== false,
       dual_translations: settings.dual_translations || 'LSG,KJF'
@@ -920,7 +937,24 @@ export default function Settings() {
                       VersePro utilise le modèle <strong>Llama 3.1 8B</strong> (~4.7 Go).
                     </p>
 
-                    {!pullProgress ? (
+                    {/* L'ÉTAT RÉEL, AVANT TOUTE PROPOSITION D'INSTALLATION.
+                        Le backend expose ollama_reachable et
+                        ollama_model_available depuis /api/v1/settings — et
+                        l'interface ne les lisait pas. Elle affichait donc un
+                        bouton « Installer Llama 3.1 » à quelqu'un qui l'avait
+                        déjà, puis « Connexion perdue. Ollama est-il lancé ? »
+                        alors qu'Ollama tournait et que le backend l'avait
+                        détecté au démarrage. */}
+                    {settings?.ai_status?.ollama_model_available ? (
+                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-center">
+                        <p className="text-xs text-emerald-400 font-bold">
+                          ● Ollama prêt — modèle {settings?.ai_status?.ollama_model || 'llama3.1:8b'} détecté
+                        </p>
+                        <p className="text-[11px] text-text-dim mt-1">
+                          La détection locale fonctionne sans connexion Internet.
+                        </p>
+                      </div>
+                    ) : !pullProgress ? (
                       <button
                         className="vp-btn vp-btn--primary w-full text-sm py-3 font-bold"
                         onClick={() => {
@@ -947,8 +981,16 @@ export default function Settings() {
                               setPullProgress({ status: label, percent: d.percent || 0 })
                             } catch {}
                           }
+                          // EventSource déclenche onerror AUSSI quand le
+                          // serveur ferme normalement le flux. Sans ce garde,
+                          // un téléchargement qui vient de réussir s'affichait
+                          // en « Connexion perdue ».
                           es.onerror = () => {
-                            setPullProgress(prev => prev?.done ? prev : { status: 'Connexion perdue. Ollama est-il lancé ?', percent: 0, error: true })
+                            setPullProgress(prev => (
+                              prev?.done || prev?.percent >= 100
+                                ? prev
+                                : { status: 'Connexion perdue. Ollama est-il lancé ?', percent: 0, error: true }
+                            ))
                             es.close()
                           }
                         }}
@@ -1068,6 +1110,21 @@ export default function Settings() {
               </Row>
             </Accordion>
 
+            <Accordion
+              title="Fond plein écran"
+              icon={<IconMonitor color="#0ea5e9" />}
+              description="Une image locale, cadrée pour rester lisible derrière le verset."
+              badge={form.background_enabled && <span className="settings-status-badge is-ok">Actif</span>}
+              defaultOpen={true}
+            >
+              <BackgroundLibrary
+                form={form}
+                updateField={updateField}
+                theme={form.projection_theme}
+                addToast={addToast}
+              />
+            </Accordion>
+
             <Accordion title="Thèmes & Personnalisation" icon={<IconPalette color="#0ea5e9" />}>
               <Row label="Thème d'affichage">
                 <select
@@ -1133,7 +1190,7 @@ export default function Settings() {
                     {form.projection_theme}{form.projection_theme === 'broadcast' ? ` · ${form.projection_style}` : ''}
                   </span>
                 </div>
-                <StylePreview theme={form.projection_theme} style={form.projection_style} />
+                <StylePreview theme={form.projection_theme} style={form.projection_style} refreshKey={savedAt?.getTime() || ''} />
               </div>
 
               <div className="settings-divider">

@@ -113,10 +113,19 @@ class AIService:
             "gemini": bool(self.api_key),
             "ollama_reachable": self.ollama_reachable,
             "ollama_model_available": self.ollama_model_available,
+            # Le nom du modèle local, pour que l'interface annonce ce qui est
+            # RÉELLEMENT installé plutôt qu'une valeur écrite en dur.
+            "ollama_model": self.ollama_model if self.ollama_active else None,
+            # L'ORDRE ANNONCÉ DOIT ÊTRE L'ORDRE SUIVI. Ce champ déclarait
+            # « openrouter » dès qu'une clé existait, alors que la cascade
+            # essaie désormais le modèle local en premier — gratuit, hors
+            # ligne, et seul à répondre quand les crédits cloud sont épuisés.
+            # Un écran qui nomme le mauvais moteur envoie diagnostiquer au
+            # mauvais endroit.
             "provider": (
+                "ollama" if self.ollama_active else
                 "openrouter" if self.openrouter_key else
-                "gemini" if self.api_key else
-                "ollama" if self.ollama_active else None
+                "gemini" if self.api_key else None
             ),
         }
 
