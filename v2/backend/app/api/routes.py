@@ -2,7 +2,19 @@
 Routes API REST pour VersePro v2
 """
 
-from fastapi import APIRouter, HTTPException
+# `Request` sert à l'annotation de get_network_info (QR Code mobile) et
+# n'était pas importé. Python 3.14 n'évalue plus les annotations à la
+# définition (PEP 649), donc l'oubli passait inaperçu ici — mais la CI et le
+# gel PyInstaller tournent en 3.12, où l'annotation est évaluée tout de suite :
+#
+#     File "app/api/routes.py", line 322, in <module>
+#       async def get_network_info(request: Request):
+#     NameError: name 'Request' is not defined
+#
+# L'intégration est rouge depuis, et six fichiers de tests ne se collectent
+# même plus. Un développement fait sur une version de Python plus récente que
+# celle qui construit le produit ne voit pas ce genre d'erreur.
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from loguru import logger
@@ -69,6 +81,14 @@ class SettingsUpdate(BaseModel):
     local_semantic_enabled: Optional[bool] = None
     local_semantic_threshold: Optional[float] = None
     projection_theme: Optional[str] = None
+    background_enabled: Optional[bool] = None
+    background_asset: Optional[str] = None
+    background_fit: Optional[str] = None
+    background_position_x: Optional[float] = None
+    background_position_y: Optional[float] = None
+    background_overlay_color: Optional[str] = None
+    background_overlay_opacity: Optional[float] = None
+    background_blur: Optional[float] = None
     projection_style: Optional[str] = None
     show_bible_version: Optional[bool] = None
     dual_translations: Optional[str] = None
@@ -88,6 +108,12 @@ class SemanticSearchRequest(BaseModel):
 class OverlayImageRequest(BaseModel):
     """PNG de l'habillage, en data-URL ou base64 nu."""
     data: str
+
+
+class BackgroundImageRequest(BaseModel):
+    """Image de fond en data-URL ou base64 nu."""
+    data: str = Field(..., max_length=28_000_000)
+    name: str = Field("Fond sans titre", max_length=100)
 
 
 class BibleImportRequest(BaseModel):
@@ -905,6 +931,47 @@ async def remove_overlay_image():
     return overlay_store.status()
 
 
+@router.get("/backgrounds")
+async def list_backgrounds():
+    """Liste la bibliotheque locale de fonds plein ecran."""
+    from ..services import background_store
+    return {"assets": await asyncio.to_thread(background_store.list_assets)}
+
+
+@router.post("/backgrounds")
+async def upload_background(request: BackgroundImageRequest):
+    """Valide, normalise et copie un fond dans le stockage VersePro."""
+    from ..services import background_store
+    try:
+        raw = background_store.decode_upload(request.data)
+        asset = await asyncio.to_thread(background_store.save_asset, raw, request.name)
+    except background_store.BackgroundInvalide as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Ecriture impossible : {exc}")
+    return asset
+
+
+@router.delete("/backgrounds/{asset_id}")
+async def remove_background(asset_id: str):
+    """Supprime un fond et desactive proprement celui qui etait utilise."""
+    from ..core.config import settings
+    from ..services import background_store
+    from ..services.database import get_database
+
+    try:
+        await asyncio.to_thread(background_store.delete_asset, asset_id)
+    except background_store.BackgroundInvalide as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if settings.BACKGROUND_ASSET == asset_id:
+        settings.BACKGROUND_ENABLED = False
+        settings.BACKGROUND_ASSET = ""
+        db = get_database()
+        await db.set_setting("background_enabled", False)
+        await db.set_setting("background_asset", "")
+    return {"assets": await asyncio.to_thread(background_store.list_assets)}
+
+
 @router.get("/bible/chapter")
 async def lire_chapitre(q: str, version: str = ""):
     """Renvoie tous les versets d'un chapitre, avec leur nombre.
@@ -1194,7 +1261,7 @@ async def get_settings():
     from ..core.config import settings
     from ..main import ai_service, output_manager, semantic_service, nemotron_service
     from ..services.secret_store import secret_store
-    from ..services import overlay_store
+    from ..services import overlay_store, background_store
 
     propresenter_connected = False
     if output_manager and "propresenter" in output_manager.outputs:
@@ -1236,6 +1303,15 @@ async def get_settings():
         "local_semantic_model": settings.LOCAL_SEMANTIC_MODEL,
         "semantic_status": semantic_service.status() if semantic_service else {},
         "projection_theme": settings.PROJECTION_THEME,
+        "background_enabled": settings.BACKGROUND_ENABLED,
+        "background_asset": settings.BACKGROUND_ASSET,
+        "background_fit": settings.BACKGROUND_FIT,
+        "background_position_x": settings.BACKGROUND_POSITION_X,
+        "background_position_y": settings.BACKGROUND_POSITION_Y,
+        "background_overlay_color": settings.BACKGROUND_OVERLAY_COLOR,
+        "background_overlay_opacity": settings.BACKGROUND_OVERLAY_OPACITY,
+        "background_blur": settings.BACKGROUND_BLUR,
+        "background": background_store.resolve_background(settings),
         "projection_style": settings.PROJECTION_STYLE,
         "show_bible_version": settings.SHOW_BIBLE_VERSION,
         "dual_translations": settings.DUAL_TRANSLATIONS,
@@ -1414,6 +1490,47 @@ async def update_settings(settings_update: SettingsUpdate):
         theme = str(update["projection_theme"])
         settings.PROJECTION_THEME = theme
         await db.set_setting("projection_theme", theme)
+
+    background_keys = {
+        "background_enabled", "background_asset", "background_fit",
+        "background_position_x", "background_position_y",
+        "background_overlay_color", "background_overlay_opacity", "background_blur",
+    }
+    if background_keys.intersection(update):
+        from ..services import background_store
+
+        asset_id = str(update.get("background_asset", settings.BACKGROUND_ASSET) or "").strip().lower()
+        if asset_id and not background_store.get_asset(asset_id):
+            raise HTTPException(status_code=400, detail="Fond plein ecran introuvable")
+        options = background_store.sanitise_options(
+            fit=update.get("background_fit", settings.BACKGROUND_FIT),
+            position_x=update.get("background_position_x", settings.BACKGROUND_POSITION_X),
+            position_y=update.get("background_position_y", settings.BACKGROUND_POSITION_Y),
+            overlay_color=update.get("background_overlay_color", settings.BACKGROUND_OVERLAY_COLOR),
+            overlay_opacity=update.get("background_overlay_opacity", settings.BACKGROUND_OVERLAY_OPACITY),
+            blur=update.get("background_blur", settings.BACKGROUND_BLUR),
+        )
+        settings.BACKGROUND_ASSET = asset_id
+        settings.BACKGROUND_ENABLED = bool(
+            update.get("background_enabled", settings.BACKGROUND_ENABLED) and asset_id
+        )
+        settings.BACKGROUND_FIT = options["fit"]
+        settings.BACKGROUND_POSITION_X = options["position_x"]
+        settings.BACKGROUND_POSITION_Y = options["position_y"]
+        settings.BACKGROUND_OVERLAY_COLOR = options["overlay_color"]
+        settings.BACKGROUND_OVERLAY_OPACITY = options["overlay_opacity"]
+        settings.BACKGROUND_BLUR = options["blur"]
+        for key, value in {
+            "background_enabled": settings.BACKGROUND_ENABLED,
+            "background_asset": settings.BACKGROUND_ASSET,
+            "background_fit": settings.BACKGROUND_FIT,
+            "background_position_x": settings.BACKGROUND_POSITION_X,
+            "background_position_y": settings.BACKGROUND_POSITION_Y,
+            "background_overlay_color": settings.BACKGROUND_OVERLAY_COLOR,
+            "background_overlay_opacity": settings.BACKGROUND_OVERLAY_OPACITY,
+            "background_blur": settings.BACKGROUND_BLUR,
+        }.items():
+            await db.set_setting(key, value)
 
     if "projection_style" in update:
         style = str(update["projection_style"])
