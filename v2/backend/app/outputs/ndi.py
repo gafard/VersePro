@@ -173,11 +173,18 @@ class NDIOutput(BaseOutput):
 
     def _composer(self, reference: str, texte: str, numero: Any, annotations: Optional[list] = None) -> np.ndarray:
         from ..core.config import settings
-        from ..services import overlay_store
+        from ..services import overlay_store, background_store
         info = overlay_store.resolve_overlay_info(
             settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES
         )
         image = info.get("image_path") if info.get("installed") else None
+        backdrop = background_store.resolve_background(settings, include_path=True)
+        # Les lower-thirds et le moniteur de confiance doivent conserver leur
+        # canal alpha. Les autres themes sont des compositions plein ecran.
+        fond_actif = bool(
+            backdrop.get("enabled")
+            and settings.PROJECTION_THEME not in {"broadcast", "confidence"}
+        )
         # Une liste de formes VIDE est une réponse, pas une absence de réponse :
         # elle signifie « aucun habillage sélectionné ». Un « or » retombait ici
         # sur le brouillon de l'éditeur, et la régie recevait alors un bandeau
@@ -189,6 +196,14 @@ class NDIOutput(BaseOutput):
             reference, texte, numero,
             str(image) if image else None,
             annotations=annotations,
+            arriere_plan=str(backdrop.get("image_path")) if fond_actif else None,
+            cadrage_arriere_plan=backdrop.get("fit", "cover"),
+            position_arriere_plan=(
+                backdrop.get("position_x", 50), backdrop.get("position_y", 50)
+            ),
+            voile_couleur=backdrop.get("overlay_color", "#000000"),
+            voile_opacite=backdrop.get("overlay_opacity", 0.0),
+            flou_arriere_plan=backdrop.get("blur", 0.0),
         )
         return vers_bgra(rendu)
 
@@ -218,7 +233,15 @@ class NDIOutput(BaseOutput):
         if not self._ensure_sender():
             return False
         try:
-            vide = np.zeros((HAUTEUR, LARGEUR, 4), dtype=np.uint8)
+            from ..core.config import settings
+            from ..services import background_store
+            backdrop = background_store.resolve_background(settings, include_path=True)
+            if (backdrop.get("enabled")
+                    and settings.PROJECTION_THEME not in {"broadcast", "confidence"}):
+                import asyncio
+                vide = await asyncio.to_thread(self._composer, "", "", None)
+            else:
+                vide = np.zeros((HAUTEUR, LARGEUR, 4), dtype=np.uint8)
             with self._frame_lock:
                 self._frame = vide
             return self._emettre(vide)

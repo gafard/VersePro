@@ -92,6 +92,16 @@ class Settings(BaseSettings):
     UPDATE_CHECK_TIMEOUT: float = 6.0
 
     PROJECTION_THEME: str = "presentation"
+    # Fond plein ecran local. L'image est copiee dans DATA_DIR/backgrounds afin
+    # que les sorties restent autonomes quand le fichier d'origine est deplace.
+    BACKGROUND_ENABLED: bool = False
+    BACKGROUND_ASSET: str = ""
+    BACKGROUND_FIT: str = "cover"
+    BACKGROUND_POSITION_X: float = 50.0
+    BACKGROUND_POSITION_Y: float = 50.0
+    BACKGROUND_OVERLAY_COLOR: str = "#000000"
+    BACKGROUND_OVERLAY_OPACITY: float = 0.42
+    BACKGROUND_BLUR: float = 0.0
     # Zones de texte de l'habillage personnalisé (JSON, pourcentages du cadre).
     # Vide = valeurs de départ de overlay_store.DEFAULT_ZONES.
     OVERLAY_ZONES: str = ""

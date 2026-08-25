@@ -14,7 +14,7 @@ import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from loguru import logger
 
 from .shape_geometry import normalise_corners, polygon_points
@@ -133,9 +133,48 @@ def rendre_habillage(
     numero_verset: Optional[Any] = None,
     image_fond: Optional[str] = None,
     annotations: Optional[List[Dict[str, Any]]] = None,
+    arriere_plan: Optional[str] = None,
+    cadrage_arriere_plan: str = "cover",
+    position_arriere_plan: Tuple[float, float] = (50.0, 50.0),
+    voile_couleur: str = "#000000",
+    voile_opacite: float = 0.0,
+    flou_arriere_plan: float = 0.0,
 ) -> Image.Image:
     """Compose une image RGBA transparente : image, puis formes, puis textes."""
     cadre = Image.new("RGBA", (largeur, hauteur), (0, 0, 0, 0))
+
+    if arriere_plan and os.path.isfile(arriere_plan):
+        try:
+            with Image.open(arriere_plan) as source:
+                source = source.convert("RGBA")
+                px = max(0.0, min(100.0, float(position_arriere_plan[0]))) / 100
+                py = max(0.0, min(100.0, float(position_arriere_plan[1]))) / 100
+                if cadrage_arriere_plan == "contain":
+                    source.thumbnail((largeur, hauteur), Image.Resampling.LANCZOS)
+                    fond = Image.new("RGBA", (largeur, hauteur), (0, 0, 0, 255))
+                    x = round((largeur - source.width) * px)
+                    y = round((hauteur - source.height) * py)
+                    fond.alpha_composite(source, (x, y))
+                elif cadrage_arriere_plan == "fill":
+                    fond = source.resize((largeur, hauteur), Image.Resampling.LANCZOS)
+                else:
+                    fond = ImageOps.fit(
+                        source, (largeur, hauteur), Image.Resampling.LANCZOS,
+                        centering=(px, py),
+                    )
+            if flou_arriere_plan:
+                fond = fond.filter(ImageFilter.GaussianBlur(
+                    radius=max(0.0, min(20.0, float(flou_arriere_plan)))
+                ))
+            cadre.alpha_composite(fond)
+            if voile_opacite:
+                voile = Image.new(
+                    "RGBA", cadre.size,
+                    _rgba(voile_couleur, max(0.0, min(0.9, float(voile_opacite)))),
+                )
+                cadre.alpha_composite(voile)
+        except Exception as exc:
+            logger.warning(f"Fond plein ecran NDI illisible ({exc})")
 
     if image_fond and os.path.isfile(image_fond):
         try:

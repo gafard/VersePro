@@ -33,17 +33,17 @@ class BrowserOutput(BaseOutput):
         réglages, eux, sont connus dès le démarrage — autant les envoyer.
         """
         scene = dict(self.current_scene)
-        if scene.get("reference"):
-            return scene  # un verset est à l'antenne : sa scène fait foi
         try:
             from ..core.config import settings
-            from ..services import overlay_store
+            from ..services import overlay_store, background_store
             scene.setdefault("style", settings.PROJECTION_STYLE)
             scene.setdefault("show_version", settings.SHOW_BIBLE_VERSION)
             scene.setdefault("active_version", settings.BIBLE_VERSION)
-            scene["overlay"] = overlay_store.resolve_overlay(
-                settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES
-            )
+            scene["backdrop"] = background_store.resolve_background(settings)
+            if not scene.get("reference"):
+                scene["overlay"] = overlay_store.resolve_overlay(
+                    settings.PROJECTION_STYLE, settings.OVERLAY_ZONES, settings.OVERLAY_SHAPES
+                )
         except Exception as exc:  # un écran nu vaut mieux qu'un écran en erreur
             logger.debug(f"Scène initiale sans habillage : {exc}")
         return scene
@@ -144,12 +144,19 @@ class BrowserOutput(BaseOutput):
 
     async def clear(self) -> bool:
         """Efface l'écran"""
+        try:
+            from ..core.config import settings
+            from ..services import background_store
+            backdrop = background_store.resolve_background(settings)
+        except Exception:
+            backdrop = self.current_scene.get("backdrop", {})
         clear_scene = {
             "type": "scripture",
             "text": "",
             "reference": "",
             "background": self.current_scene.get("background", "black"),
             "theme": self.current_scene.get("theme", "presentation"),
-            "translations": {}
+            "translations": {},
+            "backdrop": backdrop,
         }
         return await self.send_scene(clear_scene)
