@@ -112,6 +112,34 @@ def test_une_image_de_fond_absente_nempeche_pas_le_rendu():
     assert image.size == (640, 360)
 
 
+def test_un_fond_plein_ecran_remplit_la_trame_ndi(tmp_path):
+    from PIL import Image
+
+    chemin = tmp_path / "fond.png"
+    Image.new("RGB", (320, 180), (210, 40, 20)).save(chemin)
+    image = _rendu(
+        formes=[], reference="", texte="",
+        arriere_plan=str(chemin), voile_opacite=0,
+    )
+
+    assert image.getpixel((0, 0)) == (210, 40, 20, 255)
+    assert image.getpixel((639, 359)) == (210, 40, 20, 255)
+
+
+def test_le_voile_assombrit_le_fond_ndi(tmp_path):
+    from PIL import Image
+
+    chemin = tmp_path / "fond.png"
+    Image.new("RGB", (640, 360), (200, 200, 200)).save(chemin)
+    image = _rendu(
+        formes=[], reference="", texte="", arriere_plan=str(chemin),
+        voile_couleur="#000000", voile_opacite=0.5,
+    )
+
+    r, v, b, a = image.getpixel((320, 180))
+    assert 95 <= r <= 105 and r == v == b and a == 255
+
+
 # ── Conversion pour NDI ──────────────────────────────────────────────────────
 
 def test_conversion_bgrx_permute_le_rouge_et_le_bleu():
@@ -208,3 +236,17 @@ def test_la_liste_des_fonds_est_fermee():
     de classe laisserait n'importe qui styler l'écran depuis un lien."""
     html = _output_html()
     assert "['aurore', 'braise', 'nuit', 'sable'].includes(bg)" in html
+
+
+def test_le_fond_local_preserve_alpha_et_lower_third():
+    html = _output_html()
+    assert "forcedBg || overlayActif" in html
+    assert "['broadcast', 'confidence'].includes(theme)" in html
+    assert "has-full-background" in html
+
+
+def test_la_scene_demo_ne_conserve_pas_les_pages_du_direct():
+    html = _output_html()
+    bloc = html[html.index("if (modeDemo)"):]
+    assert "verse_end: null" in bloc[:700]
+    assert "verses: []" in bloc[:700]

@@ -58,6 +58,21 @@
                 background-size: 400% 400%;
                 animation: derive-fond 38s ease-in-out infinite;
             }
+            body.has-full-background[class*="fond-"]::before { display: none; }
+
+            /* Fond local plein ecran. Deux calques separes gardent l'image
+               nette et permettent de regler le voile sans toucher au texte. */
+            #background-layer {
+                position: fixed; inset: 0; z-index: 0; display: none;
+                overflow: hidden; pointer-events: none; background: #000;
+            }
+            body.has-full-background #background-layer { display: block; }
+            #background-image {
+                position: absolute; inset: 0; width: 100%; height: 100%;
+                object-fit: cover; object-position: 50% 50%;
+                transform-origin: center; backface-visibility: hidden;
+            }
+            #background-veil { position: absolute; inset: 0; background: #000; opacity: 0.42; }
             body.fond-aurore::before {
                 background-image: linear-gradient(130deg,
                     #05070c 0%, #0b1b2e 28%, #12324a 52%, #0a1526 76%, #05070c 100%);
@@ -89,7 +104,7 @@
                 to { opacity: 1; transform: translateY(0); }
             }
 
-            #container { width: 88%; max-width: 1200px; }
+            #container { width: 88%; max-width: 1200px; position: relative; z-index: 2; }
             #text {
                 font-size: 3.5rem; line-height: 1.45; font-weight: 500;
                 margin-bottom: 2rem;
@@ -153,6 +168,7 @@
                 font-size: 1.5rem; line-height: 1.4; font-weight: 500;
                 opacity: 0; transition: opacity 0.3s ease;
                 pointer-events: none;
+                z-index: 10;
             }
             #subtitle.on { opacity: 1; }
             #subtitle .lang {
@@ -162,7 +178,7 @@
             }
 
             /* Témoin de signal (backend injoignable) */
-            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px;
+            #signal { position: fixed; right: 14px; bottom: 12px; width: 9px; height: 9px; z-index: 30;
                       border-radius: 50%; background: #d93025; opacity: 0; transition: opacity 0.4s; }
             #signal.lost { opacity: 0.85; }
 
@@ -826,6 +842,10 @@
         </style>
     </head>
     <body>
+        <div id="background-layer" aria-hidden="true">
+            <img id="background-image" alt="">
+            <div id="background-veil"></div>
+        </div>
         <!-- Habillage fourni par l'église : image plein cadre et zones de
              texte. Reste vide et masqué tant qu'aucun PNG n'est installé. -->
         <div id="overlay-layer">
@@ -867,6 +887,9 @@
             const subtitleEl = document.getElementById('subtitle');
             const signalEl = document.getElementById('signal');
             const annotationLayer = document.getElementById('annotation-layer');
+            const backgroundLayer = document.getElementById('background-layer');
+            const backgroundImage = document.getElementById('background-image');
+            const backgroundVeil = document.getElementById('background-veil');
 
             const params = new URLSearchParams(window.location.search);
             const forcedBg = params.get('bg');
@@ -897,6 +920,8 @@
             let currentKey = null;
             let subtitleTimer = null;
             let currentAnnotations = [];
+            let backgroundVersion = '';
+            let backgroundRequest = 0;
 
             function normaliserMot(mot) {
                 return (mot || '').toLocaleLowerCase('fr-FR').replace(/[\u00ad.,;:!?()[\]{}«»\"']/g, '');
@@ -1496,6 +1521,60 @@
                 return true;
             }
 
+            function masquerArrierePlan() {
+                backgroundRequest += 1;
+                backgroundVersion = '';
+                backgroundImage.onload = null;
+                backgroundImage.onerror = null;
+                backgroundImage.removeAttribute('src');
+                document.body.classList.remove('has-full-background');
+            }
+
+            function renderArrierePlan(data, theme, overlayActif) {
+                const info = data.backdrop || {};
+                // Une URL ?bg= est un ordre de sortie explicite (alpha/chroma).
+                // Un lower-third et un habillage maison doivent eux aussi
+                // conserver leur transparence et ne jamais recevoir une photo.
+                if (!info.enabled || !info.image_url || forcedBg || overlayActif
+                    || ['broadcast', 'confidence'].includes(theme)) {
+                    masquerArrierePlan();
+                    return '';
+                }
+
+                const fit = ['cover', 'contain', 'fill'].includes(info.fit) ? info.fit : 'cover';
+                const x = Math.max(0, Math.min(100, Number(info.position_x) || 0));
+                const y = Math.max(0, Math.min(100, Number(info.position_y) || 0));
+                const blur = Math.max(0, Math.min(20, Number(info.blur) || 0));
+                const opacity = Math.max(0, Math.min(0.9, Number(info.overlay_opacity) || 0));
+                const color = /^#[0-9a-f]{6}$/i.test(info.overlay_color || '')
+                    ? info.overlay_color : '#000000';
+                const version = [info.image_url, fit, x, y, blur, color, opacity].join('|');
+
+                backgroundImage.style.objectFit = fit;
+                backgroundImage.style.objectPosition = `${x}% ${y}%`;
+                backgroundImage.style.filter = blur ? `blur(${blur}px)` : 'none';
+                backgroundImage.style.transform = blur ? 'scale(1.035)' : 'none';
+                backgroundVeil.style.background = color;
+                backgroundVeil.style.opacity = opacity;
+
+                if (backgroundVersion !== info.image_url) {
+                    backgroundVersion = info.image_url;
+                    const request = ++backgroundRequest;
+                    const afficher = () => {
+                        if (request === backgroundRequest) {
+                            document.body.classList.add('has-full-background');
+                        }
+                    };
+                    backgroundImage.onload = afficher;
+                    backgroundImage.onerror = masquerArrierePlan;
+                    backgroundImage.src = info.image_url;
+                    if (backgroundImage.complete && backgroundImage.naturalWidth) afficher();
+                } else {
+                    document.body.classList.add('has-full-background');
+                }
+                return version;
+            }
+
             function renderScene(data) {
                 const bg = forcedBg || data.background;
                 document.body.className = '';
@@ -1521,12 +1600,14 @@
                 // Après les classes : renderScene remet className à zéro, et
                 // « has-overlay » serait effacé s'il était posé plus tôt.
                 const overlayActif = renderOverlay(data);
+                const arrierePlanKey = renderArrierePlan(data, theme, overlayActif);
 
                 // Même verset (changement de thème/fond seulement) : pas de re-animation
                 const fullRef = getFullReference(data);
                 const key = fullRef + '|' + (data.text || '') + '|' + theme + '|' + (forcedStyle || '')
                     + '|' + (overlayActif ? (data.overlay.updated_at
-                        + JSON.stringify(data.overlay.zones) + JSON.stringify(data.overlay.shapes)) : '');
+                        + JSON.stringify(data.overlay.zones) + JSON.stringify(data.overlay.shapes)) : '')
+                    + '|' + arrierePlanKey;
                 if (key === currentKey) return;
                 currentKey = key;
 
@@ -1705,8 +1786,19 @@
                     // l'exemple ; l'habillage et les réglages restent ceux du
                     // serveur. La RÉFÉRENCE est le signal fiable : la scène au
                     // repos porte déjà le texte « En attente d'affichage… ».
-                    if (modeDemo && !data.reference) {
-                        renderScene({ ...data, ...SCENE_DEMO });
+                    if (modeDemo) {
+                        // Les pages du passage courant ne doivent pas survivre
+                        // au verset de démonstration, sinon l'aperçu mélange la
+                        // référence d'Exode avec le texte réellement à l'antenne.
+                        renderScene({
+                            ...data,
+                            ...SCENE_DEMO,
+                            verse_end: null,
+                            verses: [],
+                            annotations: [],
+                            next_reference: '',
+                            next_text: ''
+                        });
                         return;
                     }
                     renderScene(data);

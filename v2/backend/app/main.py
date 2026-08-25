@@ -61,7 +61,7 @@ from .services.transcription_health import SanteTranscription
 from .services.detection_fusion import fuse as fuse_detection, strip_attribution, recent_window
 from .services.reading_tracker import ReadingTracker
 from .services.secret_store import secret_store
-from .services import overlay_store
+from .services import overlay_store, background_store
 from .outputs import OutputManager
 from .api.routes import router as api_router
 
@@ -207,6 +207,7 @@ async def broadcast_projection(
         "show_version": settings.SHOW_BIBLE_VERSION,
         "style": settings.PROJECTION_STYLE,
         "dual_translations": settings.DUAL_TRANSLATIONS,
+        "backdrop": background_store.resolve_background(settings),
         # Habillage personnalisé : l'écran n'a besoin que de savoir qu'une image
         # existe, de sa version (anti-cache) et de l'emplacement des textes.
         # Un style « habillage:xxx » désigne un habillage de la bibliothèque ;
@@ -267,6 +268,7 @@ async def preparer_projection(text: str, reference: str, translations: dict | No
         "style": settings.PROJECTION_STYLE,
         "show_version": settings.SHOW_BIBLE_VERSION,
         "active_version": settings.BIBLE_VERSION,
+        "backdrop": background_store.resolve_background(settings),
     }
     await browser.send_preview(preview_slide)
     return preview_slide
@@ -496,6 +498,22 @@ async def get_overlay_image():
     return FileResponse(
         str(overlay_store.IMAGE_PATH),
         media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.get("/assets/backgrounds/{asset_id}/{variant}")
+async def get_background_asset(asset_id: str, variant: str):
+    """Sert uniquement les fichiers valides de la bibliotheque locale."""
+    from fastapi.responses import FileResponse, Response
+
+    asset = background_store.asset_file(asset_id, variant)
+    if not asset:
+        return Response(status_code=404)
+    path, media_type = asset
+    return FileResponse(
+        str(path),
+        media_type=media_type,
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 
