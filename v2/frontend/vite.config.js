@@ -7,6 +7,7 @@ const backendWs = `ws://localhost:${backendPort}`
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: { entries: ['index.html'] },
   server: {
     port: 3000,
     proxy: {
@@ -16,6 +17,10 @@ export default defineConfig({
       '/obs': backendHttp,
       '/follow': backendHttp,
       '/stage': backendHttp,
+      '/assets': backendHttp,
+      '/fonts': backendHttp,
+      '/overlay.png': backendHttp,
+      '/overlay': backendHttp,
       '/ws': {
         target: backendWs,
         ws: true

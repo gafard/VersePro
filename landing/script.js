@@ -13,6 +13,7 @@ const FALLBACK_RELEASE = {
 
 const detectPlatform = () => {
   const platform = `${navigator.userAgentData?.platform || navigator.platform || ''} ${navigator.userAgent || ''}`.toLowerCase()
+  if (/android|iphone|ipad|ipod/.test(platform) || (platform.includes('mac') && navigator.maxTouchPoints > 1)) return 'mobile'
   if (platform.includes('win')) return 'windows'
   if (platform.includes('mac')) return 'macos'
   return 'other'
@@ -31,8 +32,8 @@ const findReleaseAssets = (release) => {
 
 const applyRelease = (release) => {
   const platform = detectPlatform()
-  const platformName = platform === 'windows' ? 'Windows x64' : platform === 'macos' ? 'macOS Apple Silicon' : 'système non pris en charge automatiquement'
-  const directUrl = platform === 'other' ? RELEASE_PAGE : release[platform]
+  const platformName = platform === 'windows' ? 'Windows · installateur x64' : platform === 'macos' ? 'Mac · version pour puces Apple uniquement' : 'Choisissez le système de votre ordinateur'
+  const directUrl = platform === 'windows' ? release.windows : '#telecharger'
 
   document.querySelectorAll('[data-platform-download="windows"]').forEach((link) => {
     link.href = release.windows
@@ -49,15 +50,13 @@ const applyRelease = (release) => {
     link.rel = 'noreferrer'
     const label = link.querySelector('[data-download-label]')
     if (!label) return
-    if (platform === 'other') label.textContent = 'voir les téléchargements'
+    if (platform !== 'windows') label.textContent = platform === 'mobile' ? 'pour mon ordinateur' : 'choisir ma version'
     else if (link.classList.contains('nav-download')) label.textContent = platform === 'windows' ? 'Windows' : 'macOS'
     else label.textContent = `télécharger pour ${platform === 'windows' ? 'Windows' : 'macOS'}`
   })
 
   const detection = document.querySelector('[data-system-detection]')
-  if (detection) detection.textContent = platform === 'other'
-    ? 'Linux ou système inconnu · consultez les fichiers disponibles'
-    : `${platformName} détecté · téléchargement direct prêt`
+  if (detection) detection.textContent = platformName
 
   document.querySelectorAll('[data-release-version]').forEach((element) => {
     element.textContent = `${release.version} · gratuit`
@@ -114,11 +113,39 @@ document.querySelectorAll('.reveal').forEach((element, index) => {
   revealObserver.observe(element)
 })
 
+const demoCases = {
+  explicit: { transcript: '« Ouvrons Jean, chapitre trois, verset seize. »', reference: 'Jean 3:16', reason: 'référence entendue', text: 'Car Dieu a tant aimé le monde qu’il a donné son Fils unique, afin que quiconque croit en lui ne périsse point, mais qu’il ait la vie éternelle.' },
+  paraphrase: { transcript: '« Sa parole nous éclaire, comme une lampe sur le chemin. »', reference: 'Psaume 119:105', reason: 'rapprochement à vérifier', text: 'Ta parole est une lampe à mes pieds, et une lumière sur mon sentier.' },
+  negative: { transcript: '« Le rendez-vous de l’équipe est à dix-huit heures. »', reference: 'Aucun verset proposé', reason: 'une annonce ordinaire', text: '' }
+}
+let demoCase = 'explicit'
 const demoButton = document.querySelector('[data-demo-validate]')
+const setDemoText = (selector, text) => { const node = document.querySelector(selector); if (node) node.textContent = text }
+function resetDemoScreen() {
+  setDemoText('[data-demo-output-text]', 'Le passage s’affichera après votre validation.')
+  setDemoText('[data-demo-output-ref]', 'ÉCRAN DE DÉMONSTRATION')
+  setDemoText('[data-demo-status]', demoCases[demoCase].text ? 'à vous de valider' : 'aucune projection à faire')
+  demoButton?.classList.remove('is-valid')
+}
+document.querySelectorAll('[data-demo-case]').forEach(button => button.addEventListener('click', () => {
+  demoCase = button.dataset.demoCase
+  const example = demoCases[demoCase]
+  document.querySelectorAll('[data-demo-case]').forEach(b => b.setAttribute('aria-pressed', String(b === button)))
+  setDemoText('[data-demo-transcript]', example.transcript)
+  setDemoText('[data-demo-reference]', example.reference)
+  setDemoText('[data-demo-reason]', example.reason)
+  if (demoButton) demoButton.disabled = !example.text
+  resetDemoScreen()
+}))
 demoButton?.addEventListener('click', () => {
+  const example = demoCases[demoCase]
+  if (!example.text) return
+  setDemoText('[data-demo-output-text]', example.text)
+  setDemoText('[data-demo-output-ref]', example.reference + ' · LSG')
+  setDemoText('[data-demo-status]', 'passage affiché dans la simulation')
   demoButton.classList.add('is-valid')
-  demoButton.textContent = 'à l’antenne ✓'
 })
+document.querySelector('[data-demo-reset]')?.addEventListener('click', resetDemoScreen)
 
 const DIRECT_MONEYFUSION_URL = 'https://my.moneyfusion.net/6a8a6993ff0cbef4d3e52f9b'
 

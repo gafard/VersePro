@@ -141,7 +141,7 @@
 <section class="page cover">
   <div style="display:flex; justify-content:space-between; align-items:baseline;">
     <span class="cover-brand">versepro</span>
-    <span class="eyebrow" style="margin:0;">Guide d'utilisation · v2.0</span>
+    <span class="eyebrow" style="margin:0;">Guide d'utilisation · v2.1.8</span>
   </div>
   <div>
     <div class="eyebrow">la régie de projection qui écoute la prédication</div>
@@ -150,7 +150,7 @@
     et brancher vos écrans — OBS, ProPresenter, vMix — en moins d'une heure.</p>
   </div>
   <div class="shot"><img src="img/regie.png" alt="La régie VersePro en direct"></div>
-  <div class="footer"><span>Selah Studios</span><span>© 2026 · versepro 2.0</span></div>
+  <div class="footer"><span>Selah Studios</span><span>© 2026 · versepro 2.1.8</span></div>
 </section>
 
 <!-- ══════════ SOMMAIRE ══════════ -->
@@ -184,7 +184,7 @@
     <div>
       <h3>sur mac</h3>
       <div class="steps">
-        <div class="step"><div><b>Ouvrez le fichier <span class="mono">VersePro_2.0.0.dmg</span></b>
+        <div class="step"><div><b>Ouvrez le fichier <span class="mono">VersePro_2.1.8.dmg</span></b>
           <p>Glissez VersePro vers le dossier Applications, comme d'habitude.</p></div></div>
         <div class="step"><div><b>Ouvrez VersePro normalement</b>
           <p>Le paquet public doit être signé par Selah Studios. Si macOS signale une
@@ -197,7 +197,7 @@
     <div>
       <h3>sur windows</h3>
       <div class="steps">
-        <div class="step"><div><b>Lancez <span class="mono">VersePro_2.0.0.msi</span></b>
+        <div class="step"><div><b>Lancez l'installeur VersePro 2.1.8</b>
           <p>Suivez l'installeur. Un raccourci apparaît dans le menu Démarrer.</p></div></div>
         <div class="step"><div><b>Vérifiez l'éditeur : Selah Studios</b>
           <p>Le paquet public doit être signé. Si SmartScreen ne reconnaît pas l'éditeur,
@@ -213,11 +213,12 @@
     Aucun terminal, aucune installation technique : tout est dans l'application.</p>
   </div>
   <h3>ce qu'il faudra télécharger ensuite</h3>
-  <p>Au premier lancement, l'assistant propose deux téléchargements — une seule fois,
+  <p>Au premier lancement, l'assistant propose les composants locaux — une seule fois,
   puis tout fonctionne <strong>sans internet le dimanche</strong> :</p>
   <table>
     <tr><th>composant</th><th>rôle</th><th>poids</th></tr>
-    <tr><td>Reconnaissance vocale</td><td>transcrit la prédication hors-ligne (Vosk)</td><td>1,4 Go</td></tr>
+    <tr><td>Nemotron 3.5-ASR</td><td>transcrit la prédication hors-ligne</td><td>716 Mo</td></tr>
+    <tr><td>Vosk</td><td>moteur français continu de secours</td><td>1,4 Go</td></tr>
     <tr><td>Intelligence sémantique</td><td>reconnaît les versets paraphrasés</td><td>265 Mo</td></tr>
   </table>
   <div class="footer"><span>versepro · guide</span><span>01 · installation</span></div>
@@ -263,11 +264,11 @@
         <kbd>Échap</kbd> ignore, <kbd>↑</kbd><kbd>↓</kbd> navigue, <kbd>/</kbd> ouvre la recherche.</td></tr>
     <tr><td>À l'antenne</td><td>Ce qui est projeté maintenant. <strong>Préc. / Suiv.</strong> naviguent verset par
         verset, <strong>Effacer</strong> rend l'écran noir — la sortie de secours pendant le direct.</td></tr>
-    <tr><td>Recherche</td><td>Tapez une référence puis <kbd>Entrée</kbd> pour l'ajouter au déroulé sans
-        l'afficher. <strong>Projeter</strong> conserve l'envoi immédiat pour le direct.</td></tr>
+    <tr><td>Recherche</td><td>Tapez une référence puis <kbd>Entrée</kbd> pour la projeter.
+        <strong>Préparer</strong> la charge d'abord hors antenne pour vérification.</td></tr>
     <tr><td>Transcript direct</td><td>La transcription défile en continu : vous voyez ce que la régie entend.</td></tr>
-    <tr><td>Moteur vocal</td><td><strong>Auto</strong> : Deepgram (cloud) si disponible, puis un moteur local
-        déjà préparé. Whisper privilégie la robustesse ; Vosk offre un flux français continu.</td></tr>
+    <tr><td>Moteur vocal</td><td><strong>Auto</strong> : Deepgram (cloud) si disponible, puis Nemotron local
+        déjà préparé. Vosk garde le rôle de secours continu.</td></tr>
     <tr><td>Arrêt d'urgence</td><td>Coupe le micro, les automatismes et le suivi lecture, puis efface les sorties.</td></tr>
   </table>
   <div class="card warm">
@@ -354,6 +355,11 @@
   <div class="caption">verset courant, verset suivant et horloge — pensé pour être lu de loin</div>
   <p style="margin-top:3mm;">Un retour discret côté scène : le prédicateur voit où en est la projection
   sans se retourner vers le grand écran.</p>
+  <div class="card warm" style="margin-top:4mm;">
+    <p style="margin:0;"><strong>Accès téléphone :</strong> les pages <span class="mono">/follow</span>
+    et <span class="mono">/stage</span> existent, mais le paquet 2.1.8 écoute encore uniquement sur
+    l'ordinateur VersePro. Le QR réseau reste expérimental jusqu'à la livraison d'un accès LAN protégé.</p>
+  </div>
   <div class="footer"><span>versepro · guide</span><span>05 · écrans</span></div>
 </section>
 
@@ -457,7 +463,7 @@
     <tr><td>Rien ne se détecte</td><td>Le vumètre bouge-t-il ? <strong>Non</strong> → Paramètres → Audio,
         mauvaise source ou micro non autorisé. <strong>Oui</strong> → voir la ligne suivante.</td></tr>
     <tr><td>Le vumètre bouge,<br>mais rien ne remonte</td><td>Vous êtes hors-ligne sans modèle local.
-	    Paramètres → Intelligence locale : Whisper ou Vosk doit être préparé.</td></tr>
+        Paramètres → Moteurs : Nemotron ou Vosk doit être préparé.</td></tr>
     <tr><td>« Le moteur ne répond pas »</td><td>Quittez complètement l'application et relancez-la.
         Le moteur repart avec elle — comptez ~10 secondes.</td></tr>
     <tr><td>Pastille ProPresenter<br><strong>orange</strong></td><td>Projetez avec l'écran de secours intégré

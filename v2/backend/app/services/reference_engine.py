@@ -345,6 +345,28 @@ class BibleReferenceEngine:
         if not self.verse_parser:
             return None
 
+        # An explicit spoken correction supersedes earlier references in the
+        # same utterance. Ordinary uses of « pardon » are left untouched.
+        revisions = list(re.finditer(r"\b(?:pardon|je corrige|je voulais dire|plutôt)\b[\s,:-]*", analysis_text, re.IGNORECASE))
+        if revisions:
+            revised = analysis_text[revisions[-1].end():]
+            parsed_revision = await self.verse_parser.parse(revised, skip_text_search=True)
+            if parsed_revision and parsed_revision.get("verse_start") is not None:
+                previous = await self.verse_parser.parse(analysis_text[:revisions[-1].start()], skip_text_search=True, collect_all=True)
+                superseded = [r["reference"] for r in previous if r.get("reference") != parsed_revision["reference"]]
+                return {"superseded_references": superseded, **parsed_revision, "detection_method": "spoken_revision", "requires_review": True,
+                        "confidence": .95, "explanation": "Correction orale entendue : le dernier passage remplace la première référence.",
+                        "spoken_evidence": revised[:300]}
+
+        if final_state:
+            from .local_corrections import lookup
+            corrected = lookup(analysis_text)
+            if corrected and not await self.verse_parser.parse(analysis_text, skip_text_search=True):
+                candidate = await self.verse_parser.parse(corrected, skip_text_search=True)
+                if candidate and candidate.get("verse_start"):
+                    return {**candidate, "detection_method": "local_correction", "requires_review": True,
+                            "explanation": "Phrase déjà corrigée par votre équipe sur cet ordinateur. À valider.", "confidence": .9}
+
         recent = self._recent_window(analysis_text, self.settings.HYBRID_WINDOW_WORDS)
         # Une citation peut dépasser 40 mots. Conserver une fenêtre plus large
         # pour l'étage explicite empêche la référence prononcée au début de
@@ -732,6 +754,8 @@ class BibleReferenceEngine:
         fusion = ref.get("fusion") or {}
         if ref.get("detection_method") == "explicit":
             explanation = "Référence biblique prononcée explicitement et vérifiée dans le corpus local."
+        elif ref.get("detection_method") in {"spoken_revision", "local_correction"}:
+            explanation = ref.get("explanation") or "Correction à valider par l’opérateur."
         elif ref.get("detection_method") == "semantic_conflict":
             conflict = ref.get("explicit_conflict") or {}
             explanation = (

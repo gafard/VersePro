@@ -108,6 +108,21 @@
 
             const signalEl = document.getElementById('signal');
             let ws;
+            let lastRenderedScene = null;
+            function confirmRender(data) {
+                if (!data.scene_id) return;
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    lastRenderedScene = data.scene_id;
+                    sendRenderReceipt();
+                }));
+            }
+            function sendRenderReceipt() {
+                if (lastRenderedScene && ws?.readyState === 1 && !document.hidden) {
+                    ws.send(JSON.stringify({type: 'rendered', scene_id: lastRenderedScene, surface: location.pathname.slice(1)}));
+                }
+            }
+            setInterval(sendRenderReceipt, 5000);
+
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const url = `${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : '');
@@ -126,6 +141,7 @@
                     }
                     if (data.type && data.type !== 'scripture') return;
                     renderScene(data);
+                    confirmRender(data);
                 };
                 ws.onclose = () => {
                     console.warn('❌ [Moniteur] WebSocket déconnecté. Reconnexion dans 2s...');

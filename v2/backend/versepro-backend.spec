@@ -28,6 +28,7 @@ if os.path.isdir(templates_dir):
 
 # Ressources bibliques et VAD embarquées
 for src, dst in (
+    (os.path.join(SPECPATH, "data", "rehearsal", "demo-fr.wav"), os.path.join("data", "rehearsal")),
     (os.path.join(SPECPATH, "data", "bible.json"), "data"),
     (os.path.join(SPECPATH, "data", "bibles_cache", "kjf.json"), os.path.join("data", "bibles_cache")),
 ):

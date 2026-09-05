@@ -13,14 +13,16 @@ flowchart LR
   Mic["Micro choisi dans Paramètres"] --> WebAudio["Web Audio: PCM 16 kHz + crêtes réelles"]
   WebAudio --> AudioWS["WebSocket audio borné"]
   AudioWS --> DG["Deepgram"]
-  AudioWS --> Whisper["faster-whisper local"]
+  AudioWS --> Nemo["Nemotron 3.5-ASR local"]
   AudioWS --> Vosk["Vosk local"]
   DG --> Scheduler["Ordonnanceur générationnel"]
-  Whisper --> Scheduler
+  Nemo --> Scheduler
   Vosk --> Scheduler
   Scheduler --> Parser["Parser explicite"]
-  Scheduler --> Fusion["Lexical/flou + e5 ONNX"]
+  Scheduler --> Health["Santé du transcript"]
+  Health --> Fusion["Lexical/flou + e5 ONNX + VerseGraph"]
   Fusion --> ClosedAI["LLM, liste fermée"]
+  Plan["Déroulé préparé"] --> Fusion
   Parser --> Policy["Politique de sécurité"]
   Fusion --> Policy
   ClosedAI --> Policy
@@ -51,7 +53,20 @@ Le store Zustand conserve les états opérateur. Le choix micro, le filtre et le
 
 L'AudioWorklet agrège les échantillons, calcule le RMS, extrait 64 crêtes pour l'onde et convertit en PCM mono 16 kHz. Le signal brut est le défaut. Les profils `speech` et `church` utilisent respectivement 80-8000 Hz et 120-7000 Hz; aucun filtre 250-3000 Hz destructif n'est imposé.
 
-Deepgram traite le streaming cloud. Vosk garde un chemin local continu avec le modèle français large. `WhisperService` charge `faster-whisper` seulement à la demande, choisit `tiny`, `base` ou `small` selon la mémoire, puis transcrit des fenêtres de 2,4 secondes avec 250 ms de recouvrement dans un thread de travail. Un modèle absent n'est jamais téléchargé au démarrage ou en plein direct.
+Deepgram traite le streaming cloud. `NemotronService` fournit le chemin local
+principal avec le modèle Nemotron 3.5-ASR 0.6B GGUF et la bibliothèque native
+`transcribe.cpp`. Il émet des partiels puis clôt un énoncé sur pause afin que la
+cascade ne reste pas bloquée sur une phrase interminable. Vosk conserve un
+chemin local continu de secours. Un modèle absent n'est jamais téléchargé au
+démarrage ou en plein direct.
+
+Il n'existe plus de barrière VAD avant l'ASR. Elle a été retirée après avoir
+bloqué un enregistrement réel comportant musique et prière collective. La
+classe `SanteTranscription` observe plutôt les transcriptions finales : moins de
+6 mots ne suffisent pas à une déduction sémantique et une moyenne inférieure à
+10 mots sur les segments récents suspend les propositions profondes. Le parser
+explicite continue de fonctionner. Cette mesure est un garde-fou empirique, pas
+une preuve universelle de qualité acoustique.
 
 ## Ordonnancement temps réel
 
@@ -67,7 +82,15 @@ Le parser normalise homophones, ordinaux et nombres parlés. Il gère les plages
 
 ### B. Fusion locale
 
-Le moteur lexical/flou et e5 ONNX produisent des classements indépendants. Les clés livre/chapitre/verset sont canonisées sans casse ni accents, puis agrégées par Reciprocal Rank Fusion. L'accord, le score sémantique et le recouvrement lexical des traductions déterminent si une proposition remonte. Le résultat reste `requires_review=true`.
+Le moteur lexical/flou et e5-base ONNX produisent des classements indépendants.
+Les clés livre/chapitre/verset sont canonisées sans casse ni accents, puis
+agrégées par Reciprocal Rank Fusion. VerseGraph peut réordonner le passage déjà
+ouvert, avec un verrou qui refuse une ancre moins crédible que le meilleur
+candidat global. Le résultat reste `requires_review=true`.
+
+Le déroulé préparé est envoyé par `POST /api/v1/plan`. Il peut marquer un
+candidat `au_plan` ou rendre manuel un numéro qui contredit le plan. Il ne crée
+pas de référence et n'autorise pas une projection sémantique automatique.
 
 ### C. Arbitrage IA
 
@@ -96,7 +119,18 @@ Vosk est téléchargé vers un fichier `.part`, vérifié par SHA-256, puis extr
 
 ## Sorties
 
-`OutputManager` diffuse une scène canonique et retourne un accusé par sortie. Le frontend ne marque un élément de file comme projeté qu'après confirmation du moteur navigateur. Le driver navigateur alimente `/projection`, `/stage`, `/obs` et `/ws/output`. OBS peut donc utiliser une source navigateur transparente sans ProPresenter. Les drivers ProPresenter, vMix et NDI sont des sorties supplémentaires, pas des dépendances du coeur.
+`OutputManager` diffuse une scène canonique et retourne un accusé par sortie. Le
+frontend ne marque un élément de file comme projeté qu'après confirmation du
+moteur navigateur. Le driver `BrowserOutput` alimente `/output`, `/stage`,
+`/follow`, `/obs` et `/ws/output`. OBS peut donc utiliser une source navigateur
+transparente sans ProPresenter. Les drivers ProPresenter, vMix et NDI sont des
+sorties supplémentaires, pas des dépendances du coeur.
+
+Dans le paquet desktop 2.1.8, Uvicorn est lié à `127.0.0.1`. Les pages
+`/follow` et `/stage` sont donc publiques au sens applicatif mais joignables
+seulement depuis le poste local. Le QR code détecte les interfaces LAN sans
+ouvrir lui-même un listener réseau. Un accès téléphone fiable devra séparer les
+pages publiques d'affichage des API de commande authentifiées.
 
 ## Persistance et observabilité
 
@@ -104,18 +138,38 @@ SQLite conserve sessions, transcript cumulé, détections, contexte, source et c
 
 ## Tests et mesure
 
-La suite pytest couvre parser, fusion, IA fermée, authentification locale et distante, projection OBS, migration de secrets, cycle NDI, Whisper, archives sûres et un flux distant complet `octets -> faux Deepgram -> transcript -> parser -> référence`. Les données et modèles des tests sont isolés du poste utilisateur. Les tests frontend couvrent le backoff et l'accusé transactionnel de la file. `cargo check --locked` et un test Rust vérifient le lanceur. Au 28 juillet 2026, la référence est de 179 tests backend réussis, 4 ignorés, 4 tests frontend et 1 test Rust réussis.
+La suite pytest couvre parser, fusion, IA fermée, authentification locale et
+distante, projection OBS, migration de secrets, cycle NDI, Nemotron, Vosk,
+archives sûres et un flux distant complet `octets -> faux Deepgram ->
+transcript -> parser -> référence`. Les données et modèles des tests sont
+isolés du poste utilisateur. Les tests frontend couvrent notamment le micro,
+le backoff, la file transactionnelle, le déroulé, l'Updater et les versets
+voisins. `cargo test --locked` et `cargo check --locked` vérifient le lanceur.
 
-Le benchmark `benchmarks/run_detection_benchmark.py` importe `run_detection_cascade` au lieu de dupliquer l'algorithme. Il compare des références structurées et publie exactitude, précision, rappel, F1, faux positifs et p50/p95/p99. Le corpus de 30 phrases sert de garde de non-régression; l'étape scientifique suivante est un corpus audio annoté multi-églises avec accents, réverbération, musique et débits variés.
+État vérifié le 22 août 2026 : 313 tests backend réussis et 3 ignorés, 24 tests
+frontend réussis, build Vite valide.
+
+Le benchmark `benchmarks/run_detection_benchmark.py` importe la cascade de
+production. Sur ses 30 phrases propres, il obtient 100 % de précision et de
+rappel, avec un p95 de 33,87 ms. `benchmarks/replay_lab.py` rejoue les 43 cas du
+corpus terrain et obtient actuellement 86,1 % d'exactitude, 89,3 % de précision,
+80,7 % de rappel et un p95 de 29,6 ms. Six cas restent manqués. Le prochain
+seuil scientifique est un corpus audio annoté provenant de plusieurs églises,
+pas une hausse artificielle du score textuel.
 
 ## Limites honnêtes
 
 - La signature et la notarisation nécessitent des certificats externes.
-- La mise à jour signée ne doit être activée qu'après configuration d'une clé publique et d'un canal de publication.
-- Whisper CPU ajoute environ une fenêtre de latence; il privilégie la robustesse, pas l'instantanéité de Vosk.
+- L'Updater signé est câblé, mais sa chaîne publique dépend encore des secrets
+  de signature et des artefacts publiés dans GitHub Releases.
+- Nemotron exige la bibliothèque native `transcribe.cpp` et un modèle local de
+  716 Mo; Vosk reste le secours si ce runtime n'est pas opérationnel.
 - Les allusions narratives sans mots communs restent difficiles si le top-k local ne contient pas le bon récit.
 - NDI dépend d'un runtime et d'une licence externes; OBS navigateur est la sortie locale garantie.
-- Trente phrases ne remplacent pas un benchmark audio de terrain.
+- Quarante-trois cas textuels de terrain ne remplacent pas plusieurs heures
+  d'audio annoté provenant de salles différentes.
+- L'accès mobile LAN annoncé par le QR code n'est pas encore joignable depuis
+  le paquet desktop lié à loopback.
 
 Les travaux proposés pour lever ces limites sont détaillés dans
 [`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md).

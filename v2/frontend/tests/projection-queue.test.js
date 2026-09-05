@@ -92,3 +92,19 @@ test('le bouton suivant remplace la carte sans la projeter ni toucher au déroul
   assert.equal(state.onAir, null)
   assert.deepEqual(state.preparedVerses, [])
 })
+
+
+test('une correction orale retire le candidat récent mais conserve ce qui a été projeté', () => {
+  useStore.setState({projectionQueue: [
+    {...pending, detectedAt: new Date().toISOString()},
+    {...pending, queueId: 'projected', status: 'projected'},
+    {...pending, queueId: 'old', detectedAt: new Date(Date.now()-60000).toISOString()},
+  ]})
+  useStore.getState().addToProjectionQueue({reference:'Jean 14:6', text:'Je suis le chemin', detection_method:'spoken_revision', requires_review:true, superseded_references:['Jean 3:16']})
+  const rows=useStore.getState().projectionQueue
+  assert.equal(rows[0].status,'rejected')
+  assert.equal(rows[1].status,'projected')
+  assert.equal(rows[2].status,'pending')
+  assert.equal(rows[3].reference,'Jean 14:6')
+  assert.equal(rows[3].requiresReview,true)
+})

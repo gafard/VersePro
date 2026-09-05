@@ -121,6 +121,21 @@
             }
 
             let ws;
+            let lastRenderedScene = null;
+            function confirmRender(data) {
+                if (!data.scene_id) return;
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    lastRenderedScene = data.scene_id;
+                    sendRenderReceipt();
+                }));
+            }
+            function sendRenderReceipt() {
+                if (lastRenderedScene && ws?.readyState === 1 && !document.hidden) {
+                    ws.send(JSON.stringify({type: 'rendered', scene_id: lastRenderedScene, surface: location.pathname.slice(1)}));
+                }
+            }
+            setInterval(sendRenderReceipt, 5000);
+
             function connect() {
                 const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 ws = new WebSocket(`${proto}//${window.location.host}/ws/output` + (new URLSearchParams(location.search).get('canal') === 'preview' ? '?canal=preview' : ''));
@@ -130,6 +145,7 @@
                     // Les événements de progression/traduction ne remplacent pas le verset
                     if (data.type && data.type !== 'scripture') return;
                     render(data);
+                    confirmRender(data);
                 };
                 ws.onclose = () => {
                     connEl.textContent = 'Reconnexion…';

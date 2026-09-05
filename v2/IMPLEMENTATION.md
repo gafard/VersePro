@@ -1,6 +1,6 @@
 # VersePro V2 - Carte d'implémentation
 
-> État de référence : 28 juillet 2026  
+> État de référence : 22 août 2026
 > Ce document décrit le code livré. Les travaux futurs sont isolés dans
 > [`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md).
 
@@ -13,7 +13,7 @@ Microphone
 Web Audio API -> PCM mono 16 kHz -> WebSocket authentifié
    |
    v
-ASR Deepgram / Whisper / Vosk
+ASR Deepgram / Nemotron / Vosk
    |
    v
 Parser explicite -> recherche lexicale -> e5 ONNX -> LLM fermé
@@ -40,20 +40,25 @@ composants comme une application desktop signable.
 | Configuration validée | `backend/app/core/config.py` |
 | Authentification locale | `backend/app/core/security.py` |
 | Transcription cloud | `backend/app/services/deepgram_service.py` |
-| Transcription Whisper | `backend/app/services/whisper_service.py` |
+| Transcription Nemotron | `backend/app/services/nemotron_service.py` |
 | Transcription Vosk | `backend/app/services/vosk_service.py` |
 | Parser et recherche de versets | `backend/app/services/verse_parser.py` |
+| Orchestrateur de référence | `backend/app/services/reference_engine.py` |
+| Recherche manuelle | `backend/app/services/manual_search.py` |
+| Santé de transcription | `backend/app/services/transcription_health.py` |
+| Contexte de passage | `backend/app/services/verse_graph.py` |
 | Embeddings e5 ONNX | `backend/app/services/e5_encoder.py` |
-| Fournisseurs LLM | `backend/app/services/llm_service.py` |
+| Recherche sémantique | `backend/app/services/semantic_search.py` |
+| Fournisseurs LLM | `backend/app/services/ai_service.py` |
 | Orchestration des sorties | `backend/app/outputs/manager.py` |
-| Écran, OBS et scène | `backend/app/outputs/web.py` |
+| Écran, OBS et scène | `backend/app/outputs/browser.py` |
 | ProPresenter, vMix et NDI | `backend/app/outputs/` |
 | Base SQLite | `backend/app/services/database.py` |
 | Secrets système | `backend/app/services/secret_store.py` |
 | Téléchargements vérifiés | `backend/app/services/download_utils.py` |
 | Console React | `frontend/src/components/LiveDetection.jsx` |
 | Paramètres | `frontend/src/components/Settings.jsx` |
-| État global | `frontend/src/store.js` |
+| État global | `frontend/src/store.js` et `frontend/src/stores/` |
 | Shell desktop | `frontend/src-tauri/src/main.rs` |
 
 ## Démarrage desktop
@@ -85,6 +90,17 @@ traitement agressif qui supprimerait une partie de la voix. Le mode `auto`
 essaie Deepgram puis un moteur local déjà préparé ; il ne télécharge jamais un
 modèle silencieusement pendant un culte.
 
+Le chemin local principal est Nemotron 3.5-ASR 0.6B, exécuté par
+`transcribe.cpp`; Vosk reste le repli continu. VoiceGate/Silero VAD a été retiré
+du code et du paquet après avoir bloqué du son réel accompagné de musique. Le
+PCM arrive donc sans porte binaire à l'ASR.
+
+`SanteTranscription` agit plus loin dans la chaîne : un segment final de moins
+de 6 mots ne déclenche pas de recherche sémantique et une moyenne récente sous
+10 mots suspend temporairement les déductions profondes. Les références
+explicites restent analysées. Les seuils sont issus d'enregistrements réels et
+doivent encore être validés sur davantage de salles.
+
 ## Pipeline de détection
 
 ### 1. Référence explicite
@@ -104,6 +120,10 @@ En fin de phrase, deux voies recherchent dans le texte biblique :
 La fusion canonise les références, mesure l'accord des moteurs et vérifie le
 recouvrement des mots. Les index proviennent du corpus biblique local réel.
 
+VerseGraph exploite le chapitre récemment annoncé pour réordonner des allusions
+dans le même récit. Un comparateur global empêche l'ancre de forcer le moins
+mauvais verset d'un chapitre quand le signal biblique est faible.
+
 ### 3. IA de dernier recours
 
 Le LLM ne reçoit pas la Bible entière et ne peut pas inventer une référence. Il
@@ -115,6 +135,18 @@ confiance finale est recalibrée avec le score du candidat local.
 Chaque nouveau transcript augmente la génération courante et annule l'analyse
 précédente. Une réponse tardive d'un embedding ou d'un LLM ne peut donc ni
 écraser la file ni déclencher une projection devenue obsolète.
+
+### 5. Recherche manuelle et plan
+
+`GET /api/v1/bible/search` ne projette rien par lui-même. Il exécute la
+référence explicite, l'index de fragments, e5 et l'assistant en parallèle; le
+budget IA est borné à 5 secondes. L'interface choisit ensuite entre projection
+immédiate et panneau de préparation.
+
+Le déroulé persisté dans `createProjectionSlice.js` est transmis au backend par
+`POST /api/v1/plan`. `ReferenceEngine` l'utilise pour signaler un verset hors
+plan ou départager deux numéros contradictoires du même chapitre. Le plan ne
+contourne jamais la politique de validation sémantique.
 
 ## Politique de direct
 
@@ -143,9 +175,16 @@ Adresses empaquetées :
 
 ```text
 http://127.0.0.1:17871/projection
+http://127.0.0.1:17871/output
 http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent
 http://127.0.0.1:17871/stage
+http://127.0.0.1:17871/follow
 ```
+
+`/projection` reste un alias de compatibilité vers `/output`. Malgré la
+génération d'URL LAN dans l'interface, le sidecar desktop lie actuellement
+Uvicorn à `127.0.0.1`; `/follow` et `/stage` ne sont donc pas encore des écrans
+mobiles distants garantis dans le paquet 2.1.8.
 
 ## Configuration, secrets et modèles
 
@@ -158,7 +197,7 @@ http://127.0.0.1:17871/stage
   confirmé.
 - Les téléchargements refusent les redirections non sûres et vérifient
   taille, type et empreinte lorsque celle-ci est connue.
-- Whisper, Vosk et e5 ne sont préparés qu'après une action utilisateur.
+- Nemotron, Vosk et e5 ne sont préparés qu'après une action utilisateur.
 
 ## Files et persistance
 
@@ -196,8 +235,9 @@ Un nouveau moteur sémantique doit :
 
 ```bash
 cd v2/backend
-venv/bin/python -m pytest -q
+venv/bin/python -m pytest tests -q
 venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
+venv/bin/python benchmarks/replay_lab.py --corpus corpus/ --sans-audio
 
 cd ../frontend
 npm test
@@ -209,16 +249,17 @@ cargo check --locked
 ```
 
 La couverture inclut le parser, les références orales, les allusions, la fusion,
-le LLM fermé, Whisper, Vosk, les téléchargements, les secrets, la scène web, OBS,
-NDI, les commandes de sécurité et le streaming audio WebSocket distant.
+le LLM fermé, Nemotron, Vosk, les téléchargements, les secrets, la scène web,
+OBS, NDI, les commandes de sécurité et le streaming audio WebSocket distant.
 
-Référence vérifiée le 28 juillet 2026 :
+Référence vérifiée le 22 août 2026 :
 
-- 179 tests backend réussis, 4 ignorés ;
-- 4 tests frontend réussis ;
-- 1 test Rust réussi ;
-- benchmark textuel : 30/30, 0 faux positif, p95 18,32 ms ;
-- audits npm et Python : aucune vulnérabilité connue.
+- 313 tests backend réussis, 3 ignorés ;
+- 24 tests frontend réussis et build Vite valide ;
+- tests et contrôle Rust/Tauri réussis avec `--locked` ;
+- benchmark historique : 30/30, précision/rappel 100 %, p95 33,87 ms ;
+- Replay Lab : 43 cas, exactitude 86,1 %, précision 89,3 %, rappel 80,7 %,
+  p95 29,6 ms.
 
 ## Publication
 
@@ -227,6 +268,7 @@ Le workflow Release construit le frontend, le backend et les paquets Tauri. Il
 procédures macOS et Windows sont centralisées dans
 [`../SIGNING.md`](../SIGNING.md).
 
-La prochaine étape de distribution est un canal de mise à jour signé. Elle est
-définie avec ses critères d'acceptation dans
-[`ROADMAP_INNOVATIONS.md`](ROADMAP_INNOVATIONS.md).
+Le plugin Updater Tauri, sa clé publique, le manifeste GitHub Releases et le
+verrou empêchant une installation pendant le direct sont livrés. La publication
+stable dépend encore des secrets de signature et des certificats décrits dans
+[`MISES_A_JOUR.md`](MISES_A_JOUR.md) et [`../SIGNING.md`](../SIGNING.md).

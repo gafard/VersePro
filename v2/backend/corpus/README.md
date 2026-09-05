@@ -1,13 +1,17 @@
 # Corpus de rejeu — conditions réelles d'église
 
-Ce corpus existe pour une raison simple : **VersePro n'a jamais été éprouvé sur
-du vrai son d'église**. Les 30 cas texte du banc historique valident la cascade
-de détection sur des phrases propres — ils ne disent rien de ce qui arrive
-quand un prédicateur parle vite, avec de la réverbération, un micro saturé et
-la musique qui n'est pas encore tout à fait arrêtée.
+Ce corpus existe parce que les 30 phrases propres du banc historique ne disent
+rien de ce qui arrive quand un prédicateur parle vite, avec de la réverbération,
+un micro saturé ou de la musique sous la voix. De vrais enregistrements ont déjà
+révélé plusieurs défauts; leurs extraits textuels sont devenus des cas
+permanents. La prochaine étape est de diversifier les salles et d'annoter un jeu
+audio de validation séparé.
 
 Chaque cas ajouté ici devient un test permanent : ce qui a échoué une fois ne
 peut plus échouer en silence.
+
+État vérifié le 22 août 2026 : 43 cas, 86,1 % d'exactitude, 89,3 % de
+précision, 80,7 % de rappel et six cas manqués en rejeu texte avec e5-base.
 
 ---
 

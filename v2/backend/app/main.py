@@ -386,6 +386,10 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Arrêt de VersePro v2...")
+    from .services.companion import companion
+    await companion.stop()
+    from .api.launch import cleanup_kits
+    await cleanup_kits()
     if osc_service:
         await osc_service.stop()
     if deepgram_service:
@@ -426,6 +430,10 @@ async def access_control_middleware(request, call_next):
 
 # Routes API
 app.include_router(api_router, prefix="/api/v1")
+from .api.launch import router as launch_router
+app.include_router(launch_router, prefix="/api/v1")
+from .api.launch import practice_audio
+app.add_api_websocket_route("/ws/rehearsal", practice_audio)
 
 # Polices du produit servies aux écrans de diffusion. Sans elles, /output et
 # /stage retombent sur la police système : un bandeau se juge d'abord à sa
@@ -595,7 +603,12 @@ async def websocket_output(websocket: WebSocket):
         await browser_driver.register_connection(websocket, canal)
         try:
             while True:
-                await websocket.receive_text()
+                try:
+                    message = json.loads(await websocket.receive_text())
+                    if isinstance(message, dict):
+                        browser_driver.acknowledge(websocket, message)
+                except (ValueError, TypeError):
+                    continue
         except WebSocketDisconnect:
             pass
         finally:
@@ -813,6 +826,20 @@ async def select_bible_version(data: dict):
 # WebSocket principal de réception audio avec Fallback Vosk local
 @app.websocket("/ws/audio")
 async def websocket_audio(websocket: WebSocket):
+    from .api.launch import audio_rehearsal_lock, kit_lock
+    if not websocket_allowed(websocket):
+        await websocket.close(code=1008)
+        return
+    if audio_rehearsal_lock.locked() or kit_lock.locked():
+        await websocket.accept(subprotocol=websocket_subprotocol(websocket))
+        await websocket.send_json({"type": "error", "message": "Arrêtez la répétition ou attendez la fin du kit avant d’ouvrir le micro."})
+        await websocket.close(code=1013)
+        return
+    async with audio_rehearsal_lock:
+        await _websocket_audio_session(websocket)
+
+
+async def _websocket_audio_session(websocket: WebSocket):
     """
     WebSocket pour streaming audio temps réel avec détection et secours local Vosk ultra-rapide.
     """
@@ -1276,6 +1303,8 @@ async def websocket_audio(websocket: WebSocket):
             fusion = ref.get("fusion") or {}
             if ref.get("detection_method") == "explicit":
                 explanation = "Référence biblique prononcée explicitement et vérifiée dans le corpus local."
+            elif ref.get("detection_method") in {"spoken_revision", "local_correction"}:
+                explanation = ref.get("explanation") or "Correction à valider par l’opérateur."
             elif ref.get("detection_method") == "semantic_conflict":
                 conflict = ref.get("explicit_conflict") or {}
                 explanation = (

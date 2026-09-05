@@ -135,17 +135,29 @@ export const createProjectionSlice = (set, get) => {
   addToProjectionQueue: (verse) => set((state) => {
     if (!verse || !verse.reference) return {}
 
+    const superseded = new Set(verse.superseded_references || [])
+    const queue = state.projectionQueue.map((item) => {
+      const age = Date.now() - Date.parse(item.detectedAt)
+      return verse.detection_method === 'spoken_revision' && item.status === 'pending'
+        && superseded.has(item.reference) && age >= 0 && age < 30000
+        ? {...item, status: 'rejected', explanation: `Remplacé par la correction orale ${verse.reference}.`}
+        : item
+    })
+
     // Évite les doublons : si le verset est déjà en attente ("pending"), on met à jour son heure/confiance sans recréer de carte
-    const existingIndex = state.projectionQueue.findIndex(
+    const existingIndex = queue.findIndex(
       (item) => item.status === 'pending' && item.reference.toLowerCase().trim() === verse.reference.toLowerCase().trim()
     )
 
     if (existingIndex !== -1) {
-      const updatedQueue = [...state.projectionQueue]
+      const updatedQueue = [...queue]
       updatedQueue[existingIndex] = {
         ...updatedQueue[existingIndex],
         detectedAt: verse.detected_at || new Date().toISOString(),
         confidence: verse.confidence || updatedQueue[existingIndex].confidence,
+        detectionMethod: verse.detection_method || updatedQueue[existingIndex].detectionMethod,
+        explanation: verse.explanation || updatedQueue[existingIndex].explanation,
+        requiresReview: Boolean(verse.requires_review || updatedQueue[existingIndex].requiresReview),
         detectedFrom: verse.detected_from || verse.transcript || updatedQueue[existingIndex].detectedFrom
       }
       return { projectionQueue: updatedQueue }
@@ -171,7 +183,7 @@ export const createProjectionSlice = (set, get) => {
       status: wasAutoProjected ? 'projected' : 'pending' // 'pending' | 'projected' | 'rejected'
     }
     return {
-      projectionQueue: [...state.projectionQueue, newEntry]
+      projectionQueue: [...queue, newEntry]
     }
   }),
 
