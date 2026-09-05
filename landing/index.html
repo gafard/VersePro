@@ -29,9 +29,9 @@
   "softwareVersion": "2.1.8",
   "inLanguage": "fr",
   "description": "VersePro écoute la prédication, retrouve les références bibliques citées et prépare leur projection en direct. Détection locale, validation humaine avant l'écran, sorties OBS, vMix, NDI et ProPresenter.",
-  "url": "https://versepro-green.vercel.app/",
+  "url": "https://versepro.live/",
   "downloadUrl": "https://github.com/gafard/VersePro/releases/latest",
-  "softwareHelp": "https://versepro-green.vercel.app/assets/GUIDE-UTILISATION.pdf",
+  "softwareHelp": "https://versepro.live/assets/GUIDE-UTILISATION.pdf",
   "offers": {
     "@type": "Offer",
     "price": "0",
@@ -77,10 +77,9 @@
       <div class="hero-copy">
         <p class="eyebrow"><span></span> projection biblique en temps réel</p>
         <p class="hero-wordmark" aria-hidden="true">versepro</p>
-        <h1 class="hero-statement">la Parole apparaît<br>pendant qu’elle se prêche.</h1>
+        <h1 class="hero-statement">les bons versets.<br>au bon moment.</h1>
         <p class="hero-lede">
-          VersePro écoute, retrouve la référence et prépare l’écran. Le régisseur
-          valide. L’assemblée lit. Même quand Internet ne suit plus.
+          VersePro écoute la prédication et prépare les passages. Vous validez, l’assemblée lit. Le mode local fonctionne sans Internet après préparation.
         </p>
         <p class="hero-verse" style="color: #fde68a; font-style: italic; font-size: 13.5px; margin: 12px 0 20px; opacity: 0.95; letter-spacing: 0.2px;">
           « Écris la vision, grave-la sur des tables, afin qu’on la lise couramment. » — <strong style="color: #fbbf24;">Habacuc 2:2</strong>
@@ -89,9 +88,7 @@
           <a class="button button-primary" href="https://github.com/gafard/VersePro/releases/latest" data-auto-download>
             <span data-download-label>télécharger gratuitement</span> <span aria-hidden="true">↓</span>
           </a>
-          <a class="button button-secondary" href="https://github.com/gafard/VersePro/raw/main/docs/GUIDE-UTILISATION.pdf" target="_blank" rel="noreferrer">
-            <span>fiche réflexe (PDF)</span> <span aria-hidden="true">↓</span>
-          </a>
+          <a class="button button-secondary" href="#experience"><span>essayer le geste</span> <span aria-hidden="true">→</span></a>
         </div>
         <div class="hero-meta" aria-label="caractéristiques principales">
           <span>macOS + Windows</span>
@@ -100,16 +97,9 @@
         </div>
       </div>
 
-      <div class="live-chip"><i></i> aperçu en direct</div>
+      <div class="live-chip">vous gardez la main</div>
 
-      <div class="hero-lowerthird" aria-label="aperçu du verset projeté">
-        <div class="wave wave-short" aria-hidden="true"></div>
-        <div class="lowerthird-copy">
-          <p>Car Dieu a tant aimé le monde qu’il a donné son Fils unique…</p>
-          <strong>Jean 3:16 <span>LSG</span></strong>
-        </div>
-      </div>
-
+      <figure class="hero-product"><img src="assets/regie.png" alt="Capture de la régie VersePro : file des propositions à gauche, passage envoyé à droite" width="2800" height="1800"><figcaption>la régie VersePro · capture du guide d’utilisation</figcaption></figure>
       <a class="hero-next" href="#experience">découvrir l’expérience <span aria-hidden="true">↓</span></a>
     </header>
 
@@ -135,37 +125,23 @@
         <figure class="broadcast-stage reveal">
           <img src="assets/pastor-teaching-portrait.jpg" alt="Prédicatrice enseignant avec une Bible ouverte" width="1122" height="1402" loading="lazy">
           <figcaption class="broadcast-caption">
-            <p>« Ta parole est une lampe à mes pieds, et une lumière sur mon sentier. »</p>
-            <strong>Psaume 119:105 <span>LSG</span></strong>
+            <p><span data-demo-output-text>Le passage s’affichera après votre validation.</span></p>
+            <strong data-demo-output-ref>ÉCRAN DE DÉMONSTRATION</strong>
           </figcaption>
-          <div class="broadcast-live"><i></i> direct</div>
+          <div class="broadcast-live">simulation guidée</div>
         </figure>
 
         <div class="prompter reveal" aria-label="simulation d'une transcription en direct">
           <div class="prompter-head">
-            <span>TRANSCRIPT DIRECT</span>
-            <strong><i></i> MICRO ACTIF</strong>
+            <span>EXERCICE GUIDÉ</span>
+            <strong>SIMULATION · SANS MICRO</strong>
           </div>
 
-          <div class="prompter-window" aria-live="polite">
-            <div class="prompter-roll">
-              <p>Nous avançons avec confiance, parce que la lumière nous précède.</p>
-              <p>Et le psalmiste nous rappelle que <mark>ta parole est une lampe à mes pieds</mark>, une lumière sur mon sentier.</p>
-              <p>Elle ne retire pas chaque détour, mais elle éclaire le prochain pas.</p>
-              <p aria-hidden="true">Nous avançons avec confiance, parce que la lumière nous précède.</p>
-            </div>
-          </div>
-
-          <div class="detection">
-            <div>
-              <span>RÉFÉRENCE DÉTECTÉE</span>
-              <strong>Psaume 119:105</strong>
-            </div>
-            <span class="confidence">confiance élevée</span>
-          </div>
-
+          <div class="demo-choices" role="group" aria-label="Choisir une situation"><button type="button" data-demo-case="explicit" aria-pressed="true">référence</button><button type="button" data-demo-case="paraphrase" aria-pressed="false">paraphrase</button><button type="button" data-demo-case="negative" aria-pressed="false">annonce</button></div>
+          <blockquote data-demo-transcript>« Ouvrons Jean, chapitre trois, verset seize. »</blockquote>
+          <div class="detection"><div><span>PROPOSITION</span><strong data-demo-reference>Jean 3:16</strong></div><span class="confidence" data-demo-reason>référence entendue</span></div>
           <div class="wave wave-wide" aria-hidden="true"></div>
-          <div class="prompter-action"><span>suggestion prête</span><button type="button" data-demo-validate>valider <b aria-hidden="true">→</b></button></div>
+          <div class="prompter-action"><span data-demo-status role="status">à vous de valider</span><button type="button" data-demo-validate>valider →</button><button type="button" data-demo-reset>effacer</button></div>
         </div>
       </div>
     </section>
@@ -204,7 +180,7 @@
 
     <section class="proof section-shell" aria-label="capacités de VersePro">
       <div class="proof-item reveal"><strong>31 102</strong><span>versets indexés localement</span></div>
-      <div class="proof-item reveal"><strong>2 + 7</strong><span>traductions livrées, autres importables</span></div>
+      <div class="proof-item reveal"><strong>LSG · KJF</strong><span>deux traductions livrées · autres corpus autorisés importables</span></div>
       <div class="proof-item reveal"><strong>humain</strong><span>validation avant écran</span></div>
     </section>
 
@@ -212,7 +188,7 @@
       <div class="download-copy reveal">
         <p class="eyebrow">03 · disponible gratuitement</p>
         <h2>télécharger.<br>installer. projeter.</h2>
-        <p>VersePro détecte votre système et sélectionne l’installateur compatible. Les autres formats restent accessibles juste à côté.</p>
+        <p>Choisissez la version de votre ordinateur : Windows x64 ou Mac avec puce Apple. Les Mac Intel ne sont pas pris en charge par ce DMG.</p>
         <p class="system-detection" data-system-detection aria-live="polite">détection de votre système…</p>
         <div class="actions">
           <a class="button button-primary" href="https://github.com/gafard/VersePro/releases/latest" data-auto-download><span data-download-label>télécharger VersePro</span> <span aria-hidden="true">↓</span></a>
@@ -267,10 +243,11 @@
 
       <div class="config-box reveal" style="margin: 14px auto 0; max-width: 750px; padding: 18px 22px; border: 1px solid var(--rule); border-radius: 12px; text-align: left; font-size: 13px; color: var(--text-muted); line-height: 1.6;">
         <strong style="font-size: 13.5px; color: var(--text);">Configuration requise</strong>
-        <p style="margin: 6px 0 0;">macOS 12 ou plus récent (puce Apple Silicon) · Windows 10/11 64 bits · <strong>4 Go de RAM libres</strong> · environ 1 Go de disque. Le moteur local charge ses index au démarrage : comptez une vingtaine de secondes au premier lancement.</p>
+        <p style="margin: 6px 0 0;">macOS 12 ou plus récent (puce Apple Silicon) · Windows 10/11 64 bits · <strong>4 Go de RAM libres</strong> · espace supplémentaire pour les modèles locaux (environ 716 Mo pour la voix et 265 Mo pour la recherche, hors installation et fichiers temporaires). Le moteur local charge ses index au démarrage : comptez une vingtaine de secondes au premier lancement.</p>
       </div>
     </section>
 
+    <section class="pilot section-shell" id="pilotes"><h2>préparons votre premier dimanche.</h2><p>Équipes média francophones : testez VersePro sur votre matériel et partagez ce qui vous a aidés ou bloqués.</p><div class="actions"><a class="button button-primary" href="mailto:gnane.gafard@gmail.com?subject=VersePro%20%E2%80%94%20%C3%A9glise%20pilote">participer aux essais</a><a class="button button-secondary" href="assets/VersePro-Kit-Demarrage-Regie.pdf">fiche réflexe (PDF)</a></div></section>
     <section class="support" id="soutenir">
       <div class="support-inner section-shell">
         <div class="support-copy reveal">

@@ -122,7 +122,7 @@ export default function FirstRunWizard({ onDone }) {
       // La configuration ne doit jamais retenir l'onboarding : un backend
       // démarré lentement ne peut pas masquer le bouton « Continuer ».
       await Promise.race([
-        updateSettings({ asr_default_engine: usageMode === 'cloud' ? 'deepgram' : 'nemotron' }),
+        updateSettings({ asr_default_engine: usageMode === 'cloud' ? 'deepgram' : usageMode === 'hybrid' ? 'auto' : 'local_auto' }),
         new Promise(resolve => setTimeout(resolve, 2500))
       ])
     } catch { /* le wizard reste utilisable si la base n'est pas encore prête */ }
@@ -250,7 +250,7 @@ export default function FirstRunWizard({ onDone }) {
   const stepLabel = ['UTILISATION', 'INSTALLATION', 'MICRO', 'PRÊT'][step]
 
   return (
-    <div className="vp-onboarding fixed inset-0 z-[100] flex items-center justify-center p-4 transition-opacity duration-300">
+    <div className="vp-onboarding service-onboarding fixed inset-0 z-[100] flex items-center justify-center p-4 transition-opacity duration-300">
       
       {/* Rayons lumineux 3D d'ambiance (Originkit style) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -271,7 +271,7 @@ export default function FirstRunWizard({ onDone }) {
             </div>
             <div>
               <div className="font-bold text-white tracking-wide text-sm flex items-center gap-2">
-                VersePro <span className="text-[10px] font-mono uppercase bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-md border border-sky-500/30">V2.0</span>
+                VersePro <span className="text-[10px] font-mono uppercase bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-md border border-sky-500/30">2.1.8</span>
               </div>
               <div className="text-[11px] text-slate-400">Assistant de Configuration de Régie</div>
             </div>

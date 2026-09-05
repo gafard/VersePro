@@ -1113,6 +1113,8 @@ class VerseParserService:
         normalized = re.sub(r'(?<=[a-zà-ÿ])-(?=[a-zà-ÿ])', ' ', normalized)
         # Garde : . - pour ne pas dégrader les références déjà bien formatées.
         normalized = re.sub(r'[^a-z0-9à-ÿ\s:\.\-–]', ' ', normalized)
+        # Keep the numeric separator in 3.16, but detach sentence punctuation.
+        normalized = re.sub(r'(?<=[a-zà-ÿ])\.|\.(?![0-9])', ' ', normalized)
         words = normalized.split()
 
         new_words = []

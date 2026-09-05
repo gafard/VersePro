@@ -120,3 +120,12 @@ v2/backend/tmp/
 
 # Essais jetables laissés à la racine du backend pendant l'exploration.
 v2/backend/scratch_test*.py
+
+# Synthetic first-run sample; no sermon recording.
+!v2/backend/data/rehearsal/
+!v2/backend/data/rehearsal/demo-fr.wav
+
+!v2/backend/data/rehearsal/README.md
+
+# Generated PDFs and QA outputs
+output/

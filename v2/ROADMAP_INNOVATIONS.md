@@ -1,6 +1,6 @@
 # Feuille de route VersePro V2
 
-État de référence: 28 juillet 2026.
+État de référence : 22 août 2026, version 2.1.8.
 
 Ce document sépare les améliorations nécessaires pour fiabiliser le produit des
 innovations qui peuvent réellement différencier VersePro. Une idée n'entre pas
@@ -32,60 +32,71 @@ Les principes non négociables restent:
 La V2 possède déjà:
 
 - un paquet desktop Tauri avec backend surveillé;
-- Deepgram, Whisper local et Vosk local;
+- Deepgram, Nemotron 3.5-ASR local et Vosk local;
 - une cascade explicite, lexicale, sémantique ONNX et IA fermée;
 - un mode sûr, un mode ombre et un arrêt d'urgence;
 - des sorties Web, OBS, vMix, ProPresenter et NDI optionnel;
 - une source navigateur OBS autonome;
 - un préflight et une page Paramètres;
 - une file transactionnelle qui attend l'accusé du moteur d'affichage;
-- 179 tests backend, 4 tests frontend et 1 test Rust réussis;
-- un benchmark textuel de 30 cas, sans faux positif, p95 à 18,32 ms.
+- une prévisualisation distincte de l'antenne, un déroulé persistant et un plan
+  de prédication transmis au moteur;
+- l'autocomplétion manuelle, la recherche parallèle et dix versets voisins;
+- un Replay Lab de 43 cas et un corpus extensible par incident;
+- VerseGraph pour le passage ouvert et la détection de contradictions de verset;
+- un Updater Tauri signé, bloqué pendant le direct;
+- 313 tests backend, 24 tests frontend et les contrôles Rust/Tauri réussis;
+- un benchmark historique de 30 cas à 100 %, p95 33,87 ms;
+- un Replay Lab à 86,1 % d'exactitude, 89,3 % de précision et 80,7 % de rappel.
 
 La principale dette n'est donc plus l'absence de fonctions. C'est le manque de
-preuve audio multi-églises et de diagnostic automatique quand les conditions
-réelles changent.
+preuve audio multi-églises, les six cas encore manqués dans Replay Lab, le
+diagnostic automatique et l'accès LAN mobile encore annoncé avant d'être
+réellement exposé par le paquet desktop.
 
 ## Priorités
 
-| Priorité | Initiative | Valeur principale | Complexité | Risque direct |
+| Priorité | Initiative | État | Valeur principale | Complexité |
 |---|---|---|---|---|
-| P0 | Corpus audio et Replay Lab | prouver la robustesse réelle | élevée | faible |
-| P0 | Rapport diagnostic partageable | résoudre une panne sans terminal | moyenne | faible |
-| P0 | Mise à jour signée Tauri | corriger le parc sans réinstaller | moyenne | moyen |
-| P0 | Profils de salle et calibration | démarrage fiable en cinq minutes | moyenne | faible |
-| P1 | Pont OBS WebSocket 5 | contrôler et vérifier OBS nativement | moyenne | moyen |
-| P1 | Course ASR cloud/local | continuité et meilleur délai utile | élevée | moyen |
-| P1 | Accélération ONNX par matériel | réduire CPU, chauffe et latence | moyenne | faible |
-| P1 | Enveloppe de confiance locale | adapter les seuils sans improviser | élevée | moyen |
-| P2 | VerseGraph contextuel | mieux traiter allusions et enchaînements | élevée | moyen |
-| P2 | Sorties bilingues synchronisées | servir les assemblées multilingues | élevée | moyen |
-| P2 | Companion local sécurisé | validation depuis tablette ou Stream Deck | moyenne | moyen |
-| P2 | Apprentissage local des corrections | s'adapter à chaque église | élevée | élevé |
+| P0 | Corpus audio multi-églises | Replay Lab livré, collecte à étendre | prouver la robustesse réelle | élevée |
+| P0 | Rapport diagnostic partageable | à faire | résoudre une panne sans terminal | moyenne |
+| P0 | Accès LAN public séparé | QR présent, listener absent | rendre `/follow` réellement mobile | moyenne |
+| P0 | Profils de salle et calibration | à faire | démarrage fiable en cinq minutes | moyenne |
+| P0 | Chaîne de mise à jour signée | code livré, certificats/terrain à valider | corriger le parc sans réinstaller | moyenne |
+| P1 | Pont OBS WebSocket 5 | à faire | contrôler et vérifier OBS nativement | moyenne |
+| P1 | Course ASR cloud/local | à faire | continuité et meilleur délai utile | élevée |
+| P1 | Santé audio composite | proxy longueur livré | réduire les silences et faux positifs | élevée |
+| P1 | Accélération ONNX par matériel | à faire | réduire CPU, chauffe et latence | moyenne |
+| P2 | VerseGraph enrichi | base livrée | mieux traiter récits et enchaînements | élevée |
+| P2 | Sorties bilingues synchronisées | partiel | servir les assemblées multilingues | élevée |
+| P2 | Companion local sécurisé | lecture seule partielle | validation depuis tablette | moyenne |
+| P2 | Apprentissage local des corrections | à faire | s'adapter à chaque église | élevée |
 
 ## P0 - Fiabilité démontrable
 
 ### 1. Corpus audio multi-églises et Replay Lab
 
-**Problème**
+**État livré**
 
-Le benchmark actuel mesure la cascade textuelle, pas le trajet complet depuis le
-micro. Il ne couvre pas encore les accents, la réverbération, les nappes de
-clavier, les chants rapides, les micros saturés ou les coupures réseau.
+`benchmarks/replay_lab.py` charge les dossiers `corpus/cas`, rejoue le texte ou
+un fichier audio local, capture un incident et compare deux rapports. Le corpus
+compte 43 cas, dont des accents, allusions, débits et négatifs issus du terrain.
+La mesure actuelle est volontairement imparfaite : 86,1 % d'exactitude, 89,3 %
+de précision et 80,7 % de rappel, avec six cas manqués.
 
-**Proposition**
+**Travail restant**
 
-Créer un laboratoire de relecture déterministe:
+Étendre le laboratoire au trajet complet et à un jeu de validation séparé :
 
 - importer un enregistrement autorisé;
 - rejouer le PCM à vitesse réelle ou accélérée dans le même WebSocket que le
   direct;
 - afficher transcript, détections, latences, moteur choisi et sorties;
 - annoter les références attendues et les faux positifs;
-- comparer deux versions de VersePro sur le même culte;
+- comparer deux versions de VersePro sur le même culte, fonction déjà amorcée;
 - exporter un rapport JSON anonymisable.
 
-**Innovation**
+**Valeur différenciante**
 
 Le "jumeau de culte" transforme un incident du dimanche en test de non-régression
 rejouable. C'est plus défendable qu'une promesse générale d'IA révolutionnaire.
@@ -126,25 +137,27 @@ Ajouter dans Paramètres un bouton `Créer un diagnostic` qui produit une archiv
 
 ### 3. Mise à jour signée intégrée
 
-**Problème**
+**État livré**
 
-Les installeurs sont protégés, mais corriger un parc de machines exige encore de
-télécharger et réinstaller une version.
+Le plugin Updater Tauri, la clé publique, l'endpoint GitHub Releases, les
+artefacts signés et le dialogue opérateur sont câblés. L'installation est
+refusée côté interface et côté Rust lorsque le micro ou l'antenne est actif.
 
-**Proposition**
+**Travail restant**
 
-Intégrer le plugin updater Tauri avec:
+Valider la chaîne de publication réelle :
 
 - artefacts de mise à jour signés;
 - endpoint HTTPS;
-- canal stable par défaut et canal bêta explicite;
+- certificats Apple et Windows configurés;
+- canal stable testé sur deux versions successives;
+- canal bêta explicite si le parc le justifie;
 - téléchargement hors culte uniquement;
 - installation après confirmation, jamais pendant une session active;
 - retour arrière documenté au niveau des données.
 
-La documentation Tauri exige une clé publique, des artefacts signés et applique
-HTTPS en production:
-[Tauri Updater](https://v2.tauri.app/plugin/updater/).
+La mise à jour n'est donc plus une innovation à développer, mais une chaîne de
+distribution à exercer et superviser.
 
 **Critères de validation**
 
@@ -152,6 +165,29 @@ HTTPS en production:
 - mise à jour différée quand une session est active;
 - migration et retour arrière testés avec une copie de la base;
 - test réel macOS et Windows avant ouverture du canal stable.
+
+### Accès LAN public séparé
+
+**Problème**
+
+Le QR code calcule correctement l'adresse Wi-Fi/Ethernet, mais le sidecar Tauri
+écoute sur `127.0.0.1`. Le téléphone reçoit donc une URL que le paquet desktop
+n'expose pas sur le réseau.
+
+**Proposition**
+
+- conserver l'API de commande sur loopback avec le jeton éphémère;
+- ouvrir un second listener LAN limité aux pages `/follow`, `/stage`, aux
+  polices et au WebSocket de lecture;
+- afficher l'état du pare-feu et tester réellement l'URL avant de montrer le QR;
+- permettre de désactiver complètement l'écoute LAN.
+
+**Critères de validation**
+
+- téléphone réel testé sur macOS et Windows;
+- aucune route de commande joignable sans jeton depuis le LAN;
+- changement de réseau et adresses multiples gérés sans redémarrage;
+- extinction du listener à la fermeture de VersePro.
 
 ### 4. Profils de salle et calibration
 
@@ -208,7 +244,7 @@ des actions importantes avec confirmation.
 Pendant les passages difficiles, lancer deux voies:
 
 - voie rapide: Deepgram en streaming;
-- voie résiliente: Vosk ou Whisper local;
+- voie résiliente: Nemotron ou Vosk local;
 - arbitre: stabilité des mots, confiance, retard et continuité;
 - fusion: garder les segments finalisés compatibles et signaler les divergences.
 
@@ -253,16 +289,19 @@ un ancien matériel:
 - perte de rappel inférieure à 0,5 point sur le corpus audio;
 - repli CPU automatique après erreur d'initialisation.
 
-### 8. Enveloppe de confiance locale
+### 8. Santé audio composite et enveloppe de confiance
 
 **Concept**
 
-Le mode ombre apprend la distribution des scores d'une salle sans enregistrer le
-contenu. Il produit une enveloppe:
+La version actuelle utilise déjà un signal simple : longueur des segments
+finaux. Il a fortement réduit les faux positifs sur un culte difficile, mais il
+peut confondre prière lente, appel-réponse et mauvais son. La prochaine version
+combine, sans enregistrer le contenu :
 
-- zone sûre;
-- zone à validation;
-- zone bruit probable;
+- longueur et cadence des segments;
+- répétitions et diversité lexicale;
+- stabilité entre partiels et final;
+- saturation, niveau et continuité du signal;
 - dérive par rapport aux cultes précédents.
 
 Le réglage devient une recommandation expliquée: "le seuil actuel aurait produit
@@ -277,7 +316,15 @@ seulement proposer un changement à l'administrateur.
 
 ### 9. VerseGraph contextuel
 
-Construire un graphe local reliant:
+**Base livrée**
+
+VerseGraph ancre un chapitre annoncé, recherche dans ce passage et compare le
+meilleur verset ancré au meilleur candidat global. Le plan de prédication et la
+mémoire des contradictions complètent ce contexte.
+
+**Extension proposée**
+
+Enrichir le graphe local avec:
 
 - versets voisins;
 - citations internes;
@@ -353,11 +400,12 @@ région, abréviations et habitudes du prédicateur.
 
 ### Cycle 1 - Preuve et maintenance
 
-1. Replay Lab minimal;
-2. format d'annotation et premiers cultes autorisés;
+1. étendre Replay Lab à plusieurs églises et figer un jeu de validation;
+2. corriger les six cas terrain encore manqués sans dégrader les négatifs;
 3. diagnostic partageable;
-4. updater signé;
-5. profils de salle.
+4. listener LAN public séparé et testable;
+5. exercer l'Updater signé sur macOS et Windows;
+6. profils de salle.
 
 ### Cycle 2 - Régie connectée
 
@@ -370,7 +418,7 @@ région, abréviations et habitudes du prédicateur.
 ### Cycle 3 - Intelligence contextuelle
 
 1. prototype de course ASR;
-2. VerseGraph sur corpus biblique local;
+2. VerseGraph enrichi en entités et relations;
 3. sorties bilingues;
 4. Companion local;
 5. apprentissage local des corrections.
@@ -403,8 +451,10 @@ Ces valeurs sont des portes de sortie, pas des statistiques déjà atteintes.
 
 ## Décision recommandée
 
-Le meilleur prochain investissement n'est pas un modèle plus gros. C'est le
-couple `Replay Lab + corpus audio multi-églises`. Il rend ensuite chaque autre
-innovation mesurable: nouvelle ASR, accélération ONNX, seuil adaptatif,
-VerseGraph ou traduction. Sans ce socle, les améliorations resteront des
-impressions; avec lui, VersePro peut démontrer exactement ce qu'il fait mieux.
+Le meilleur prochain investissement n'est pas un modèle plus gros. Replay Lab
+existe; il faut maintenant lui donner un corpus audio multi-églises annoté et
+un jeu de validation qui ne sert jamais au réglage. Ce socle rendra chaque
+innovation mesurable : nouvelle ASR, accélération ONNX, santé composite,
+VerseGraph enrichi ou traduction. En parallèle, le listener LAN et le
+diagnostic doivent transformer les promesses visibles dans l'interface en
+capacités réellement vérifiables sur le poste d'une église.

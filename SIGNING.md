@@ -1,10 +1,11 @@
 # Signer VersePro au nom de Selah Studios
 
-Tout le câblage est prêt : dès que les certificats existent et que les secrets
-sont renseignés sur GitHub, les installeurs sortent **signés automatiquement**
-(et notariés côté macOS). Le workflow de publication s'arrête immédiatement si
-un certificat manque : aucun artefact public non signé n'est généré. Les builds
-locaux de développement restent possibles sans certificat.
+Le câblage Tauri et GitHub Actions est prêt. Une release par tag exige la clé de
+signature de l'Updater; sans elle, aucun artefact auto-installable n'est publié.
+Les certificats Apple et Windows restent vivement recommandés mais ne bloquent
+plus techniquement la publication : en leur absence, le workflow émet un
+avertissement et les systèmes peuvent afficher Gatekeeper ou SmartScreen. Un
+workflow manuel peut produire un paquet de test explicitement non signé.
 
 ## macOS — Apple Developer (99 $/an)
 
@@ -60,5 +61,8 @@ variables dans le shell avant de lancer le script.
 - Branding **Selah Studios** : copyright, éditeur, descriptions (tauri.conf,
   Cargo.toml).
 - `release.yml` : signature macOS native Tauri via secrets ; import du
-  certificat Windows + empreinte + horodatage via secrets ; garde bloquant avant
-  build si le certificat requis pour l'OS est absent.
+  certificat Windows + empreinte + horodatage via secrets ; avertissements si
+  un certificat OS manque ; blocage strict si la clé Updater manque lors d'une
+  publication par tag.
+- Updater Tauri : clé publique embarquée, manifeste `latest.json`, artefacts
+  signés et installation interdite pendant le direct.

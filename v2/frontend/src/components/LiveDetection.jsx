@@ -1,3 +1,4 @@
+import DeliveryStatus from './preparation/DeliveryStatus.jsx'
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store.js'
 import { shallow } from 'zustand/shallow'
@@ -930,7 +931,7 @@ export default function LiveDetection({ setActiveTab }) {
             </button>
           </div>
           <span className={`live-card-badge ${accent === 'ai' ? 'is-ai bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold' : 'is-local'} ${isProjected ? 'is-projected-badge' : ''}`}>
-            {isProjected ? 'À l\'antenne' : (accent === 'ai' ? `Paraphrase (${confidencePct ?? 95}%)` : 'Match Exact')}
+            {isProjected ? 'Envoyé à l’écran' : item.detectionMethod === 'spoken_revision' ? 'Correction orale' : item.detectionMethod === 'explicit' ? 'Référence entendue' : accent === 'ai' ? 'Passage suggéré' : 'À vérifier'}
           </span>
         </div>
 
@@ -942,7 +943,7 @@ export default function LiveDetection({ setActiveTab }) {
             aria-valuenow={confidencePct}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Confiance de la détection : ${confidencePct} %`}
+            aria-label={`Score de rapprochement : ${confidencePct} sur 100, non calibré comme probabilité`}
           >
             <span style={{ width: `${Math.max(4, Math.min(100, confidencePct))}%` }} />
           </div>
@@ -953,6 +954,7 @@ export default function LiveDetection({ setActiveTab }) {
         >
           {renderHighlightedVerseText(item.text, item.detectedFrom || currentTranscript, accent === 'ai')}
         </p>
+        {!isProjected && (item.detectedFrom || item.explanation) && <details className="vp-evidence"><summary>Pourquoi ce passage ?</summary><p>{item.explanation || 'Proposition du moteur biblique, à relire avant diffusion.'}</p>{item.detectedFrom && <blockquote>{item.detectedFrom}</blockquote>}</details>}
 
         {/* Quick Verse Navigation & Direct Jump Selector */}
         <div className="flex flex-col gap-1.5 my-1.5 pt-1.5 border-t border-white/5">
@@ -1078,6 +1080,7 @@ export default function LiveDetection({ setActiveTab }) {
 
   return (
     <div className="live-shell">
+      <DeliveryStatus onOpen={() => setFollowModalOpen(true)} />
       {followModalOpen && (
         <FollowModal isOpen={followModalOpen} onClose={() => setFollowModalOpen(false)} />
       )}

@@ -74,6 +74,7 @@ export const createUiSlice = (set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
       })
+      if (!response.ok) throw new Error('Les réglages n’ont pas pu être enregistrés.')
       const data = await response.json()
       set({
         settings: data,

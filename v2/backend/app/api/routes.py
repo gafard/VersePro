@@ -218,7 +218,7 @@ async def preflight_check(probe_cloud: bool = False):
     browser_clients = 0
     if browser:
         try:
-            browser_output = bool(await browser.send_scene(dict(browser.current_scene)))
+            browser_output = bool(browser.enabled)
             browser_clients = len(browser.connections)
         except Exception:
             browser_output = False
@@ -246,8 +246,9 @@ async def preflight_check(probe_cloud: bool = False):
         if cloud_configured
         else ""
     )
+    rendered_clients = browser.delivery_status()["rendered"] if browser and hasattr(browser, "delivery_status") else 0
     output_detail = (
-        f"Moteur prêt · {browser_clients} écran(s) connecté(s)"
+        f"Moteur prêt · {browser_clients} écran(s) connecté(s) · {rendered_clients} rendu(s) confirmé(s)"
         if browser_output
         else "Le moteur d'affichage ne répond pas"
     )
@@ -712,22 +713,12 @@ async def extract_references_from_text(request: ExtractReferencesRequest):
 
     extracted = []
     seen = set()
-
-    lines = [line.strip() for line in request.text.split("\n") if line.strip()]
-    for line in lines:
-        ref = await verse_parser.parse(line, skip_text_search=True)
-        if ref and ref.get("reference") and ref["reference"] not in seen:
-            seen.add(ref["reference"])
-            extracted.append(ref)
-        else:
-            parts = re.split(r'[.;,!?]', line)
-            for part in parts:
-                part = part.strip()
-                if len(part) >= 4:
-                    ref_p = await verse_parser.parse(part, skip_text_search=True)
-                    if ref_p and ref_p.get("reference") and ref_p["reference"] not in seen:
-                        seen.add(ref_p["reference"])
-                        extracted.append(ref_p)
+    for line in request.text.splitlines():
+        references = await verse_parser.parse(line, skip_text_search=True, collect_all=True)
+        for ref in references:
+            if ref.get("verse_start") and ref["reference"] not in seen:
+                seen.add(ref["reference"])
+                extracted.append(ref)
 
     return {"references": extracted, "count": len(extracted)}
 

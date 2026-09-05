@@ -5,9 +5,10 @@ une version plus récente existe, l'opérateur peut la télécharger, la vérifi
 et l'installer depuis l'application. L'installation est refusée tant que le
 micro ou la sortie à l'antenne est actif.
 
-La version 2.0.0 ne contient pas encore l'Updater : elle doit recevoir la
-version 2.1.0 une dernière fois par installation manuelle. Toutes les versions
-postérieures à 2.1.0 pourront ensuite se mettre à jour depuis VersePro.
+L'Updater est présent dans la branche 2.1 et dans la version courante 2.1.8.
+Une installation antérieure à son introduction doit recevoir une version 2.1
+une dernière fois par installation manuelle; les versions suivantes peuvent
+ensuite se mettre à jour depuis VersePro.
 
 ## Clé de signature Updater
 
@@ -53,7 +54,7 @@ installateurs de test sans clé Updater.
 1. Mettre la même version dans `tauri.conf.json`, `Cargo.toml`, `package.json`
    et le backend.
 2. Pousser le commit sur `main` et attendre la réussite de la CI.
-3. Créer puis pousser le tag correspondant, par exemple `v2.1.0`.
+3. Créer puis pousser le tag correspondant, par exemple `v2.1.8`.
 4. Le workflow construit macOS Apple Silicon et Windows x64, publie les
    installateurs et génère `latest.json` dans la GitHub Release.
 

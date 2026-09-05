@@ -24,6 +24,7 @@ LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 PUBLIC_PATHS = {
     "/", "/health", "/projection", "/output", "/obs", "/follow", "/stage",
     "/ws/projection", "/ws/output",
+    "/api/v1/offline-kit/download",
     "/api/v1/bibles", "/api/v1/bibles/catalogue", "/api/v1/bibles/imported"
 }
 

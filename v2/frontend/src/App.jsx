@@ -12,8 +12,10 @@ import LaunchIntro from './components/LaunchIntro.jsx'
 import CloseGuard from './components/CloseGuard.jsx'
 import MicButton from './components/MicButton.jsx'
 import UpdateManager from './components/UpdateManager.jsx'
+const ServiceDesk = React.lazy(() => import('./components/ServiceDesk.jsx'))
 
 const NAV_ITEMS = [
+  { id: 'prepare', label: 'Préparer mon culte', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4m8-4v4M4 11h16m-12 4h8"/></svg> },
   {
     id: 'live',
     label: 'Régie live',
@@ -94,16 +96,14 @@ class ErrorBoundary extends React.Component {
 }
 
 function App() {
-  const [showLaunchIntro, setShowLaunchIntro] = useState(() => {
-    try { return localStorage.getItem('versepro_launch_intro_seen') !== 'true' } catch { return true }
-  })
+  const [showLaunchIntro, setShowLaunchIntro] = useState(false)
   const closeLaunchIntro = useCallback(() => {
     try { localStorage.setItem('versepro_launch_intro_seen', 'true') } catch { /* stockage privé */ }
     setShowLaunchIntro(false)
   }, [])
 
   // Reprend l'onglet de la dernière session : l'opérateur retrouve sa régie, pas la page d'accueil
-  const [activeTab, setActiveTabState] = useState(() => localStorage.getItem('versepro_last_tab') || 'home')
+  const [activeTab, setActiveTabState] = useState(() => localStorage.getItem('versepro_last_tab') || 'prepare')
   const setActiveTab = (tab) => {
     localStorage.setItem('versepro_last_tab', tab)
     setActiveTabState(tab)
@@ -149,9 +149,7 @@ function App() {
   }[displayedEngine] || { label: 'ASR automatique', local: false }
   
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [firstRun, setFirstRun] = useState(() => {
-    try { return localStorage.getItem('versepro_first_run_done') !== 'true' } catch { return false }
-  })
+  const [firstRun, setFirstRun] = useState(false)
   const [clock, setClock] = useState(() => new Date())
 
   useEffect(() => {
@@ -200,6 +198,7 @@ function App() {
   // Libellé de l'onglet actif
   const getTabLabel = () => {
     switch (activeTab) {
+      case 'prepare': return 'Préparation du culte'
       case 'live': return 'Régie en direct'
       case 'history': return 'Historique & Rapports'
       case 'statistics': return 'Statistiques d\'activité'
@@ -301,6 +300,7 @@ function App() {
         )}
 
         <ErrorBoundary>
+          {activeTab === 'prepare' && <Suspense fallback={<p className="p-6">Ouverture de la préparation…</p>}><ServiceDesk onConfigure={() => setFirstRun(true)} onLive={() => setActiveTab('live')} /></Suspense>}
           {activeTab === 'home' && <LandingPage setActiveTab={setActiveTab} />}
           {activeTab === 'live' && (
             <div className="app-live-page p-6 animate-slide-up flex-1">

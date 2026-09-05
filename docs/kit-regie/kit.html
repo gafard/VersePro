@@ -1,0 +1,448 @@
+<!doctype html>
+<!-- Hallmark · artifact: operational handbook · genre: modern-minimal
+     theme: VersePro control-room print · audience: volunteer media teams
+     Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>VersePro - Kit de démarrage régie et checklist culte</title>
+<style>
+  @font-face { font-family: "Space Grotesk"; font-weight: 500; src: url("../../v2/frontend/node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Space Grotesk"; font-weight: 700; src: url("../../v2/frontend/node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Geist Sans"; font-weight: 400; src: url("../../v2/frontend/node_modules/@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Geist Sans"; font-weight: 500; src: url("../../v2/frontend/node_modules/@fontsource/geist-sans/files/geist-sans-latin-500-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Geist Sans"; font-weight: 600; src: url("../../v2/frontend/node_modules/@fontsource/geist-sans/files/geist-sans-latin-600-normal.woff2") format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url("../../v2/frontend/node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-weight: 600; src: url("../../v2/frontend/node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+
+  :root {
+    --font-display: "Space Grotesk", Arial, sans-serif;
+    --font-body: "Geist Sans", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
+    --color-paper: oklch(98% 0.004 255);
+    --color-paper-2: oklch(95% 0.006 255);
+    --color-paper-3: oklch(91% 0.008 255);
+    --color-ink: oklch(18% 0.016 260);
+    --color-ink-2: oklch(36% 0.015 260);
+    --color-muted: oklch(52% 0.012 260);
+    --color-rule: oklch(82% 0.012 260);
+    --color-dark: oklch(12% 0.014 265);
+    --color-dark-2: oklch(17% 0.015 265);
+    --color-white: oklch(98% 0.004 255);
+    --color-orange: oklch(70% 0.18 50);
+    --color-orange-soft: oklch(94% 0.045 60);
+    --color-blue: oklch(62% 0.17 245);
+    --color-blue-soft: oklch(94% 0.035 245);
+    --color-green: oklch(61% 0.13 155);
+    --color-green-soft: oklch(94% 0.035 155);
+    --color-red: oklch(57% 0.18 25);
+    --color-red-soft: oklch(94% 0.045 25);
+    --color-amber: oklch(66% 0.15 78);
+    --color-amber-soft: oklch(95% 0.05 82);
+    --color-shadow: oklch(12% 0.014 265 / 0.18);
+    --space-1: 1.5mm;
+    --space-2: 2.5mm;
+    --space-3: 4mm;
+    --space-4: 6mm;
+    --space-5: 9mm;
+    --radius: 2mm;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--color-paper-3); overflow-x: clip; }
+  body { color: var(--color-ink-2); font-family: var(--font-body); font-size: 9.6pt; line-height: 1.46; }
+  @page { size: A4; margin: 0; }
+
+  .page {
+    width: 210mm;
+    height: 296mm;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 13mm 15mm 11mm;
+    background: var(--color-paper);
+    page-break-after: always;
+  }
+  .page:last-child { page-break-after: auto; }
+  .page::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(var(--color-paper-2) 1px, transparent 1px),
+      linear-gradient(90deg, var(--color-paper-2) 1px, transparent 1px);
+    background-size: 14mm 14mm;
+    opacity: 0.42;
+  }
+  .page > * { position: relative; }
+
+  h1, h2, h3, h4 { color: var(--color-ink); font-family: var(--font-display); font-style: normal; letter-spacing: 0; }
+  h1 { font-size: 38pt; line-height: 0.98; font-weight: 700; }
+  h2 { font-size: 24pt; line-height: 1.04; font-weight: 700; margin-bottom: var(--space-2); }
+  h3 { font-size: 13pt; line-height: 1.15; font-weight: 700; }
+  h4 { font-size: 10pt; line-height: 1.2; font-weight: 700; }
+  p { margin-bottom: var(--space-2); }
+  strong { color: var(--color-ink); font-weight: 600; }
+  code, .mono, kbd { font-family: var(--font-mono); }
+  code { color: var(--color-red); font-size: 8.2pt; overflow-wrap: anywhere; }
+  kbd {
+    display: inline-block;
+    padding: 0.3mm 1.4mm;
+    border: 1px solid var(--color-rule);
+    border-bottom-width: 1.5px;
+    border-radius: 1.3mm;
+    color: var(--color-ink);
+    background: var(--color-paper);
+    font-size: 7.6pt;
+    line-height: 1.45;
+  }
+  ul { padding-left: 4.5mm; }
+  li { margin-bottom: 1.2mm; }
+
+  .eyebrow {
+    color: var(--color-orange);
+    font-family: var(--font-mono);
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .lede { color: var(--color-ink-2); font-size: 11pt; line-height: 1.45; max-width: 69ch; }
+  .subtle { color: var(--color-muted); }
+  .brand { display: flex; align-items: center; gap: 2.2mm; font-family: var(--font-display); font-size: 13pt; font-weight: 700; color: var(--color-ink); }
+  .brand-mark { width: 9mm; height: 3.2mm; border: 1.5px solid var(--color-ink); border-radius: 1mm; position: relative; }
+  .brand-mark::after { content: ""; position: absolute; width: 4mm; height: 1.4mm; left: 2.2mm; top: 0.65mm; background: var(--color-orange); }
+  .topline { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--space-5); }
+  .version { color: var(--color-muted); font-family: var(--font-mono); font-size: 7pt; letter-spacing: 0.08em; text-transform: uppercase; }
+  .footer {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-rule);
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 6.7pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .accent { color: var(--color-orange); }
+  .rule { width: 22mm; height: 1.2mm; background: var(--color-orange); margin: var(--space-3) 0; }
+  .shot {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius);
+    background: var(--color-dark);
+    box-shadow: 0 4mm 10mm var(--color-shadow);
+  }
+  .shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .shot.contain img { object-fit: contain; }
+  .caption { margin-top: var(--space-1); color: var(--color-muted); font-family: var(--font-mono); font-size: 6.8pt; letter-spacing: 0.06em; text-transform: uppercase; }
+  .pin {
+    position: absolute;
+    width: 6.5mm;
+    height: 6.5mm;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-white);
+    background: var(--color-orange);
+    border: 1.3mm solid var(--color-white);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    font-size: 7pt;
+    font-weight: 600;
+    box-shadow: 0 1mm 3mm var(--color-shadow);
+  }
+
+  .cover .topline { margin-bottom: 15mm; }
+  .cover-title { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 8mm; align-items: end; }
+  .cover h1 span { display: block; color: var(--color-orange); }
+  .cover-note { border-left: 1.5mm solid var(--color-orange); padding-left: 5mm; font-size: 10pt; }
+  .cover-shot { height: 103mm; margin-top: 11mm; }
+  .route { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 8mm; border-top: 1px solid var(--color-rule); border-bottom: 1px solid var(--color-rule); }
+  .route-item { min-width: 0; padding: 4mm 3mm; border-right: 1px solid var(--color-rule); }
+  .route-item:last-child { border-right: 0; }
+  .route-n { display: block; color: var(--color-orange); font-family: var(--font-mono); font-size: 7pt; margin-bottom: 1mm; }
+  .route-item strong { display: block; font-size: 8.7pt; overflow-wrap: anywhere; }
+
+  .preflight-visual { height: 77mm; margin: 4mm 0 5mm; }
+  .preflight-visual img { object-position: center top; }
+  .pin-audio { left: 8%; top: 25%; }
+  .pin-safe { left: 9%; top: 47%; }
+  .pin-queue { left: 44%; top: 28%; }
+  .pin-output { right: 9%; top: 32%; }
+  .legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2mm; margin-bottom: 5mm; }
+  .legend div { display: flex; gap: 1.5mm; align-items: flex-start; min-width: 0; font-size: 7.6pt; line-height: 1.35; }
+  .legend b { flex: 0 0 auto; display: flex; width: 4.8mm; height: 4.8mm; align-items: center; justify-content: center; border-radius: 50%; color: var(--color-white); background: var(--color-orange); font-family: var(--font-mono); font-size: 6.4pt; }
+  .check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; }
+  .check-block { border-top: 2px solid var(--color-ink); padding-top: 2.5mm; min-width: 0; }
+  .check-head { display: flex; gap: 2mm; align-items: center; margin-bottom: 1.5mm; }
+  .check-box { flex: 0 0 auto; width: 4mm; height: 4mm; border: 1.2px solid var(--color-ink); border-radius: 0.8mm; }
+  .check-block ul { font-size: 8.3pt; line-height: 1.35; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { padding: 2.2mm 2mm; border-bottom: 2px solid var(--color-ink); color: var(--color-muted); font-family: var(--font-mono); font-size: 6.7pt; font-weight: 600; letter-spacing: 0.07em; text-align: left; text-transform: uppercase; }
+  td { padding: 2.6mm 2mm; border-bottom: 1px solid var(--color-rule); vertical-align: top; font-size: 8.4pt; line-height: 1.35; }
+  td:first-child { color: var(--color-ink); font-weight: 600; }
+  .direct-shot { height: 83mm; margin: 4mm 0 5mm; }
+  .direct-shot img { object-position: center top; }
+  .decision-band { display: grid; grid-template-columns: 34mm minmax(0, 1fr); align-items: stretch; margin-top: 4mm; border: 1px solid var(--color-rule); border-radius: var(--radius); overflow: hidden; }
+  .decision-band strong { display: flex; align-items: center; padding: 4mm; color: var(--color-white); background: var(--color-dark); font-family: var(--font-mono); font-size: 7.3pt; text-transform: uppercase; }
+  .decision-band p { margin: 0; padding: 4mm; background: var(--color-orange-soft); font-size: 8.7pt; }
+
+  .shortcut-layout { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: 7mm; align-items: start; }
+  .key-list { border-top: 2px solid var(--color-ink); }
+  .key-row { display: grid; grid-template-columns: 34mm minmax(0, 1fr); gap: 3mm; align-items: center; padding: 2.2mm 0; border-bottom: 1px solid var(--color-rule); }
+  .key-row div:first-child { white-space: nowrap; }
+  .key-row p { margin: 0; font-size: 8.4pt; }
+  .panic {
+    padding: 5mm;
+    color: var(--color-white);
+    background: var(--color-red);
+    border-radius: var(--radius);
+    margin-bottom: 4mm;
+  }
+  .panic .eyebrow { color: var(--color-white); opacity: 0.8; }
+  .panic h3 { color: var(--color-white); font-size: 18pt; margin-bottom: 2mm; }
+  .panic ol { padding-left: 5mm; font-size: 8.6pt; }
+  .panic li { margin-bottom: 1.2mm; }
+  .safe-note { border-left: 1.5mm solid var(--color-green); padding: 3mm 0 3mm 4mm; background: var(--color-green-soft); }
+  .safe-note p { margin: 0; font-size: 8.6pt; }
+  .prepare-shot { height: 64mm; margin-top: 5mm; }
+  .prepare-shot img { object-position: center top; }
+
+  .output-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 5mm; margin: 4mm 0 5mm; }
+  .projection-shot, .qr-shot { height: 73mm; }
+  .projection-shot img { object-position: center 49%; }
+  .qr-shot img { object-position: center center; }
+  .status { display: inline-flex; align-items: center; gap: 1mm; font-family: var(--font-mono); font-size: 6.5pt; font-weight: 600; white-space: nowrap; }
+  .status::before { content: ""; width: 2mm; height: 2mm; border-radius: 50%; background: currentColor; }
+  .is-good { color: var(--color-green); }
+  .is-option { color: var(--color-amber); }
+  .is-lab { color: var(--color-red); }
+  .network-warning { display: grid; grid-template-columns: 30mm minmax(0, 1fr); margin-top: 4mm; border: 1px solid var(--color-red); border-radius: var(--radius); overflow: hidden; }
+  .network-warning h3 { display: flex; align-items: center; padding: 4mm; color: var(--color-white); background: var(--color-red); font-family: var(--font-mono); font-size: 8pt; text-transform: uppercase; }
+  .network-warning div { padding: 4mm; background: var(--color-red-soft); }
+  .network-warning p { margin: 0; font-size: 8.6pt; }
+  .url-line { display: block; padding: 2mm 2.5mm; margin-top: 1.5mm; border: 1px solid var(--color-rule); border-radius: 1.3mm; color: var(--color-blue); background: var(--color-paper); font-family: var(--font-mono); font-size: 7.2pt; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+
+<section class="page cover">
+  <div class="topline">
+    <div class="brand"><span class="brand-mark"></span>versepro</div>
+    <span class="version">Kit officiel · v2.1.8 · 23.08.2026</span>
+  </div>
+  <div class="cover-title">
+    <div>
+      <div class="eyebrow">Régie du dimanche matin</div>
+      <h1>kit de<br>démarrage<span>&amp; checklist culte.</span></h1>
+      <div class="rule"></div>
+    </div>
+    <p class="cover-note"><strong>Pour l'équipe média et les régisseurs bénévoles.</strong><br>
+      Les gestes essentiels avant le culte, les réflexes en direct et la procédure
+      d'urgence, vérifiés dans l'application actuelle.</p>
+  </div>
+  <figure>
+    <div class="shot cover-shot"><img src="img/regie-recherche.png" alt="Régie VersePro avec recherche et déroulé préparé"></div>
+    <figcaption class="caption">La régie actuelle : déroulé à gauche, validation au centre, préparation et antenne à droite.</figcaption>
+  </figure>
+  <div class="route">
+    <div class="route-item"><span class="route-n">01</span><strong>Brancher les sorties</strong></div>
+    <div class="route-item"><span class="route-n">02</span><strong>Tester le micro</strong></div>
+    <div class="route-item"><span class="route-n">03</span><strong>Charger le déroulé</strong></div>
+    <div class="route-item"><span class="route-n">04</span><strong>Activer le mode sûr</strong></div>
+  </div>
+  <div class="footer"><span>Selah Studios · VersePro</span><span>Kit régie · 01</span></div>
+</section>
+
+<section class="page">
+  <div class="topline">
+    <div class="brand"><span class="brand-mark"></span>versepro</div>
+    <span class="version">J - 30 min</span>
+  </div>
+  <div class="eyebrow">01 · checklist pré-vol</div>
+  <h2>quatre contrôles. pas de surprise.</h2>
+  <p class="lede">Ouvrez la régie, puis avancez de gauche à droite. Ne démarrez le micro qu'après le contrôle avant direct.</p>
+  <figure>
+    <div class="shot preflight-visual">
+      <img src="img/regie-prevol.png" alt="Régie VersePro vide avant le culte">
+      <span class="pin pin-audio">1</span>
+      <span class="pin pin-safe">4</span>
+      <span class="pin pin-queue">3</span>
+      <span class="pin pin-output">2</span>
+    </div>
+    <figcaption class="caption">Les quatre zones à vérifier avant l'arrivée de l'assemblée.</figcaption>
+  </figure>
+  <div class="legend">
+    <div><b>1</b><span>Micro et vu-mètre</span></div>
+    <div><b>2</b><span>Écran public et sortie</span></div>
+    <div><b>3</b><span>Déroulé du culte</span></div>
+    <div><b>4</b><span>Mode sûr et urgence</span></div>
+  </div>
+  <div class="check-grid">
+    <section class="check-block">
+      <div class="check-head"><span class="check-box"></span><h3>1. Audio</h3></div>
+      <ul>
+        <li><strong>Paramètres > Audio</strong> : choisir l'entrée de la table ou de la carte son.</li>
+        <li>Choisir <strong>Signal brut</strong>, <strong>Parole</strong> ou <strong>Église avec musique</strong>.</li>
+        <li>Les LED doivent bouger, rester surtout vertes ou jaunes, sans rouge continu.</li>
+        <li>Aucune alerte « AUCUN signal depuis 8 s ».</li>
+      </ul>
+    </section>
+    <section class="check-block">
+      <div class="check-head"><span class="check-box"></span><h3>2. Sortie</h3></div>
+      <ul>
+        <li>Brancher le projecteur en <strong>Bureau étendu</strong>.</li>
+        <li><strong>Avant le culte > Écran Secours</strong>, puis plein écran dans le navigateur.</li>
+        <li>Pour OBS/vMix, ouvrir <strong>Source OBS/vMix</strong> et tester la source locale.</li>
+        <li>NDI est optionnel et désactivé par défaut.</li>
+      </ul>
+    </section>
+    <section class="check-block">
+      <div class="check-head"><span class="check-box"></span><h3>3. Plan et Bible</h3></div>
+      <ul>
+        <li><strong>Paramètres > Avancé</strong> : extraire les versets des notes du sermon.</li>
+        <li>Cliquer sur <strong>Ajouter tous au déroulé</strong>, puis vérifier l'ordre.</li>
+        <li>Choisir une traduction installée. LSG et KJF sont livrées ; les autres sont ajoutées localement.</li>
+      </ul>
+    </section>
+    <section class="check-block">
+      <div class="check-head"><span class="check-box"></span><h3>4. Sécurité</h3></div>
+      <ul>
+        <li>Ouvrir <strong>Contrôle avant direct</strong> et corriger les éléments bloquants.</li>
+        <li>Garder le <strong>Mode sûr</strong> pour imposer une validation humaine.</li>
+        <li>Projeter un verset test, l'effacer, puis repérer <strong>Arrêt d'urgence</strong>.</li>
+      </ul>
+    </section>
+  </div>
+  <div class="footer"><span>VersePro · pré-vol</span><span>Kit régie · 02</span></div>
+</section>
+
+<section class="page">
+  <div class="topline">
+    <div class="brand"><span class="brand-mark"></span>versepro</div>
+    <span class="version">Pendant la prédication</span>
+  </div>
+  <div class="eyebrow">02 · fiche réflexe en direct</div>
+  <h2>voir. vérifier. projeter.</h2>
+  <p class="lede">La file centrale est la zone de décision. Le déroulé reste à gauche ; l'aperçu et ce qui est réellement à l'antenne restent à droite.</p>
+  <figure>
+    <div class="shot direct-shot"><img src="img/regie-recherche.png" alt="Recherche manuelle VersePro et propositions bibliques"></div>
+    <figcaption class="caption">Recherche par fragment : six propositions, navigation clavier, projection ou préparation.</figcaption>
+  </figure>
+  <table aria-label="Situations en direct">
+    <thead><tr><th>Situation</th><th>Ce que fait VersePro</th><th>Réflexe régisseur</th></tr></thead>
+    <tbody>
+      <tr><td>Référence claire</td><td>Le parser explicite ajoute le passage à la file.</td><td>Relire, puis <strong>Projeter</strong>. En mode automatique, surveiller aussitôt l'écran.</td></tr>
+      <tr><td>Avancer ou reculer</td><td>Jusqu'à dix versets voisins apparaissent sous la recherche.</td><td>Cliquer sur le numéro voulu. L'envoi est immédiat.</td></tr>
+      <tr><td>Paraphrase ou récit</td><td>L'index local ou l'IA peut proposer un passage. Une suggestion peut être absente ou imparfaite.</td><td>Lire le texte biblique avant toute projection.</td></tr>
+      <tr><td>Recherche urgente</td><td>Suggestions locales dès deux caractères ; sémantique à partir de deux mots.</td><td><kbd>↑</kbd> <kbd>↓</kbd> puis <kbd>Entrée</kbd>, ou cliquer sur <strong>Projeter</strong>.</td></tr>
+      <tr><td>Verset planifié</td><td>La référence est conservée dans le déroulé à gauche.</td><td>Cliquer sur sa ligne pour l'envoyer.</td></tr>
+      <tr><td>ProPresenter hors ligne</td><td>La régie affiche « Projection locale active ».</td><td>Continuer avec l'<strong>Écran Secours</strong>.</td></tr>
+    </tbody>
+  </table>
+  <div class="decision-band">
+    <strong>Règle IA</strong>
+    <p><strong>Une suggestion n'est jamais une certitude.</strong> Le badge sémantique signale une piste de recherche, pas une validation théologique ni une référence sûre.</p>
+  </div>
+  <div class="footer"><span>VersePro · direct</span><span>Kit régie · 03</span></div>
+</section>
+
+<section class="page">
+  <div class="topline">
+    <div class="brand"><span class="brand-mark"></span>versepro</div>
+    <span class="version">Clavier et urgence</span>
+  </div>
+  <div class="eyebrow">03 · commandes essentielles</div>
+  <h2>les mains restent sur la régie.</h2>
+  <div class="shortcut-layout">
+    <section>
+      <h3 style="margin-bottom:3mm;">Raccourcis vérifiés</h3>
+      <div class="key-list">
+        <div class="key-row"><div><kbd>Cmd K</kbd> <kbd>Ctrl K</kbd></div><p>Ouvrir la palette biblique unifiée.</p></div>
+        <div class="key-row"><div><kbd>/</kbd></div><p>Placer le curseur dans la recherche manuelle.</p></div>
+        <div class="key-row"><div><kbd>↑</kbd> <kbd>↓</kbd></div><p>Naviguer dans la file ou les suggestions.</p></div>
+        <div class="key-row"><div><kbd>Espace</kbd> <kbd>Entrée</kbd></div><p>Projeter la carte active. Dans la recherche, <kbd>Entrée</kbd> projette la sélection.</p></div>
+        <div class="key-row"><div><kbd>P</kbd></div><p>Monter la détection sélectionnée dans l'aperçu.</p></div>
+        <div class="key-row"><div><kbd>T</kbd></div><p>Envoyer l'aperçu à l'antenne.</p></div>
+        <div class="key-row"><div><kbd>Échap</kbd></div><p>Rejeter la carte active ; dans la recherche, fermer les suggestions.</p></div>
+        <div class="key-row"><div><kbd>Cmd Z</kbd> <kbd>Ctrl Z</kbd></div><p>Revenir à la projection précédente, hors champ de saisie.</p></div>
+      </div>
+    </section>
+    <section>
+      <div class="panic">
+        <div class="eyebrow">Si quelque chose part mal</div>
+        <h3>Arrêt d'urgence</h3>
+        <ol>
+          <li>arrête le micro et l'enregistrement ;</li>
+          <li>coupe les automatismes ;</li>
+          <li>réactive le mode sûr ;</li>
+          <li>efface les sorties publiques.</li>
+        </ol>
+      </div>
+      <div class="safe-note">
+        <h4>Mode sûr</h4>
+        <p>Il interdit la diffusion et l'avance automatiques. Chaque référence exige un geste humain. Activer « Diffusion en direct » désactive ce mode.</p>
+      </div>
+    </section>
+  </div>
+  <figure>
+    <div class="shot prepare-shot"><img src="img/regie-preparation.png" alt="VersePro avec un verset en préparation et un verset à l'antenne"></div>
+    <figcaption class="caption">À droite : l'aperçu doré ne touche pas la salle avant « Envoyer à l'antenne ». La carte rouge montre le direct réel.</figcaption>
+  </figure>
+  <div class="decision-band">
+    <strong>À retenir</strong>
+    <p><strong>Le bouton Préparer charge l'aperçu.</strong> Il n'ajoute pas automatiquement la référence au déroulé. Dans la recherche, <kbd>Entrée</kbd> projette par défaut.</p>
+  </div>
+  <div class="footer"><span>VersePro · raccourcis</span><span>Kit régie · 04</span></div>
+</section>
+
+<section class="page">
+  <div class="topline">
+    <div class="brand"><span class="brand-mark"></span>versepro</div>
+    <span class="version">Sorties et réseau · v2.1.8</span>
+  </div>
+  <div class="eyebrow">04 · écrans, obs, ndi et mobile</div>
+  <h2>savoir ce qui est vraiment joignable.</h2>
+  <p class="lede">Les sorties navigateur locales sont la voie de secours universelle. Le QR existe dans l'interface, mais l'accès distant demande encore une évolution du serveur desktop.</p>
+  <div class="output-grid">
+    <figure>
+      <div class="shot projection-shot"><img src="img/reglages-projection.png" alt="Aperçu du lower-third VersePro"></div>
+      <figcaption class="caption">Projection et lower-third : rendu exact avant diffusion.</figcaption>
+    </figure>
+    <figure>
+      <div class="shot qr-shot"><img src="img/qr-mobile.png" alt="QR code des écrans mobiles VersePro"></div>
+      <figcaption class="caption">Le QR est visible, mais reste expérimental en 2.1.8.</figcaption>
+    </figure>
+  </div>
+  <table aria-label="Sorties VersePro">
+    <thead><tr><th>Usage</th><th>Adresse ou source</th><th>État</th></tr></thead>
+    <tbody>
+      <tr><td>Console opérateur</td><td>Application VersePro</td><td><span class="status is-good">Opérationnel</span></td></tr>
+      <tr><td>Écran public local</td><td><code>http://127.0.0.1:17871/output</code></td><td><span class="status is-good">Même ordinateur</span></td></tr>
+      <tr><td>Retour scène local</td><td><code>http://127.0.0.1:17871/stage</code></td><td><span class="status is-good">Même ordinateur</span></td></tr>
+      <tr><td>OBS / vMix</td><td><code>http://127.0.0.1:17871/obs?theme=lower-third&amp;bg=transparent</code></td><td><span class="status is-good">Source navigateur</span></td></tr>
+      <tr><td>NDI</td><td>Source <strong>VersePro</strong></td><td><span class="status is-option">Optionnel</span></td></tr>
+      <tr><td>Assemblée / scène distante</td><td><code>/follow</code> et <code>/stage</code> par IP locale</td><td><span class="status is-lab">Expérimental</span></td></tr>
+    </tbody>
+  </table>
+  <div class="network-warning">
+    <h3>Attention réseau</h3>
+    <div>
+      <p>Dans l'application desktop 2.1.8, le backend écoute sur <code>127.0.0.1</code>. Remplacer cette adresse par l'IP du PC ou scanner le QR ne suffit pas encore pour un téléphone. Le partage mobile sera fiable après livraison d'un listener LAN séparé et protégé par jeton.</p>
+      <span class="url-line">Sortie de secours sûre : http://127.0.0.1:17871/output</span>
+    </div>
+  </div>
+  <div class="footer"><span>VersePro · sorties</span><span>Kit régie · 05</span></div>
+</section>
+
+</body>
+</html>

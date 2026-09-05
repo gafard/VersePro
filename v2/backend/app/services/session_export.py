@@ -31,6 +31,19 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape
 
+def vers_carnet(session: Dict[str, Any], versets: List[Dict[str, Any]]) -> str:
+    """Portable, printable reading notebook; never embeds executable sermon text."""
+    from html import escape as html_escape
+    def clean(value):
+        return html_escape(str(value or ""), quote=True)
+    projected = [v for v in versets if v.get("sent_to_propresenter")]
+    cards = "".join(f'<article><small>{clean(_horodatage(v.get("detected_at")))}</small><h2>{clean(v.get("reference"))}</h2><p>{clean(v.get("text"))}</p></article>' for v in projected)
+    if not cards:
+        cards = '<p>Aucun passage marqué comme envoyé dans cette session.</p>'
+    summary = clean(session.get("summary"))
+    summary_html = f'<section><h2>Résumé à relire par l’équipe</h2><p class="summary">{summary}</p></section>' if summary else ''
+    return f'''<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{clean(session.get("name") or "Carnet du culte")}</title><style>body{{font:18px/1.7 system-ui,sans-serif;max-width:760px;padding:32px;margin:auto;color:#202126;background:#fafafa}}h1{{font-size:clamp(28px,6vw,48px);line-height:1.1}}article{{border-top:1px solid #ccc;padding:24px 0;break-inside:avoid}}h2{{font-size:22px}}small{{color:#62636b}}.summary{{white-space:pre-wrap}}@media print{{body{{background:white;padding:0}}}}</style><header><small>VERSEPRO · {clean(str(session.get("started_at") or "")[:10])}</small><h1>{clean(session.get("name") or "Carnet du culte")}</h1><p>Passages envoyés par la régie. Ce journal ne certifie pas leur visibilité physique sur l’écran.</p></header>{cards}{summary_html}<footer><small>Document conservé et partagé par l’équipe de l’église.</small></footer></html>'''
+
 # Charte reprise de l'écran de projection : ardoise profonde, blanc cassé
 # chaud, laiton pour la référence. Les diapositives sortent avec l'allure du
 # logiciel, pas celle d'un gabarit générique.

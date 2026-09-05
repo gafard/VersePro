@@ -1,4 +1,6 @@
 import asyncio
+import time
+import uuid
 from typing import Dict, Any, Set
 from fastapi import WebSocket
 from loguru import logger
@@ -14,8 +16,10 @@ class BrowserOutput(BaseOutput):
         # Écrans de PRÉPARATION : la console de l'opérateur. Séparés des écrans
         # de salle, jamais atteints par une projection à l'antenne.
         self.preview_connections: Set[WebSocket] = set()
+        self.receipts = {}
         self.preview_scene: Dict[str, Any] = {}
         self.current_scene: Dict[str, Any] = {
+            "scene_id": uuid.uuid4().hex,
             "type": "scripture",
             "text": "En attente d'affichage...",
             "reference": "",
@@ -69,15 +73,37 @@ class BrowserOutput(BaseOutput):
         else:
             self.connections.add(websocket)
             scene = self._scene_initiale()
+            self.receipts[websocket] = {"client_id": uuid.uuid4().hex[:8], "scene_id": scene.get("scene_id"), "sent_at": time.time(), "rendered_at": None, "surface": "écran"}
         try:
             await websocket.send_json(scene)
         except Exception as e:
+            self.unregister_connection(websocket)
             logger.debug(f"Erreur envoi initial client navigateur: {e}")
 
     def unregister_connection(self, websocket: WebSocket):
         """Retire un client d'affichage déconnecté, quel que soit son canal"""
         self.connections.discard(websocket)
         self.preview_connections.discard(websocket)
+        self.receipts.pop(websocket, None)
+
+    def acknowledge(self, websocket, message):
+        receipt = self.receipts.get(websocket)
+        if not receipt or message.get("type") != "rendered" or not receipt.get("scene_id"):
+            return
+        if message.get("scene_id") == receipt["scene_id"]:
+            receipt["rendered_at"] = time.time()
+            surface = message.get("surface", "écran")
+            receipt["surface"] = surface if surface in {"output", "obs", "stage", "follow", "companion"} else "écran"
+
+    def delivery_status(self):
+        now = time.time()
+        clients = []
+        for connection, receipt in self.receipts.items():
+            if connection not in self.connections:
+                continue
+            fresh = bool(receipt["rendered_at"] and now - receipt["rendered_at"] < 15)
+            clients.append({**receipt, "status": "rendered" if fresh else "sent"})
+        return {"scene_id": self.current_scene.get("scene_id"), "reference": self.current_scene.get("reference", ""), "connected": len(self.connections), "rendered": sum(c["status"] == "rendered" for c in clients), "clients": clients}
 
     async def send_preview(self, scene: Dict[str, Any]) -> bool:
         """Diffuse une scène au seul canal de préparation.
@@ -111,6 +137,11 @@ class BrowserOutput(BaseOutput):
             "translations": {},
             **{k: v for k, v in scene.items() if v is not None}
         }
+        self.current_scene["scene_id"] = uuid.uuid4().hex
+        for connection, receipt in self.receipts.items():
+            if connection not in self.connections:
+                continue
+            receipt.update(scene_id=self.current_scene["scene_id"], sent_at=time.time(), rendered_at=None)
         
         if not self.connections:
             return True
@@ -131,6 +162,7 @@ class BrowserOutput(BaseOutput):
             # dans la liste, et chaque envoi suivant relançait la même erreur.
             self.connections.discard(conn)
             self.preview_connections.discard(conn)
+            self.receipts.pop(conn, None)
 
     async def broadcast_event(self, payload: Dict[str, Any]):
         """Diffuse un événement léger (progression de lecture, traduction live)

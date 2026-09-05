@@ -18,6 +18,12 @@ ProPresenter et de vMix. Sa dernière page est une **fiche réflexe** conçue po
 être lue en dix secondes quand quelque chose coince en plein direct — imprimez-la
 et gardez-la en régie.
 
+**Vous préparez l'équipe du dimanche matin** →
+[Kit de démarrage régie et checklist culte](docs/KIT-DEMARRAGE-REGIE.md), avec
+sa [version PDF prête à imprimer](output/pdf/VersePro-Kit-Demarrage-Regie.pdf).
+Cette fiche courte reprend le pré-vol, les raccourcis, l'arrêt d'urgence et
+l'état réel des sorties réseau dans la version 2.1.8.
+
 **Vous développez ou vous intégrez** → les documents techniques ci-dessous. Ils
 ne s'adressent pas aux bénévoles : le guide PDF se suffit à lui-même, et rien
 dans cette section n'est nécessaire pour faire tourner un culte.
@@ -37,13 +43,26 @@ dans cette section n'est nécessaire pour faire tourner un culte.
 
 ## Comment la détection décide
 
-Quatre étages rapides et complémentaires, dans cet ordre :
+Le direct et la recherche manuelle partagent le même corpus, mais pas la même
+tolérance au risque :
 
-1. **Référence explicite** — reconnaissance par motif ultra-rapide (moins d'une milliseconde).
-   Seul étage autorisé à projeter automatiquement si la diffusion directe est activée.
-2. **Fusion hybride (Lexicale & Sémantique e5 ONNX)** — les moteurs recherchent dans l'index vectoriel des 31 102 versets et le corpus lexical local en parallèle.
-3. **Recherche manuelle & Autocomplétion dynamique** — dès 2 lettres ou mots tapés dans la barre du régisseur, un volet d'autocomplétion interactif propose les meilleurs versets avec prévisualisation et raccourcis clavier (`↑`/`↓` + `Entrée`).
-4. **IA Assistant (SmartVerses)** — résout les allusions bibliques et récits narratifs libres (*« le fils prodigue »*, *« sang sur les linteaux »*, *« murailles de Jéricho »*). La proposition est systématiquement vérifiée dans la Bible locale avant d'être soumise à validation manuelle en régie (anti-hallucination stricte).
+1. **Référence explicite** — le parseur reconnaît livres, nombres parlés,
+   plages et références enchaînées. C'est le seul signal éligible à une
+   automatisation, et seulement hors mode dimanche sûr.
+2. **Fusion locale** — la recherche lexicale/floue et l'index e5-base ONNX des
+   31 102 versets sont fusionnés. VerseGraph peut réordonner les candidats dans
+   le passage déjà ouvert. Toute proposition reste à valider.
+3. **Santé de transcription** — les segments trop courts ou durablement hachés
+   suspendent la recherche sémantique; le parseur explicite reste actif. Cette
+   protection évite de transformer musique, prière collective ou paroles mal
+   reconnues en faux versets.
+4. **IA de dernier recours** — OpenRouter, Gemini ou Ollama peuvent résoudre
+   une allusion. La référence proposée doit exister dans la Bible locale et ne
+   dispose d'aucun chemin direct vers les sorties.
+5. **Recherche manuelle** — à partir de deux caractères, le moteur local
+   complète la saisie; à partir de deux mots, e5 et l'assistant peuvent aussi
+   chercher en parallèle. `Entrée` projette le candidat sélectionné;
+   **Préparer** le place d'abord dans la prévisualisation.
 
 ## Modèles embarqués & Moteurs vocaux
 
@@ -53,7 +72,13 @@ Quatre étages rapides et complémentaires, dans cet ordre :
 | Deepgram (Nova-2 / Nova-3) | Transcription vocale cloud haute fidélité | Cloud (Clé API) |
 | Vosk large `fr-0.22` | Transcription locale continue de secours | Local (~1,4 Go) |
 | Multilingual e5-base (ONNX) | Recherche vectorielle sémantique et thématique | Local (265 Mo) |
-| VoiceGate (Silero VAD) | Barrière vocale filtrant la musique d'ambiance et les silences | Local (ONNX) |
+| Santé de transcription | Suspend les déductions sémantiques lorsque le transcript devient haché | Local, sans modèle supplémentaire |
+
+VersePro n'emploie plus de barrière Silero VAD dans le chemin audio. Les cultes
+avec musique sous la prédication ont montré qu'un filtre binaire pouvait rendre
+la régie muette précisément lorsqu'elle devait continuer à écouter. Le signal
+PCM complet est donc transmis au moteur choisi; les profils audio restent
+facultatifs et désactivés par défaut.
 
 ## Navigation rapide (10 Versets Voisins)
 
@@ -63,27 +88,46 @@ Sous la barre de recherche manuelle, VersePro affiche en direct un bandeau de **
 - 10 versets précédents si le dernier verset du chapitre est projeté.  
 Un clic sur un numéro de verset le projette instantanément sans ressaisie.
 
-## Écrans Mobiles & Réseau Local (/follow et /stage)
+## Écrans et réseau local
 
-- **Suivi Assemblée (`/follow`)** : L'assemblée scanne le QR code pour lire en temps réel les versets projetés sur smartphone dans la traduction de son choix.
-- **Moniteur Scène (`/stage`)** : Écran retour pour le pupitre ou la tablette du pasteur (verset courant en gros caractères, chrono, notes).
-- **Résolution réseau automatique** : Détection multi-interfaces (Wi-Fi / Ethernet) et port dynamique `17871`.
+- **Écran salle (`/output`)** : sortie autonome plein écran.
+- **OBS (`/obs`)** : source navigateur transparente, indépendante de
+  ProPresenter.
+- **Suivi (`/follow`) et scène (`/stage`)** : pages de lecture disponibles sur
+  le serveur local.
+- **Limite actuelle** : l'application desktop lie encore le backend à
+  `127.0.0.1`. Le QR code sait construire une adresse LAN, mais un téléphone ne
+  pourra pas la joindre tant qu'un listener public dédié et protégé n'aura pas
+  été livré. Ces pages fonctionnent aujourd'hui sur le poste VersePro.
 
 ## Bibles et droits
 
-Seules des traductions du **domaine public** sont versionnées ici et distribuées avec l'application : Louis Segond 1910 (`data/bible.json`), King James Française (`data/bibles_cache/kjf.json`) et Bible Éwé (`data/bibles_cache/ewe.json`).
+Seules deux traductions du **domaine public** sont versionnées ici et
+distribuées avec l'application : Louis Segond 1910 (`data/bible.json`) et King
+James Française (`data/bibles_cache/kjf.json`). Le format d'import accepte aussi
+la Bible éwé et d'autres corpus autorisés, mais ces fichiers ne sont pas
+distribués par le dépôt.
 
 Les versions sous copyright — Semeur, TOB, Nouvelle Segond, Français courant — sont importables via l'onglet **Paramètres > Bible** ou régénérables localement par qui détient les droits d'en disposer.
 
 ## Construire les installeurs
 
 - **macOS, en local** : `v2/frontend/src-tauri/build-macos.sh` (nécessite le venv de gel `v2/backend/.freeze-venv`)
-- **macOS + Windows (Automatisé)** : Pousser un tag `v*` (ex: `v2.1.8`) déclenche GitHub Actions pour fabriquer et signer les installeurs `.dmg` (Mac) et `.exe` / `.msi` (Windows).
+- **macOS + Windows (automatisé)** : pousser un tag `v*` correspondant à la
+  version déclenche la fabrication des installeurs et des artefacts de mise à
+  jour Tauri. La signature de mise à jour est obligatoire pour une release par
+  tag; les signatures Apple et Windows dépendent des certificats externes.
 
-## État vérifié (Version 2.1.8)
+## État vérifié (version 2.1.8, 22 août 2026)
 
 Validation complète :
-- **313 tests backend réussis** (100 % passés sous pytest) ;
-- **24 tests frontend réussis** (100 % passés sous Node Test Runner) ;
-- Builds Vite et Tauri vérifiés sans erreur ;
-- Recherche parallélisée et autocomplétion testées avec succès.
+- **313 tests backend réussis**, 3 ignorés (`pytest tests -q`) ;
+- **24 tests frontend réussis** et build Vite valide ;
+- benchmark historique : 30/30, précision et rappel à 100 %, p95 33,87 ms ;
+- Replay Lab terrain : 43 cas, exactitude 86,1 %, précision 89,3 %, rappel
+  80,7 %, p95 29,6 ms ;
+- tests et contrôle Rust/Tauri exécutés avec verrouillage des dépendances.
+
+Le benchmark historique mesure des phrases propres. Le Replay Lab, plus
+difficile, contient accents, allusions, débit et négatifs issus du terrain. Ses
+six cas manqués sont conservés comme dette mesurable, pas masqués par la moyenne.

@@ -1,6 +1,6 @@
 # VersePro V2 - Guide complet
 
-> État de référence : 28 juillet 2026  
+> État de référence : 22 août 2026
 > Public : régisseurs, responsables techniques et personnes chargées du déploiement.
 
 VersePro est une application de régie de bureau. Elle écoute la prédication,
@@ -41,7 +41,7 @@ sans ligne de commande :
 
 - choix et test de l'entrée microphone ;
 - préparation de Nemotron 3.5-ASR pour la transcription neuronale locale haute précision ;
-- préparation de Vosk français comme moteur continu de secours ;
+- préparation facultative de Vosk français comme moteur continu de secours ;
 - préparation de l'index sémantique e5 ONNX des 31 102 versets ;
 - saisie facultative d'une clé Deepgram pour la transcription cloud ;
 - choix du mode de projection initial.
@@ -73,6 +73,11 @@ depuis le signal PCM réel ; ils ne sont pas décoratifs. Les filtres audio sont
 désactivés par défaut. Deux profils conservateurs restent disponibles dans
 Paramètres pour les salles difficiles.
 
+VersePro ne coupe plus la musique ou les silences avec une barrière vocale
+binaire. Cette approche pouvait supprimer une prédication accompagnée. Le son
+complet est envoyé à l'ASR; si le transcript devient durablement haché, seules
+les propositions sémantiques sont suspendues et l'opérateur est prévenu.
+
 ### Transcript direct
 
 Le transcript montre ce que le moteur vocal comprend. Il défile
@@ -93,17 +98,25 @@ Les recherches floues, les embeddings et les réponses IA passent toujours par
 cette file. Le LLM ne peut choisir que dans une liste fermée de versets déjà
 retrouvés localement.
 
-### À l'antenne
-
-Cette zone montre exactement la scène de projection, avec navigation dans un passage long. Des outils de surlignage live (🟡 Jaune, 🔴 Rouge, 🧹 Effacer) permettent de mettre en valeur les mots importants à l'écran pendant la prédication. **Effacer** rend immédiatement les sorties noires.
-
 ### Recherche manuelle & Autocomplétion intelligente
 
 La barre de recherche manuelle située en bas de la régie offre deux modes d'action clairs :
 - **`[ Projeter ]`** (ou touche **`Entrée`**) : envoie immédiatement le verset à l'écran salle ;
-- **`[ Préparer ]`** : ajoute le verset au déroulé en attente sans rien afficher au public.
+- **`[ Préparer ]`** : charge le verset dans le panneau Préparation sans rien
+  afficher au public; le bouton **Envoyer à l'antenne** réalise ensuite le
+  passage contrôlé.
 
-Dès la saisie de 2 lettres ou de mots-clés thématiques (*« brebis perdue »*, *« armure de Dieu »*), un volet flottant présente les 2 à 6 meilleures propositions issues de la recherche hybride (lexicale + sémantique vectorielle + IA SmartVerses) avec aperçu du texte. Utilisez **`↑`** et **`↓`** pour naviguer et **`Entrée`** pour projeter.
+Dès 2 caractères, la recherche locale complète les références et fragments.
+À partir de 2 mots thématiques (*« brebis perdue »*, *« armure de Dieu »*), e5
+et l'assistant peuvent aussi chercher en parallèle. Le volet présente jusqu'à
+6 propositions avec aperçu du texte. Utilisez **`↑`** et **`↓`** pour naviguer
+et **`Entrée`** pour projeter le candidat sélectionné.
+
+Le **Déroulé du culte** est distinct du panneau Préparation. Il conserve les
+lectures prévues entre deux lancements. Les références extraites depuis les
+notes du sermon dans **Paramètres > Avancé** y sont ajoutées et transmises au
+moteur afin de départager des numéros mal entendus. Elles ne sont jamais
+projetées sans action de l'opérateur.
 
 ### Bandeau de navigation rapide (10 Versets Voisins)
 
@@ -151,7 +164,7 @@ Dans l'application empaquetée, le backend local écoute par défaut sur le port
 | Écran autonome salle | `http://127.0.0.1:17871/output` | Vidéoprojecteur public plein écran (`F11`) |
 | Source navigateur OBS | `http://127.0.0.1:17871/obs?theme=lower-third&bg=transparent` | Bandeau direct streaming avec transparence |
 | Moniteur scène pasteur | `http://127.0.0.1:17871/stage` | Retour pupitre (verset géant + chrono) |
-| Suivi Assemblée mobile | `http://<IP-LAN>:17871/follow` | Lecture synchrone sur smartphone via QR Code |
+| Suivi lecture | `http://127.0.0.1:17871/follow` | Page locale; accès téléphone LAN encore expérimental |
 | ProPresenter | Hôte, port et message dans Paramètres | Télécommande de l'API ProPresenter 7.9+ |
 | vMix | API HTTP et entrée titre dans Paramètres | Intégration régie vMix |
 | NDI | Sortie native vidéo IP | Flux broadcast temps réel avec canal alpha |
@@ -160,6 +173,12 @@ OBS doit utiliser la source navigateur locale sur le même poste. Le pont
 ProPresenter peut viser une autre machine du réseau local. Chaque pilote renvoie
 un reçu de succès ou d'échec ; un échec n'est pas présenté comme une projection
 réussie.
+
+Les pages `/follow` et `/stage` existent et le QR code propose l'adresse des
+interfaces Wi-Fi/Ethernet. Dans le paquet desktop 2.1.8, le backend écoute
+encore uniquement sur `127.0.0.1` : un téléphone du réseau ne peut donc pas les
+joindre de manière garantie. Utilisez-les sur le poste VersePro jusqu'à la
+livraison d'un listener public séparé et protégé.
 
 ## Incident pendant le direct
 
@@ -198,8 +217,9 @@ les clients non authentifiés.
 
 ```bash
 cd v2/backend
-venv/bin/python -m pytest -q
+venv/bin/python -m pytest tests -q
 venv/bin/python benchmarks/run_detection_benchmark.py --fail-below-f1 0.95
+venv/bin/python benchmarks/replay_lab.py --corpus corpus/ --sans-audio
 
 cd ../frontend
 npm test
@@ -208,17 +228,18 @@ cd src-tauri
 cargo check --locked
 ```
 
-État vérifié le 28 juillet 2026 :
+État vérifié le 22 août 2026 :
 
-- backend : 179 tests réussis, 4 ignorés ;
-- frontend : 4 tests réussis ;
-- Rust : 1 test réussi ;
-- audits npm et Python : aucune vulnérabilité connue ;
-- corpus textuel : 30 cas sur 30, aucun faux positif, p95 à 18,32 ms.
+- backend : 313 tests réussis, 3 ignorés ;
+- frontend : 24 tests réussis et build Vite valide ;
+- Rust/Tauri : tests et contrôle réussis avec `--locked` ;
+- benchmark historique : 30 cas sur 30, aucun faux positif, p95 à 33,87 ms ;
+- Replay Lab terrain : 43 cas, exactitude 86,1 %, précision 89,3 %, rappel
+  80,7 %, p95 29,6 ms.
 
-Ce benchmark textuel protège contre les régressions de détection. Il ne remplace
-pas un corpus audio multi-églises, qui reste le prochain investissement
-prioritaire.
+Ces bancs protègent contre les régressions de détection. Ils ne remplacent pas
+un corpus audio annoté provenant de plusieurs églises, qui reste
+l'investissement prioritaire.
 
 ## Documents liés
 

@@ -52,7 +52,7 @@ async function installBackendTransport() {
         else url = url.replace(/^wss?:\/\/[^/]+/, BACKEND_WS_BASE)
       }
       const protectedSocket = typeof url === 'string' &&
-        (url.includes('/ws/audio') || url.includes('/ws/control'))
+        (url.includes('/ws/audio') || url.includes('/ws/control') || url.includes('/ws/rehearsal') || url.includes('/api/v1/rehearsal/audio'))
       const requested = protocols
         ? (Array.isArray(protocols) ? protocols : [protocols])
         : []

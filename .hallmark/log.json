@@ -18,5 +18,15 @@
     "theme_axes": "dark / classical-serif-lowercase / warm-brass",
     "enrichment": "Tier-A CSS apparatus (chambre d'écoute)",
     "brief": "VersePro · régie de projection biblique — redesign complet multi-pages"
+  },
+  {
+    "date": "2026-08-23",
+    "scope": "public-static-site",
+    "macrostructure": "Immersive Marquee Hero / Broadcast Experience / Operational Ledger",
+    "theme": "lumen",
+    "drop": "night-foundry",
+    "theme_axes": "dark / warm-orange / broadcast-tool",
+    "enrichment": "pastor photography + lower-third + prompter",
+    "brief": "VersePro · landing publique autonome, téléchargeable et prête à héberger"
   }
 ]

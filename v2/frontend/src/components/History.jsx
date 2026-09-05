@@ -3,6 +3,7 @@ import { useStore } from '../store.js'
 import { shallow } from 'zustand/shallow'
 import { Icon, SkeletonRows, EmptyState } from './ui.jsx'
 import { BACKEND_BASE } from '../env.js'
+import { saveFile } from './preparation/api.js'
 
 export default function History() {
   const {
@@ -266,6 +267,11 @@ export default function History() {
                         )
                       )}
 
+                      <button className="vp-btn vp-btn--sm" onClick={async e => {
+                        e.stopPropagation()
+                        try { const r = await fetch(`${BACKEND_BASE}/api/v1/history/sessions/${session.id}/carnet.html`); if (!r.ok) throw new Error(); saveFile('carnet-du-culte.html', await r.text(), 'text/html') }
+                        catch { addToast({message:'Le carnet ne peut pas être exporté pour le moment.',kind:'error'}) }
+                      }}>Carnet à partager</button>
                       <span className="text-[var(--text-faint)] text-xs">
                         {isSelected ? '▲' : '▼'}
                       </span>
