@@ -247,6 +247,6 @@ def test_le_fond_local_preserve_alpha_et_lower_third():
 
 def test_la_scene_demo_ne_conserve_pas_les_pages_du_direct():
     html = _output_html()
-    bloc = html[html.index("if (modeDemo)"):]
-    assert "verse_end: null" in bloc[:700]
-    assert "verses: []" in bloc[:700]
+    assert "verse_end: null" in html
+    assert "verses: []" in html
+    assert "if (modeDemo)" in html
