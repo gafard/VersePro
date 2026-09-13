@@ -251,7 +251,7 @@ def resolve_overlay(style: Optional[str], zones_actives: Optional[str],
     """Habillage à envoyer aux écrans : celui d'un préréglage de la bibliothèque
     si l'opérateur a sélectionné 'habillage:slug' dans le menu des styles.
 
-    Si le style sélectionné est un style natif (agoe-logope, glass, neon-glow, etc.),
+    Si le style sélectionné est un style natif (panneau-emeraude, glass, neon-glow, etc.),
     aucun habillage n'est forcé et le style natif s'affiche.
     """
     slug = style_slug(style)

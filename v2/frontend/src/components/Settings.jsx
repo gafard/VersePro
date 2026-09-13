@@ -1148,7 +1148,7 @@ export default function Settings() {
                     value={form.projection_style}
                     onChange={(e) => updateField('projection_style', e.target.value)}
                   >
-                    <option value="agoe-logope">🔥 agoe-logope (Exact Trait pour Trait — Panneau blanc, étiquette émeraude & exposant)</option>
+                    <option value="panneau-emeraude">🔥 panneau-emeraude (Panneau blanc, étiquette émeraude & exposant)</option>
                     <option value="bandeau">bandeau (Panneau blanc, étiquette turquoise)</option>
                     <option value="filet">filet (Recommandé — règle laiton, sans cadre)</option>
                     <option value="default">default (Classique translucide)</option>

@@ -301,7 +301,7 @@ export default function OverlayEditor() {
       if (!r.ok) throw new Error(d?.detail || `Erreur ${r.status}`)
       // La bibliothèque est la source de vérité de la sortie : le preset
       // enregistré devient immédiatement le style actif, exactement comme un
-      // style natif (agoe-logope, bandeau, etc.).
+      // style natif (panneau-emeraude, bandeau, etc.).
       await updateSettings({ projection_theme: 'broadcast', projection_style: `habillage:${d.slug}` })
       addToast({
         message: `« ${d.name} » enregistré dans ${d.category} et activé comme style de Lower-Third`,

@@ -40,7 +40,7 @@ def _dossier_isole(tmp_path, monkeypatch):
 # ── Bibliothèque d'habillages ────────────────────────────────────────────────
 
 def test_un_nom_devient_un_identifiant_de_dossier_sur():
-    assert overlay_store.slugify("Bandeau Agoé-Logopé 2026 !") == "bandeau-agoe-logope-2026"
+    assert overlay_store.slugify("Panneau Émeraude 2026 !") == "panneau-emeraude-2026"
 
 
 def test_un_nom_vide_reste_utilisable():
@@ -113,7 +113,7 @@ def test_un_style_natif_nest_jamais_recouvert_par_un_habillage():
     style choisi — et comme les formes de départ apparaissent dès que le réglage
     est vide, un poste neuf projetait un bandeau que personne n'avait demandé.
     """
-    for natif in ("filet", "cartouche", "agoe-logope", "default"):
+    for natif in ("filet", "cartouche", "panneau-emeraude", "default"):
         resolu = overlay_store.resolve_overlay(natif, "", "")
         assert resolu["shapes"] == [], f"{natif} recouvert par un habillage"
         assert resolu["image_url"] == "" and resolu["preset"] is None
