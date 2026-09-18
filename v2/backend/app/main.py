@@ -286,6 +286,27 @@ async def envoyer_preparation():
     return receipts
 
 
+async def ensure_active_session() -> int:
+    """Garantit qu'une session de culte active existe pour rattacher versets et transcription."""
+    global current_session_id
+    if current_session_id and db_service and db_service.db:
+        sess = await db_service.get_session(current_session_id)
+        if sess and not sess.get("ended_at"):
+            return current_session_id
+
+    if db_service and db_service.db:
+        sessions = await db_service.get_recent_sessions(limit=1)
+        if sessions and not sessions[0].get("ended_at"):
+            current_session_id = sessions[0]["id"]
+            logger.info(f"📋 Session de culte active reprise : ID {current_session_id} ({sessions[0].get('name')})")
+            return current_session_id
+
+        current_session_id = await db_service.create_session()
+        logger.info(f"📋 Nouvelle session de culte démarrée : ID {current_session_id}")
+        return current_session_id
+    return 0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
@@ -297,6 +318,7 @@ async def lifespan(app: FastAPI):
     # Initialisation de la base de données
     db_service = get_database()
     await db_service.connect()
+    await ensure_active_session()
 
     # Les clés historiques stockées dans SQLite sont transférées vers le
     # Trousseau macOS (ou le gestionnaire de secrets de l'OS), puis effacées.
@@ -396,6 +418,9 @@ async def lifespan(app: FastAPI):
         await deepgram_service.disconnect()
     if output_manager:
         await output_manager.disconnect_all()
+    if current_session_id and db_service and db_service.db:
+        with suppress(Exception):
+            await db_service.end_session(current_session_id)
     if db_service:
         await db_service.disconnect()
 
@@ -403,7 +428,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VersePro v2",
     description="Détection automatique de versets bibliques avec IA",
-    version="2.1.9",
+    version="2.2.0",
     lifespan=lifespan
 )
 
@@ -452,7 +477,7 @@ async def root():
     return {
         "name": "VersePro v2",
         "status": "running",
-        "version": "2.1.9"
+        "version": "2.2.0"
     }
 
 

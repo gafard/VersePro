@@ -355,23 +355,38 @@ class DatabaseService:
     
     async def get_session(self, session_id: int) -> Optional[Dict]:
         """Récupère une session par ID"""
-        cursor = await self.db.execute(
-            "SELECT * FROM sessions WHERE id = ?", 
-            (session_id,)
-        )
+        cursor = await self.db.execute("""
+            SELECT s.*,
+                   (SELECT COUNT(*) FROM detected_verses dv WHERE dv.session_id = s.id) as current_verse_count
+            FROM sessions s
+            WHERE s.id = ?
+        """, (session_id,))
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        res = dict(row)
+        if res.get("current_verse_count", 0) > 0 or not res.get("verse_count"):
+            res["verse_count"] = res.get("current_verse_count", 0)
+        return res
     
     async def get_recent_sessions(self, limit: int = 10) -> List[Dict]:
         """Récupère les dernières sessions"""
         cursor = await self.db.execute("""
-            SELECT * FROM sessions 
-            ORDER BY started_at DESC 
+            SELECT s.*,
+                   (SELECT COUNT(*) FROM detected_verses dv WHERE dv.session_id = s.id) as current_verse_count
+            FROM sessions s 
+            ORDER BY s.started_at DESC 
             LIMIT ?
         """, (limit,))
         
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            if d.get("current_verse_count", 0) > 0 or not d.get("verse_count"):
+                d["verse_count"] = d.get("current_verse_count", 0)
+            result.append(d)
+        return result
     
     # ============================================
     # Statistiques

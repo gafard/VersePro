@@ -1545,15 +1545,30 @@
                 const x = Math.max(0, Math.min(100, Number(info.position_x) || 0));
                 const y = Math.max(0, Math.min(100, Number(info.position_y) || 0));
                 const blur = Math.max(0, Math.min(20, Number(info.blur) || 0));
+                const scale = Math.max(20, Math.min(200, Number(info.scale) || 100));
+                const cropT = Math.max(0, Math.min(40, Number(info.crop_top) || 0));
+                const cropB = Math.max(0, Math.min(40, Number(info.crop_bottom) || 0));
+                const cropL = Math.max(0, Math.min(40, Number(info.crop_left) || 0));
+                const cropR = Math.max(0, Math.min(40, Number(info.crop_right) || 0));
                 const opacity = Math.max(0, Math.min(0.9, Number(info.overlay_opacity) || 0));
                 const color = /^#[0-9a-f]{6}$/i.test(info.overlay_color || '')
                     ? info.overlay_color : '#000000';
-                const version = [info.image_url, fit, x, y, blur, color, opacity].join('|');
+                const version = [info.image_url, fit, x, y, blur, scale, cropT, cropB, cropL, cropR, color, opacity].join('|');
 
                 backgroundImage.style.objectFit = fit;
                 backgroundImage.style.objectPosition = `${x}% ${y}%`;
+                // Combiner flou et échelle dans un seul transform pour éviter
+                // les conflits. Le léger suréchantillonnage de 1.035 compense
+                // les bords visibles du filtre blur.
+                const blurScale = blur ? 1.035 : 1;
+                const totalScale = (scale / 100) * blurScale;
                 backgroundImage.style.filter = blur ? `blur(${blur}px)` : 'none';
-                backgroundImage.style.transform = blur ? 'scale(1.035)' : 'none';
+                backgroundImage.style.transform = totalScale !== 1 ? `scale(${totalScale})` : 'none';
+                // Recadrage : masquer les bords avec clip-path inset.
+                const hasCrop = cropT || cropB || cropL || cropR;
+                backgroundImage.style.clipPath = hasCrop
+                    ? `inset(${cropT}% ${cropR}% ${cropB}% ${cropL}%)`
+                    : 'none';
                 backgroundVeil.style.background = color;
                 backgroundVeil.style.opacity = opacity;
 

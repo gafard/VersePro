@@ -249,7 +249,9 @@ def asset_file(asset_id: str, variant: str = "image") -> Optional[tuple[Path, st
 def sanitise_options(
     *, fit: Any = "cover", position_x: Any = 50, position_y: Any = 50,
     overlay_color: Any = "#000000", overlay_opacity: Any = 0.42,
-    blur: Any = 0,
+    blur: Any = 0, scale: Any = 100,
+    crop_top: Any = 0, crop_bottom: Any = 0,
+    crop_left: Any = 0, crop_right: Any = 0,
 ) -> Dict[str, Any]:
     fit_value = str(fit or "cover").lower()
     if fit_value not in {"cover", "contain", "fill"}:
@@ -264,6 +266,11 @@ def sanitise_options(
         "overlay_color": color.lower(),
         "overlay_opacity": _clamp(overlay_opacity, 0, 0.9, 0.42),
         "blur": _clamp(blur, 0, 20, 0),
+        "scale": _clamp(scale, 20, 200, 100),
+        "crop_top": _clamp(crop_top, 0, 40, 0),
+        "crop_bottom": _clamp(crop_bottom, 0, 40, 0),
+        "crop_left": _clamp(crop_left, 0, 40, 0),
+        "crop_right": _clamp(crop_right, 0, 40, 0),
     }
 
 
@@ -277,6 +284,11 @@ def resolve_background(settings: Any, *, include_path: bool = False) -> Dict[str
         overlay_color=getattr(settings, "BACKGROUND_OVERLAY_COLOR", "#000000"),
         overlay_opacity=getattr(settings, "BACKGROUND_OVERLAY_OPACITY", 0.42),
         blur=getattr(settings, "BACKGROUND_BLUR", 0),
+        scale=getattr(settings, "BACKGROUND_SCALE", 100),
+        crop_top=getattr(settings, "BACKGROUND_CROP_TOP", 0),
+        crop_bottom=getattr(settings, "BACKGROUND_CROP_BOTTOM", 0),
+        crop_left=getattr(settings, "BACKGROUND_CROP_LEFT", 0),
+        crop_right=getattr(settings, "BACKGROUND_CROP_RIGHT", 0),
     )
     enabled = bool(getattr(settings, "BACKGROUND_ENABLED", False) and asset)
     resolved = {

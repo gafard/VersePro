@@ -73,10 +73,12 @@ def test_options_sont_bornees_avant_affichage():
     options = background_store.sanitise_options(
         fit="script", position_x=-50, position_y=180,
         overlay_color="url(javascript:1)", overlay_opacity=2, blur=99,
+        scale=999, crop_top=150, crop_bottom=-10, crop_left=80, crop_right=-5,
     )
     assert options == {
         "fit": "cover", "position_x": 0, "position_y": 100,
         "overlay_color": "#000000", "overlay_opacity": 0.9, "blur": 20,
+        "scale": 200, "crop_top": 40, "crop_bottom": 0, "crop_left": 40, "crop_right": 0,
     }
 
 

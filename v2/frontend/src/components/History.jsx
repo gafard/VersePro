@@ -17,6 +17,7 @@ export default function History() {
     aiActive,
     historyLoading,
     sessionsLoading,
+    startSession,
     addToast
   } = useStore(s => ({
     history: s.history,
@@ -29,6 +30,7 @@ export default function History() {
     aiActive: s.aiActive,
     historyLoading: s.historyLoading,
     sessionsLoading: s.sessionsLoading,
+    startSession: s.startSession,
     addToast: s.addToast
   }), shallow)
 
@@ -36,6 +38,18 @@ export default function History() {
   const [selectedSessionId, setSelectedSessionId] = useState(null)
   const [loadingSummary, setLoadingSummary] = useState(false)
   const [summaryError, setSummaryError] = useState(null)
+
+  const formatSessionDate = (dateStr) => {
+    if (!dateStr) return ''
+    try {
+      const normalized = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T')
+      const d = new Date(normalized)
+      if (isNaN(d.getTime())) return dateStr
+      return `Démarrée le ${d.toLocaleDateString('fr-FR')} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+    } catch {
+      return dateStr
+    }
+  }
 
   useEffect(() => {
     fetchHistory()
@@ -118,6 +132,21 @@ export default function History() {
                 Sessions
               </button>
             </div>
+
+            {activeTab === 'sessions' && (
+              <button
+                onClick={async () => {
+                  const id = await startSession()
+                  if (id) {
+                    addToast({ message: 'Nouvelle session de culte démarrée', kind: 'success' })
+                  }
+                }}
+                className="vp-btn vp-btn--primary vp-btn--sm font-bold text-xs"
+                title="Démarrer une nouvelle session de culte"
+              >
+                + Nouveau culte
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -228,7 +257,7 @@ export default function History() {
                       <div>
                         <h3 className="font-bold text-[var(--text-main)] text-sm font-sans">{session.name}</h3>
                         <p className="text-[10px] text-[var(--text-faint)] mt-0.5 font-sans">
-                          Démarrée le {new Date(session.started_at).toLocaleDateString('fr-FR')} à {new Date(session.started_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          {formatSessionDate(session.started_at)}
                           {session.ended_at && ` • Terminée (durée : ${session.duration_minutes || '?'} min)`}
                         </p>
                       </div>
@@ -245,9 +274,23 @@ export default function History() {
                             Résumé IA prêt
                           </span>
                           <button
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation()
-                              window.open(`${BACKEND_BASE}/api/v1/history/sessions/${session.id}/export-recap.pptx`, '_blank')
+                              try {
+                                const r = await fetch(`${BACKEND_BASE}/api/v1/history/sessions/${session.id}/export-recap.pptx`)
+                                if (!r.ok) throw new Error()
+                                const blob = await r.blob()
+                                const url = URL.createObjectURL(blob)
+                                const a = document.createElement('a')
+                                a.href = url
+                                a.download = `recap-session-${session.id}.pptx`
+                                document.body.appendChild(a)
+                                a.click()
+                                a.remove()
+                                URL.revokeObjectURL(url)
+                              } catch {
+                                addToast({ message: 'Impossible d\'exporter les slides pour le moment.', kind: 'error' })
+                              }
                             }}
                             className="vp-btn vp-btn--sm flex items-center gap-1"
                             title="Exporter les slides de synthèse hors ligne"
@@ -281,6 +324,32 @@ export default function History() {
                   {/* Détail extensible de la session */}
                   {isSelected && activeSessionDetails && activeSessionDetails.id === session.id && (
                     <div className="border-t border-[var(--border-weak)] bg-[var(--surface-2)] p-6 space-y-6">
+                      {/* Section Versets de ce culte */}
+                      {activeSessionDetails.verses && activeSessionDetails.verses.length > 0 && (
+                        <div className="space-y-3">
+                          <h4 className="text-[9px] font-bold uppercase tracking-widest text-[var(--accent)] font-mono flex items-center gap-2">
+                            <span>📖</span> Versets cités dans ce culte ({activeSessionDetails.verses.length})
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[260px] overflow-y-auto pr-1">
+                            {activeSessionDetails.verses.map((v) => (
+                              <div key={v.id || v.reference} className="p-3 bg-[var(--surface-0)] border border-[var(--border-weak)] rounded-xl space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-bold text-[var(--accent)] font-sans">{v.reference}</span>
+                                  <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full ${
+                                    v.sent_to_propresenter
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                      : 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
+                                  }`}>
+                                    {v.sent_to_propresenter ? 'Projeté' : 'Détecté'}
+                                  </span>
+                                </div>
+                                {v.text && <p className="text-[11px] text-[var(--text-dim)] font-sans line-clamp-2 leading-relaxed">{v.text}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                         {/* Colonne Transcription cumulée */}
                         <div className="lg:col-span-7 space-y-3">

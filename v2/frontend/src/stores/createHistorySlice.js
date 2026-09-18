@@ -27,13 +27,16 @@ export const createHistorySlice = (set, get) => ({
     }
   },
 
-  startSession: async () => {
+  startSession: async (name = '') => {
     try {
       const response = await fetch(`${BACKEND_BASE}/api/v1/history/sessions/start`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name || '' })
       })
       const data = await response.json()
       set({ sessionId: data.session_id })
+      await get().fetchSessions()
       return data.session_id
     } catch (error) {
       console.error('Erreur start session:', error)

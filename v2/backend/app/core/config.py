@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Application
     DEBUG: bool = False
     APP_NAME: str = "VersePro v2"
-    VERSION: str = "2.1.9"
+    VERSION: str = "2.2.0"
     API_TOKEN: str = ""
     # Origines de la fenêtre applicative. Tauri 2 sert la fenêtre depuis
     # « http://tauri.localhost » sous Windows — en HTTP, là où Tauri 1 utilisait
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # Version de l'application et contrôle de secours pour le mode navigateur.
     # L'application Tauri utilise son Updater signé ; cette URL simplifiée ne
     # sert que lorsque l'interface tourne hors du conteneur de bureau.
-    APP_VERSION: str = "2.1.9"
+    APP_VERSION: str = "2.2.0"
     UPDATE_CHECK_URL: str = ""
     UPDATE_CHECK_TIMEOUT: float = 6.0
 
@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     BACKGROUND_OVERLAY_COLOR: str = "#000000"
     BACKGROUND_OVERLAY_OPACITY: float = 0.42
     BACKGROUND_BLUR: float = 0.0
+    BACKGROUND_SCALE: float = 100.0          # 20–200 %
+    BACKGROUND_CROP_TOP: float = 0.0         # 0–40 %
+    BACKGROUND_CROP_BOTTOM: float = 0.0
+    BACKGROUND_CROP_LEFT: float = 0.0
+    BACKGROUND_CROP_RIGHT: float = 0.0
     # Zones de texte de l'habillage personnalisé (JSON, pourcentages du cadre).
     # Vide = valeurs de départ de overlay_store.DEFAULT_ZONES.
     OVERLAY_ZONES: str = ""

@@ -128,6 +128,12 @@ class NDIOutput(BaseOutput):
                     self.last_error = "Création de la source NDI refusée"
                     return False
                 logger.info(f"🟢 Source NDI « {self.source_name} » en ligne.")
+                # Émettre immédiatement une trame transparente pour que les
+                # récepteurs (OBS, vMix, Studio Monitor) accrochent la source
+                # sans attendre la première projection d'un verset.
+                with self._frame_lock:
+                    if self._frame is None:
+                        self._frame = np.zeros((HAUTEUR, LARGEUR, 4), dtype=np.uint8)
                 self._stop.clear()
                 self._thread = threading.Thread(target=self._boucle_entretien, daemon=True)
                 self._thread.start()
@@ -204,6 +210,13 @@ class NDIOutput(BaseOutput):
             voile_couleur=backdrop.get("overlay_color", "#000000"),
             voile_opacite=backdrop.get("overlay_opacity", 0.0),
             flou_arriere_plan=backdrop.get("blur", 0.0),
+            scale_arriere_plan=backdrop.get("scale", 100.0),
+            crop_arriere_plan=(
+                backdrop.get("crop_top", 0.0),
+                backdrop.get("crop_right", 0.0),
+                backdrop.get("crop_bottom", 0.0),
+                backdrop.get("crop_left", 0.0),
+            ),
         )
         return vers_bgra(rendu)
 

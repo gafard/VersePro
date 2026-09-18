@@ -225,6 +225,33 @@ export default function BackgroundLibrary({ form, updateField, theme, addToast }
               <input id="background-blur" type="range" min="0" max="20" step="1" value={form.background_blur} onChange={(event) => updateField('background_blur', Number(event.target.value))} />
             </div>
 
+            <div className="background-control">
+              <label htmlFor="background-scale">Zoom <span>{form.background_scale ?? 100}%</span></label>
+              <input id="background-scale" type="range" min="20" max="200" step="5" value={form.background_scale ?? 100} onChange={(event) => updateField('background_scale', Number(event.target.value))} />
+            </div>
+
+            <div className="background-control">
+              <label>Recadrage</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginTop: 4 }}>
+                <div>
+                  <label htmlFor="bg-crop-top" style={{ fontSize: '11px', color: 'var(--vp-text-dim)' }}>Haut <span>{form.background_crop_top ?? 0}%</span></label>
+                  <input id="bg-crop-top" type="range" min="0" max="40" step="1" value={form.background_crop_top ?? 0} onChange={(e) => updateField('background_crop_top', Number(e.target.value))} />
+                </div>
+                <div>
+                  <label htmlFor="bg-crop-bottom" style={{ fontSize: '11px', color: 'var(--vp-text-dim)' }}>Bas <span>{form.background_crop_bottom ?? 0}%</span></label>
+                  <input id="bg-crop-bottom" type="range" min="0" max="40" step="1" value={form.background_crop_bottom ?? 0} onChange={(e) => updateField('background_crop_bottom', Number(e.target.value))} />
+                </div>
+                <div>
+                  <label htmlFor="bg-crop-left" style={{ fontSize: '11px', color: 'var(--vp-text-dim)' }}>Gauche <span>{form.background_crop_left ?? 0}%</span></label>
+                  <input id="bg-crop-left" type="range" min="0" max="40" step="1" value={form.background_crop_left ?? 0} onChange={(e) => updateField('background_crop_left', Number(e.target.value))} />
+                </div>
+                <div>
+                  <label htmlFor="bg-crop-right" style={{ fontSize: '11px', color: 'var(--vp-text-dim)' }}>Droite <span>{form.background_crop_right ?? 0}%</span></label>
+                  <input id="bg-crop-right" type="range" min="0" max="40" step="1" value={form.background_crop_right ?? 0} onChange={(e) => updateField('background_crop_right', Number(e.target.value))} />
+                </div>
+              </div>
+            </div>
+
             <button type="button" className="background-delete" onClick={remove} title="Supprimer ce fond">
               <TrashIcon /><span>Supprimer</span>
             </button>

@@ -89,6 +89,11 @@ class SettingsUpdate(BaseModel):
     background_overlay_color: Optional[str] = None
     background_overlay_opacity: Optional[float] = None
     background_blur: Optional[float] = None
+    background_scale: Optional[float] = None
+    background_crop_top: Optional[float] = None
+    background_crop_bottom: Optional[float] = None
+    background_crop_left: Optional[float] = None
+    background_crop_right: Optional[float] = None
     projection_style: Optional[str] = None
     show_bible_version: Optional[bool] = None
     dual_translations: Optional[str] = None
@@ -163,7 +168,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "version": "2.1.9",
+        "version": "2.2.0",
         "services": {
             "deepgram": deepgram_service is not None,
             "propresenter": propresenter_connected,
@@ -1302,6 +1307,11 @@ async def get_settings():
         "background_overlay_color": settings.BACKGROUND_OVERLAY_COLOR,
         "background_overlay_opacity": settings.BACKGROUND_OVERLAY_OPACITY,
         "background_blur": settings.BACKGROUND_BLUR,
+        "background_scale": settings.BACKGROUND_SCALE,
+        "background_crop_top": settings.BACKGROUND_CROP_TOP,
+        "background_crop_bottom": settings.BACKGROUND_CROP_BOTTOM,
+        "background_crop_left": settings.BACKGROUND_CROP_LEFT,
+        "background_crop_right": settings.BACKGROUND_CROP_RIGHT,
         "background": background_store.resolve_background(settings),
         "projection_style": settings.PROJECTION_STYLE,
         "show_bible_version": settings.SHOW_BIBLE_VERSION,
@@ -1380,8 +1390,17 @@ async def update_settings(settings_update: SettingsUpdate):
         await db.set_setting("overlay_zones", settings.OVERLAY_ZONES)
 
     if update.get("ndi_source_name"):
-        settings.NDI_SOURCE_NAME = update["ndi_source_name"].strip()[:60]
+        new_name = update["ndi_source_name"].strip()[:60]
+        name_changed = new_name != settings.NDI_SOURCE_NAME
+        settings.NDI_SOURCE_NAME = new_name
         await db.set_setting("ndi_source_name", settings.NDI_SOURCE_NAME)
+        # Si le nom change alors que NDI émet déjà, il faut redémarrer
+        # l'émetteur pour que le nouveau nom apparaisse sur le réseau.
+        if name_changed and settings.NDI_ENABLED and output_manager and "ndi" in output_manager.outputs:
+            pilote = output_manager.outputs["ndi"]
+            pilote.stop_sending()
+            pilote.source_name = settings.NDI_SOURCE_NAME
+            await pilote.connect()
 
     if update.get("ndi_enabled") is not None:
         settings.NDI_ENABLED = bool(update["ndi_enabled"])
@@ -1390,10 +1409,14 @@ async def update_settings(settings_update: SettingsUpdate):
             pilote = output_manager.outputs["ndi"]
             pilote.source_name = settings.NDI_SOURCE_NAME
             pilote.enabled = settings.NDI_ENABLED
-            # Éteindre doit libérer la source tout de suite : un mélangeur qui
-            # voit encore « VersePro » alors que la sortie est coupée ferait
-            # perdre du temps à l'opérateur.
-            if not settings.NDI_ENABLED:
+            if settings.NDI_ENABLED:
+                # Créer immédiatement la source NDI sur le réseau pour que le
+                # régisseur puisse la configurer dans OBS/vMix avant le culte.
+                await pilote.connect()
+            else:
+                # Éteindre doit libérer la source tout de suite : un mélangeur
+                # qui voit encore « VersePro » alors que la sortie est coupée
+                # ferait perdre du temps à l'opérateur.
                 pilote.stop_sending()
 
     if update.get("overlay_shapes") is not None:
@@ -1486,6 +1509,8 @@ async def update_settings(settings_update: SettingsUpdate):
         "background_enabled", "background_asset", "background_fit",
         "background_position_x", "background_position_y",
         "background_overlay_color", "background_overlay_opacity", "background_blur",
+        "background_scale", "background_crop_top", "background_crop_bottom",
+        "background_crop_left", "background_crop_right",
     }
     if background_keys.intersection(update):
         from ..services import background_store
@@ -1500,6 +1525,11 @@ async def update_settings(settings_update: SettingsUpdate):
             overlay_color=update.get("background_overlay_color", settings.BACKGROUND_OVERLAY_COLOR),
             overlay_opacity=update.get("background_overlay_opacity", settings.BACKGROUND_OVERLAY_OPACITY),
             blur=update.get("background_blur", settings.BACKGROUND_BLUR),
+            scale=update.get("background_scale", settings.BACKGROUND_SCALE),
+            crop_top=update.get("background_crop_top", settings.BACKGROUND_CROP_TOP),
+            crop_bottom=update.get("background_crop_bottom", settings.BACKGROUND_CROP_BOTTOM),
+            crop_left=update.get("background_crop_left", settings.BACKGROUND_CROP_LEFT),
+            crop_right=update.get("background_crop_right", settings.BACKGROUND_CROP_RIGHT),
         )
         settings.BACKGROUND_ASSET = asset_id
         settings.BACKGROUND_ENABLED = bool(
@@ -1511,6 +1541,11 @@ async def update_settings(settings_update: SettingsUpdate):
         settings.BACKGROUND_OVERLAY_COLOR = options["overlay_color"]
         settings.BACKGROUND_OVERLAY_OPACITY = options["overlay_opacity"]
         settings.BACKGROUND_BLUR = options["blur"]
+        settings.BACKGROUND_SCALE = options["scale"]
+        settings.BACKGROUND_CROP_TOP = options["crop_top"]
+        settings.BACKGROUND_CROP_BOTTOM = options["crop_bottom"]
+        settings.BACKGROUND_CROP_LEFT = options["crop_left"]
+        settings.BACKGROUND_CROP_RIGHT = options["crop_right"]
         for key, value in {
             "background_enabled": settings.BACKGROUND_ENABLED,
             "background_asset": settings.BACKGROUND_ASSET,
@@ -1520,6 +1555,11 @@ async def update_settings(settings_update: SettingsUpdate):
             "background_overlay_color": settings.BACKGROUND_OVERLAY_COLOR,
             "background_overlay_opacity": settings.BACKGROUND_OVERLAY_OPACITY,
             "background_blur": settings.BACKGROUND_BLUR,
+            "background_scale": settings.BACKGROUND_SCALE,
+            "background_crop_top": settings.BACKGROUND_CROP_TOP,
+            "background_crop_bottom": settings.BACKGROUND_CROP_BOTTOM,
+            "background_crop_left": settings.BACKGROUND_CROP_LEFT,
+            "background_crop_right": settings.BACKGROUND_CROP_RIGHT,
         }.items():
             await db.set_setting(key, value)
 
@@ -1618,13 +1658,25 @@ async def get_sessions(limit: int = 10):
     }
 
 
+class SessionStartRequest(BaseModel):
+    name: Optional[str] = None
+
+
 @router.post("/history/sessions/start")
-async def start_session(name: Optional[str] = None):
+async def start_session(payload: Optional[SessionStartRequest] = None, name: Optional[str] = None):
     """Démarre une nouvelle session"""
     from ..services.database import get_database
+    from .. import main as main_module
 
+    session_name = (payload.name if payload else None) or name or ""
     db = get_database()
-    session_id = await db.create_session(name)
+    if main_module.current_session_id:
+        try:
+            await db.end_session(main_module.current_session_id)
+        except Exception:
+            pass
+    session_id = await db.create_session(session_name)
+    main_module.current_session_id = session_id
 
     return {"success": True, "session_id": session_id}
 
@@ -1633,22 +1685,29 @@ async def start_session(name: Optional[str] = None):
 async def end_session(session_id: int):
     """Termine une session"""
     from ..services.database import get_database
+    from .. import main as main_module
 
     db = get_database()
     await db.end_session(session_id)
+    if main_module.current_session_id == session_id:
+        main_module.current_session_id = None
 
     return {"success": True}
 
 
 @router.get("/history/sessions/{session_id}")
 async def get_session_detail(session_id: int):
-    """Récupère une session spécifique avec sa transcription et son résumé"""
+    """Récupère une session spécifique avec sa transcription, son résumé et ses versets"""
     from ..services.database import get_database
 
     db = get_database()
     session = await db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    versets = await db.get_recent_verses(limit=1000, session_id=session_id)
+    session["verses"] = list(reversed(versets))
+    session["verse_count"] = len(versets)
 
     return session
 

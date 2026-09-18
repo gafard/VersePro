@@ -24,6 +24,7 @@ LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 PUBLIC_PATHS = {
     "/", "/health", "/projection", "/output", "/obs", "/follow", "/stage",
     "/ws/projection", "/ws/output",
+    "/overlay.png",
     "/api/v1/offline-kit/download",
     "/api/v1/bibles", "/api/v1/bibles/catalogue", "/api/v1/bibles/imported"
 }
@@ -38,7 +39,7 @@ PUBLIC_PATHS = {
 #
 # Un préfixe ici n'ouvre qu'un GET sur des fichiers déjà destinés à l'écran de
 # l'église. Ce n'est pas une exemption pour l'API de pilotage.
-PUBLIC_PREFIXES = ("/api/v1/bibles/", "/fonts/", "/assets/")
+PUBLIC_PREFIXES = ("/api/v1/bibles/", "/fonts/", "/assets/", "/overlay/")
 
 
 def _is_local(host: str | None) -> bool:

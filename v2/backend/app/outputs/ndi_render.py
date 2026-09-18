@@ -139,6 +139,8 @@ def rendre_habillage(
     voile_couleur: str = "#000000",
     voile_opacite: float = 0.0,
     flou_arriere_plan: float = 0.0,
+    scale_arriere_plan: float = 100.0,
+    crop_arriere_plan: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
 ) -> Image.Image:
     """Compose une image RGBA transparente : image, puis formes, puis textes."""
     cadre = Image.new("RGBA", (largeur, hauteur), (0, 0, 0, 0))
@@ -147,6 +149,19 @@ def rendre_habillage(
         try:
             with Image.open(arriere_plan) as source:
                 source = source.convert("RGBA")
+                # Recadrage en pourcentages (top, right, bottom, left)
+                crop_t, crop_r, crop_b, crop_l = crop_arriere_plan
+                if crop_t or crop_r or crop_b or crop_l:
+                    sw, sh = source.size
+                    box = (
+                        int(sw * max(0.0, min(40.0, crop_l)) / 100),
+                        int(sh * max(0.0, min(40.0, crop_t)) / 100),
+                        int(sw * (100 - max(0.0, min(40.0, crop_r))) / 100),
+                        int(sh * (100 - max(0.0, min(40.0, crop_b))) / 100),
+                    )
+                    if box[2] > box[0] and box[3] > box[1]:
+                        source = source.crop(box)
+
                 px = max(0.0, min(100.0, float(position_arriere_plan[0]))) / 100
                 py = max(0.0, min(100.0, float(position_arriere_plan[1]))) / 100
                 if cadrage_arriere_plan == "contain":
@@ -162,6 +177,16 @@ def rendre_habillage(
                         source, (largeur, hauteur), Image.Resampling.LANCZOS,
                         centering=(px, py),
                     )
+
+            # Échelle / zoom libre (20% à 200%)
+            scale = max(20.0, min(200.0, float(scale_arriere_plan)))
+            if scale != 100.0:
+                nw = max(1, int(largeur * scale / 100))
+                nh = max(1, int(hauteur * scale / 100))
+                scaled = fond.resize((nw, nh), Image.Resampling.LANCZOS)
+                fond = Image.new("RGBA", (largeur, hauteur), (0, 0, 0, 255))
+                fond.alpha_composite(scaled, ((largeur - nw) // 2, (hauteur - nh) // 2))
+
             if flou_arriere_plan:
                 fond = fond.filter(ImageFilter.GaussianBlur(
                     radius=max(0.0, min(20.0, float(flou_arriere_plan)))
