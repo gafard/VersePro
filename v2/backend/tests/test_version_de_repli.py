@@ -14,14 +14,22 @@ from app import main
 
 @pytest.fixture
 def nbs_active():
+    """Une traduction trouée comme la NBS réelle, construite depuis la Segond.
+
+    Les vraies NBS/TOB sont sous licence et absentes du dépôt : un test qui
+    les exigerait serait ignoré en CI, donc ne protégerait rien.
+    """
     with TestClient(main.app) as client:
         loader = main.verse_parser.bible_loader
-        if "NBS" not in loader.versions or loader.versions["NBS"].get("na"):
-            pytest.skip("NBS absente, ou désormais complète")
+        trouee = {livre: chapitres for livre, chapitres in loader.versions["LSG"].items() if livre != "na"}
         avant = loader.active_version
-        loader.active_version = "NBS"
-        yield client, loader
-        loader.active_version = avant
+        loader.versions["NBS_TEST"] = trouee
+        loader.active_version = "NBS_TEST"
+        try:
+            yield client, loader
+        finally:
+            loader.active_version = avant
+            loader.versions.pop("NBS_TEST", None)
 
 
 def test_nahum_en_nbs_projette_le_texte_de_la_segond(nbs_active):
@@ -40,9 +48,9 @@ def test_une_version_demandee_ne_se_replie_jamais(nbs_active):
     """La liste des traductions ne doit pas prêter à la NBS un texte de la Segond."""
     _, loader = nbs_active
 
-    assert loader.get_verse_text("Na", 1, 7, version_id="NBS") == ""
+    assert loader.get_verse_text("Na", 1, 7, version_id="NBS_TEST") == ""
     assert loader.version_du_texte("Na", 1, 7) == "LSG"
-    assert loader.version_du_texte("Jn", 3, 16) == "NBS"
+    assert loader.version_du_texte("Jn", 3, 16) == "NBS_TEST"
 
 
 def test_un_verset_present_garde_la_traduction_active(nbs_active):
@@ -50,4 +58,4 @@ def test_un_verset_present_garde_la_traduction_active(nbs_active):
 
     client.post("/api/v1/control/project", json={"reference": "Jean 3:16"})
 
-    assert main.current_projection_slide["active_version"] == "NBS"
+    assert main.current_projection_slide["active_version"] == "NBS_TEST"
