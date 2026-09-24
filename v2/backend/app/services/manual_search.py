@@ -120,22 +120,50 @@ def _ordered_coverage(query_words: List[str], text_words: List[str]) -> float:
     return found / len(query_words)
 
 
-def _best_window_ratio(query: str, query_size: int, text_words: List[str]) -> float:
-    """Similarité avec la meilleure fenêtre locale, pas le verset entier."""
+# Renvoyé quand le score est certainement sous le plancher demandé.
+SOUS_LE_PLANCHER = -1.0
+
+
+def _best_window_ratio(
+    query: str, query_size: int, text_words: List[str], plancher: float = 0.0
+) -> float:
+    """Similarité avec la meilleure fenêtre locale, pas le verset entier.
+
+    ``plancher`` : en dessous, la valeur exacte n'intéresse personne. Les
+    fenêtres qui ne peuvent pas l'atteindre ne sont pas calculées, et la
+    fonction renvoie SOUS_LE_PLANCHER si aucune ne l'atteint.
+    """
     if not query or not text_words:
         return 0.0
+    # MÊME RÉSULTAT, SANS LE PRIX. Mesuré sur l'index à huit traductions :
+    # 17 484 SequenceMatcher pour « le peuple de dieu a mis du sang sur les
+    # linteaux des portes » (2 s), et 14,7 s pour « que dit la parole ».
+    #
+    # ratio() ne peut pas dépasser quick_ratio(), qui ne peut pas dépasser
+    # real_quick_ratio(). Une fenêtre dont la borne ne bat pas le meilleur
+    # score n'a pas besoin du calcul complet : elle ne pouvait pas gagner.
+    # Un seul SequenceMatcher, la requête en « a » comme avant — ratio()
+    # n'est pas strictement symétrique, l'ordre est conservé pour que chaque
+    # score reste identique au précédent.
+    matcher = SequenceMatcher(None, query, "")
     best = 0.0
     lower = max(1, query_size - 1)
     upper = min(len(text_words), query_size + 2)
     for size in range(lower, upper + 1):
         for start in range(0, len(text_words) - size + 1):
-            candidate = " ".join(text_words[start : start + size])
-            ratio = SequenceMatcher(None, query, candidate).ratio()
+            matcher.set_seq2(" ".join(text_words[start : start + size]))
+            borne = matcher.real_quick_ratio()
+            if borne <= best or borne < plancher:
+                continue
+            borne = matcher.quick_ratio()
+            if borne <= best or borne < plancher:
+                continue
+            ratio = matcher.ratio()
             if ratio > best:
                 best = ratio
                 if best >= 0.995:
                     return best
-    return best
+    return best if best >= plancher else SOUS_LE_PLANCHER
 
 
 class ManualVerseIndex:
@@ -286,7 +314,8 @@ class ManualVerseIndex:
         return self.entries[next_id] if next_id is not None else None
 
     @staticmethod
-    def _score(query: str, query_words: List[str], candidate: str) -> float:
+    def _score(query: str, query_words: List[str], candidate: str, plancher: float = 0.0) -> float:
+        """Score de 0 à 1, ou SOUS_LE_PLANCHER s'il ne peut pas atteindre ``plancher``."""
         if not candidate:
             return 0.0
         if query == candidate or f" {query} " in f" {candidate} ":
@@ -309,7 +338,12 @@ class ManualVerseIndex:
         if len(query_words) == 2 and lexical == 0.0:
             return 0.0
         ordered = _ordered_coverage(query_words, candidate_words)
-        window = _best_window_ratio(query, len(query_words), candidate_words)
+        # La fenêtre pèse 0,50 : on ne cherche que celles qui peuvent encore
+        # porter le score au plancher (marge contre l'arrondi flottant).
+        fenetre_min = (plancher - 0.32 * lexical - 0.18 * ordered) / 0.50 - 1e-9
+        window = _best_window_ratio(query, len(query_words), candidate_words, fenetre_min)
+        if window == SOUS_LE_PLANCHER:
+            return SOUS_LE_PLANCHER
 
         # La fenêtre locale capture les fautes ("rugisant"), le recouvrement
         # protège contre une ressemblance orthographique fortuite, et l'ordre
@@ -397,8 +431,16 @@ class ManualVerseIndex:
         for doc_id in candidate_ids[:CANDIDATS_SCORES_MAX]:
             entry = self.entries[doc_id]
             next_entry = self._next_entry(entry)
+            # Seuls les versets qui atteignent le seuil sont retenus, et un
+            # passage de deux versets ne remplace le verset seul que s'il le
+            # dépasse de 0,005. Le verset seul n'a donc besoin d'un score exact
+            # qu'à partir de seuil − 0,005, le passage qu'à partir du seuil :
+            # en dessous, le résultat final est le même (écarté ou remplacé).
+            threshold = 0.98 if len(query_words) == 1 else 0.64
             for version_id, normalized_text in entry["normalized"].items():
-                score = self._score(normalized_query, query_words, normalized_text)
+                score = self._score(
+                    normalized_query, query_words, normalized_text, plancher=threshold - 0.005
+                )
                 end_verse = None
                 method = "manual_exact" if score >= 0.999 else "manual_approx"
                 matched_text = entry["texts"].get(version_id, "")
@@ -408,7 +450,9 @@ class ManualVerseIndex:
                 # verset unique.
                 if score < 0.999 and next_entry and version_id in next_entry["normalized"]:
                     joined = f"{normalized_text} {next_entry['normalized'][version_id]}"
-                    joined_score = self._score(normalized_query, query_words, joined)
+                    joined_score = self._score(
+                        normalized_query, query_words, joined, plancher=threshold
+                    )
                     if joined_score > score + 0.005:
                         score = joined_score
                         end_verse = int(next_entry["verse"])
@@ -418,7 +462,6 @@ class ManualVerseIndex:
                 # Une approximation manuelle doit partager suffisamment de
                 # matière avec le texte. Les correspondances exactes courtes
                 # restent acceptées ; les conversations ordinaires non.
-                threshold = 0.98 if len(query_words) == 1 else 0.64
                 if score < threshold:
                     continue
 
