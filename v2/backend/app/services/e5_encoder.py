@@ -141,7 +141,23 @@ class E5OnnxEncoder:
 
                 opts = ort.SessionOptions()
                 opts.intra_op_num_threads = max(1, min(os.cpu_count() or 1, 8))
-                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                # BASIC, PAS ALL : LE MÊME VECTEUR SUR TOUS LES PROCESSEURS.
+                #
+                # L'index des versets est calculé une fois (sur un Mac ARM) et
+                # livré tel quel ; les requêtes, elles, sont encodées sur le
+                # poste de l'église. Avec ALL, les fusions du niveau EXTENDED
+                # (attention, normalisation) sur ce modèle quantifié int8
+                # divergent selon l'architecture. Mesuré sur une même phrase :
+                #
+                #     ARM  ALL   cosinus 0,99962 avec la référence non optimisée
+                #     x86  ALL   cosinus 0,99189  → score 0,8378 au lieu de 0,8398
+                #     x86/ARM BASIC                  1,000000
+                #
+                # Le seuil sémantique (0,8385) tombait entre les deux : la même
+                # citation de 1 Corinthiens 13:4 était détectée sur Mac ARM et
+                # manquée sur x86 — Windows compris. Coût de BASIC : +1,8 ms par
+                # requête sur ARM.
+                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
                 self.session = ort.InferenceSession(
                     str(self.model_path), sess_options=opts, providers=["CPUExecutionProvider"]
                 )
