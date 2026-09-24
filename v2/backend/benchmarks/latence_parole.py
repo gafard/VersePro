@@ -25,6 +25,16 @@ viendront le compléter.
 
     python3 benchmarks/latence_parole.py            # tous les cas, Nemotron
     python3 benchmarks/latence_parole.py --moteur vosk --voix Jacques
+
+VRAIES VOIX. Les voix de synthèse ne suffisent pas : Nemotron décroche sur
+elles (« Chap Iii », mots anglais), alors qu'il tient une heure de vraie
+prédication. Pour mesurer sur une voix humaine :
+
+    python3 benchmarks/latence_parole.py --enregistrer        # ~3 min, une fois
+    python3 benchmarks/latence_parole.py --voix-enregistree   # autant de fois que voulu
+
+La voix reste sur ce poste, dans data/voix-latence/ (ignoré par git) :
+c'est une donnée personnelle, elle ne doit jamais être versionnée.
 """
 
 from __future__ import annotations
@@ -46,6 +56,7 @@ import numpy as np
 
 RACINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RACINE))
+DOSSIER_VOIX = RACINE / "data" / "voix-latence"
 
 TAUX = 16000
 chronologie: list = []  # (t, nature, texte) du dernier cas joué, pour --detail
@@ -97,6 +108,41 @@ def synthetiser(texte: str, voix: str, dossier: Path, nom: str) -> np.ndarray:
                    check=True, capture_output=True)
     with wave.open(str(wav)) as fichier:
         return np.frombuffer(fichier.readframes(fichier.getnframes()), dtype=np.int16)
+
+
+def lire_wav(chemin: Path) -> np.ndarray:
+    with wave.open(str(chemin)) as fichier:
+        if fichier.getframerate() != TAUX or fichier.getnchannels() != 1:
+            raise SystemExit(f"{chemin} : attendu mono {TAUX} Hz")
+        return np.frombuffer(fichier.readframes(fichier.getnframes()), dtype=np.int16)
+
+
+def enregistrer_phrase(chemin: Path, texte: str, micro: str) -> None:
+    """Enregistre le micro jusqu'à Entrée, en mono 16 kHz."""
+    input(f"\n  Prêt ? Entrée, puis lisez à voix haute :\n\n      « {texte} »\n")
+    ffmpeg = subprocess.Popen(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "avfoundation",
+         "-i", f":{micro}", "-ac", "1", "-ar", str(TAUX), "-sample_fmt", "s16", str(chemin)],
+        stdin=subprocess.PIPE,
+    )
+    input("  … enregistrement. Entrée quand vous avez fini.")
+    ffmpeg.communicate(b"q", timeout=10)
+    if not chemin.exists() or chemin.stat().st_size < TAUX:
+        raise SystemExit("Enregistrement vide : le Terminal a-t-il accès au micro ? "
+                         "(Réglages Système → Confidentialité → Micro)")
+
+
+def enregistrer(dossier: Path, micro: str) -> int:
+    dossier.mkdir(parents=True, exist_ok=True)
+    print(f"Enregistrement de {len(CAS)} références et {len(NEGATIFS)} phrases sans référence, "
+          f"micro « {micro} ». Parlez comme en chaire, à distance normale du micro.")
+    for n, (reference_dite, suite, _) in enumerate(CAS):
+        enregistrer_phrase(dossier / f"{n:02d}_a.wav", reference_dite, micro)
+        enregistrer_phrase(dossier / f"{n:02d}_b.wav", suite, micro)
+    for n, phrase in enumerate(NEGATIFS):
+        enregistrer_phrase(dossier / f"neg{n:02d}.wav", phrase, micro)
+    print(f"\nTerminé : {dossier}. Mesure : python3 benchmarks/latence_parole.py --voix-enregistree")
+    return 0
 
 
 def fin_de_parole(echantillons: np.ndarray) -> float:
@@ -201,10 +247,14 @@ async def principal(options) -> int:
         await attendre_backend(options.port, processus)
         delais, manques, faux = [], [], 0
         cas = CAS[: options.limite] if options.limite else CAS
+        voix = options.voix_enregistree
         for n, (reference_dite, suite, attendu) in enumerate(cas):
-            debut_audio = synthetiser(reference_dite, options.voix, dossier, f"a{n}")
+            if voix:
+                debut_audio, suite_audio = lire_wav(voix / f"{n:02d}_a.wav"), lire_wav(voix / f"{n:02d}_b.wav")
+            else:
+                debut_audio = synthetiser(reference_dite, options.voix, dossier, f"a{n}")
+                suite_audio = synthetiser(suite, options.voix, dossier, f"b{n}")
             fin_ref = fin_de_parole(debut_audio)
-            suite_audio = synthetiser(suite, options.voix, dossier, f"b{n}")
             audio = np.concatenate([debut_audio[: int(fin_ref * TAUX)],
                                     np.zeros(int(0.25 * TAUX), dtype=np.int16), suite_audio])
             recus, transcrit = await jouer(options.port, options.moteur, audio)
@@ -227,12 +277,14 @@ async def principal(options) -> int:
                 print(f"RATÉ          {attendu:20} reçu {[r for _, r in recus]} | entendu : {' / '.join(transcrit)[:110]}")
 
         for n, phrase in enumerate(NEGATIFS):
-            recus, transcrit = await jouer(options.port, options.moteur, synthetiser(phrase, options.voix, dossier, f"n{n}"))
+            audio = (lire_wav(voix / f"neg{n:02d}.wav") if voix
+                     else synthetiser(phrase, options.voix, dossier, f"n{n}"))
+            recus, transcrit = await jouer(options.port, options.moteur, audio)
             faux += len(recus)
             print(f"{'FAUX' if recus else 'OK  '}          (négatif) {[r for _, r in recus] or 'aucun candidat'}")
 
         print()
-        print(f"Moteur {options.moteur} · voix {options.voix} · {len(cas)} références, {len(NEGATIFS)} phrases sans référence")
+        print(f"Moteur {options.moteur} · voix {'enregistrée (' + str(voix) + ')' if voix else options.voix} · {len(cas)} références, {len(NEGATIFS)} phrases sans référence")
         print(f"Rappel : {len(delais)}/{len(cas)} ({100 * len(delais) / len(cas):.0f} %)")
         if len(delais) >= 2:
             q = statistics.quantiles(delais, n=20)
@@ -263,4 +315,11 @@ if __name__ == "__main__":
     analyseur.add_argument("--limite", type=int, default=0, help="n'exécuter que les N premiers cas")
     analyseur.add_argument("--garder", action="store_true", help="conserver le journal du backend")
     analyseur.add_argument("--detail", action="store_true", help="chronologie des transcriptions par cas")
-    sys.exit(asyncio.run(principal(analyseur.parse_args())))
+    analyseur.add_argument("--enregistrer", action="store_true", help="enregistrer sa propre voix (une fois)")
+    analyseur.add_argument("--voix-enregistree", nargs="?", const=DOSSIER_VOIX, type=Path, default=None,
+                           help=f"mesurer sur les enregistrements (défaut : {DOSSIER_VOIX})")
+    analyseur.add_argument("--micro", default="0", help="périphérique audio avfoundation (ffmpeg -list_devices)")
+    options = analyseur.parse_args()
+    if options.enregistrer:
+        sys.exit(enregistrer(options.voix_enregistree or DOSSIER_VOIX, options.micro))
+    sys.exit(asyncio.run(principal(options)))
