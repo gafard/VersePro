@@ -1688,8 +1688,10 @@ async def start_session(payload: Optional[SessionStartRequest] = None, name: Opt
     if main_module.current_session_id:
         try:
             await db.end_session(main_module.current_session_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            # La nouvelle session démarre quand même ; l'ancienne resterait
+            # ouverte dans l'historique, il faut pouvoir le comprendre.
+            logger.warning(f"Session {main_module.current_session_id} non clôturée : {exc}")
     session_id = await db.create_session(session_name)
     main_module.current_session_id = session_id
 
@@ -1990,13 +1992,17 @@ async def control_prev():
                 if prev_v > 0:
                     prev_text = verse_parser.bible_loader.get_verse_text(parsed["book_abbr"], parsed["chapter"], prev_v)
                     if prev_text:
-                        prev_ref = f"{parsed['book_abbr']} {parsed['chapter']}:{prev_v}"
+                        # Nom complet, comme partout à l'écran : l'abréviation
+                        # affichait « Jn 3:16 » après un retour arrière.
+                        from ..services.verse_parser import format_reference
+                        prev_ref = format_reference(parsed["book_abbr"], parsed["chapter"], prev_v)
                         await broadcast_projection(prev_text, prev_ref)
                         if output_manager:
                             await output_manager.project(prev_text, prev_ref)
                         return {"success": True, "reference": prev_ref, "text": prev_text}
-        except Exception:
-            pass
+        except Exception as exc:
+            # Une télécommande qui ne fait rien doit au moins laisser une trace.
+            logger.warning(f"Verset précédent impossible depuis {ref!r} : {exc}")
     return {"success": False, "detail": "Aucun verset précédent disponible"}
 
 @router.get("/update/check")

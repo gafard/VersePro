@@ -76,7 +76,9 @@ def test_http_control_navigation(client):
     response_prev = client.post("/api/v1/control/prev")
     assert response_prev.status_code == 200
     assert response_prev.json()["success"] is True
-    assert "3:16" in response_prev.json()["reference"]
+    # Égalité stricte : « "3:16" in … » laissait passer « Jn 3:16 », l'abréviation
+    # que la route affichait à l'écran après un retour arrière.
+    assert response_prev.json()["reference"] == "Jean 3:16"
 
 
 def test_manual_reference_rejects_invalid_input(client):
