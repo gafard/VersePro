@@ -5,10 +5,14 @@ const meterShapes = {
 
 const RELEASE_PAGE = 'https://github.com/gafard/VersePro/releases/latest'
 const RELEASE_API = 'https://api.github.com/repos/gafard/VersePro/releases/latest'
+// Repli si l'API GitHub ne répond pas — 60 appels par heure et par adresse IP
+// sans authentification, vite atteints sur le réseau partagé d'une église. Un
+// lien figé (il désignait la v2.1.8) livrait alors une version périmée ; la
+// page « latest » désigne toujours la dernière publiée.
 const FALLBACK_RELEASE = {
-  version: 'v2.1.8',
-  windows: 'https://github.com/gafard/VersePro/releases/download/v2.1.8/VersePro_2.1.8_x64-setup.exe',
-  macos: 'https://github.com/gafard/VersePro/releases/download/v2.1.8/VersePro_2.1.8_aarch64.dmg'
+  version: 'dernière version',
+  windows: RELEASE_PAGE,
+  macos: RELEASE_PAGE
 }
 
 const detectPlatform = () => {
