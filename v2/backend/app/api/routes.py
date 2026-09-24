@@ -556,6 +556,13 @@ async def bible_search(q: str, limit: int = 6):
         key = explicit["reference"]
         seen.add(key)
         results.append(explicit)
+        # « Samuel 16 7 » : 1 Samuel en tête, 2 Samuel juste dessous.
+        for alternative in explicit.get("alternatives") or []:
+            autre = await verse_parser.parse(alternative, skip_text_search=True)
+            if autre and autre["reference"] not in seen:
+                autre["confidence"] = explicit["confidence"]
+                seen.add(autre["reference"])
+                results.append(autre)
         # Propose aussi les 2 versets suivants (lecture de passage)
         if explicit.get("verse_start") is not None:
             for offset in (1, 2):

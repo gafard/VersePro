@@ -1544,6 +1544,12 @@ class VerseParserService:
                     verse_end = None
 
                 book_abbr = self._normalize_book(book_name)
+            deduit = None
+            if not book_abbr:
+                deduit = self._livre_sans_numero(book_name, chapter, verse_start)
+                if not deduit:
+                    return None
+                book_abbr = deduit[0]
             if not book_abbr:
                 return None
 
@@ -1565,7 +1571,7 @@ class VerseParserService:
                     if text_v:
                         translations[v_name] = text_v
 
-            return {
+            resultat = {
                 "book": self._get_full_book_name(book_abbr),
                 "book_abbr": book_abbr,
                 "chapter": chapter,
@@ -1582,10 +1588,50 @@ class VerseParserService:
                 "detection_method": "chapter_candidate" if verse_start is None else "explicit",
                 "confidence": 0.72 if verse_start is None else (0.85 if loose else 0.98),
             }
+            if deduit:
+                # Livre deviné : jamais d'autopilotage (seuil 0,95), toujours
+                # une carte à valider — ambiguë, elle descend encore.
+                autres = deduit[1]
+                resultat["livre_deduit"] = True
+                resultat["confidence"] = min(resultat["confidence"], 0.70 if autres else 0.90)
+                resultat["alternatives"] = [
+                    format_reference(abbr, chapter, verse_start, verse_end) for abbr in autres
+                ]
+            return resultat
 
         except Exception as e:
             logger.error(f"❌ Erreur extraction référence: {e}")
             return None
+
+    # « Samuel 16 7 » : le prédicateur, ou le régisseur qui tape vite, omet
+    # souvent le numéro du livre. Le parseur rendait None — rien du tout.
+    LIVRES_NUMEROTES = {
+        "samuel": ("1 S", "2 S"), "rois": ("1 R", "2 R"),
+        "chroniques": ("1 Ch", "2 Ch"), "corinthiens": ("1 Co", "2 Co"),
+        "thessaloniciens": ("1 Th", "2 Th"), "timothee": ("1 Tm", "2 Tm"),
+        "pierre": ("1 P", "2 P"),
+    }
+
+    def _livre_sans_numero(
+        self, book_name: str, chapter: Optional[int], verse_start: Optional[int]
+    ) -> Optional[tuple]:
+        """(livre retenu, autres livres possibles) — ou None.
+
+        Seul le texte tranche : « Samuel 25 » ne peut être que 1 Samuel
+        (2 Samuel s'arrête au chapitre 24). Si les deux existent, on propose
+        le premier et on garde l'autre en alternative, sans rien affirmer.
+        """
+        livres = self.LIVRES_NUMEROTES.get(strip_accents(book_name))
+        if not livres or not chapter:
+            return None
+        possibles = [
+            abbr for abbr in livres
+            if chapter <= (self.chapter_counts.get(abbr) or 0)
+            and (verse_start is None or self.bible_loader.get_verse_text(abbr, chapter, verse_start))
+        ]
+        if not possibles:
+            return None
+        return possibles[0], possibles[1:]
 
     def _normalize_book(self, book_name: str) -> Optional[str]:
         """Normalise le nom du livre vers son abréviation en évitant les collisions"""
