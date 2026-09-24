@@ -9,6 +9,7 @@ import LiveHighlightIcon from './LiveHighlightIcons.jsx'
 import FollowModal from './FollowModal.jsx'
 import { BACKEND_BASE, BACKEND_WS_BASE, openExternal } from '../env.js'
 import { versetsVoisins as calculerVoisins } from '../runtime/verse-window.js'
+import { fusionnerAvisIA, meriteAvisIA, libelleIA } from '../runtime/avis-ia.js'
 
 const BIBLE_NAMES = {
   LSG: 'Louis Segond 1910',
@@ -245,6 +246,12 @@ export default function LiveDetection({ setActiveTab }) {
   const [manualSuggestions, setManualSuggestions] = useState([])
   const [manualSearching, setManualSearching] = useState(false)
   const [manualActiveIndex, setManualActiveIndex] = useState(0)
+  const [manualIaEnCours, setManualIaEnCours] = useState(false)
+  // L'avis de l'IA arrive après coup ; il lit la liste et la sélection du moment.
+  const manualSuggestionsRef = useRef([])
+  const manualActiveRef = useRef(0)
+  manualSuggestionsRef.current = manualSuggestions
+  manualActiveRef.current = manualActiveIndex
   const [showManualSuggestions, setShowManualSuggestions] = useState(false)
   const manualDebounceRef = useRef(null)
   const manualSeqRef = useRef(0)
@@ -505,6 +512,23 @@ export default function LiveDetection({ setActiveTab }) {
         if (seq === manualSeqRef.current) setManualSuggestions([])
       } finally {
         if (seq === manualSeqRef.current) setManualSearching(false)
+      }
+      if (seq !== manualSeqRef.current || !meriteAvisIA(trimmed)) return
+      // Deuxième temps : l'assistant complète, sans jamais retarder la liste locale.
+      setManualIaEnCours(true)
+      try {
+        const response = await fetch(`${BACKEND_BASE}/api/v1/bible/search/ia?q=${encodeURIComponent(trimmed)}&limit=6`)
+        const data = await response.json()
+        if (seq === manualSeqRef.current && data.ia === 'proposee') {
+          const fusion = fusionnerAvisIA(manualSuggestionsRef.current, data.results, manualActiveRef.current)
+          setManualSuggestions(fusion.results)
+          setManualActiveIndex(fusion.activeIndex)
+          setShowManualSuggestions(fusion.results.length > 0)
+        }
+      } catch {
+        // Silence de l'assistant : la liste locale reste telle quelle.
+      } finally {
+        if (seq === manualSeqRef.current) setManualIaEnCours(false)
       }
     }, 150)
   }
@@ -1444,7 +1468,10 @@ export default function LiveDetection({ setActiveTab }) {
                   role="listbox"
                 >
                   <div className="px-2.5 py-1.5 text-[10.5px] font-mono text-text-faint flex items-center justify-between border-b border-border mb-1">
-                    <span>{manualSuggestions.length} proposition{manualSuggestions.length > 1 ? 's' : ''} trouvée{manualSuggestions.length > 1 ? 's' : ''}</span>
+                    <span>
+                      {manualSuggestions.length} proposition{manualSuggestions.length > 1 ? 's' : ''} trouvée{manualSuggestions.length > 1 ? 's' : ''}
+                      {manualIaEnCours && <span className="ml-2 animate-pulse" aria-live="polite">· l’assistant cherche…</span>}
+                    </span>
                     <span>↑↓ naviguer · Entrée projeter · Échap fermer</span>
                   </div>
                   {manualSuggestions.map((result, idx) => {
@@ -1466,6 +1493,11 @@ export default function LiveDetection({ setActiveTab }) {
                         <div className="flex items-center justify-between gap-2">
                           <strong className="text-[13.5px] font-semibold text-text-primary">
                             {result.reference}
+                            {libelleIA(result) && (
+                              <span className={`ml-2 text-[10.5px] font-semibold ${result.source === 'ai' ? 'text-amber-300' : 'text-accent'}`}>
+                                {libelleIA(result)}
+                              </span>
+                            )}
                           </strong>
                           <div className="flex items-center gap-1.5">
                             <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${

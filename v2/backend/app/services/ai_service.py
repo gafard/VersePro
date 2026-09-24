@@ -329,6 +329,64 @@ class AIService:
         self._cache_put(self._reference_cache, cache_key, None)
         return None
 
+    # LA BARRE DE RECHERCHE POSE UNE AUTRE QUESTION QUE LE DIRECT.
+    #
+    # Le prompt de détection analyse une « transcription de sermon » et ne doit
+    # répondre que si le lien est net : pendant le culte, se taire vaut mieux
+    # que se tromper. Mais le régisseur qui tape « le fils prodigue » DÉCRIT un
+    # passage et demande où il se trouve. Avec le prompt de sermon, les modèles
+    # locaux refusaient presque toujours. Mesuré sur les 45 descriptions de
+    # benchmarks/description_cases*.json :
+    #
+    #     llama3.1:8b   prompt sermon 12/45   prompt recherche 40/45
+    #     qwen3:8b                     5/45                    35/45
+    #     mistral:7b                   0/45
+    #
+    # Et l'IA complète exactement la recherche locale : elle retrouve les 5
+    # descriptions que le local rate (Ruth 1:16, Jean 8:7, Ézéchiel 37,
+    # Actes 2:3, Esther 4:16) ; le local couvre les 5 où elle se trompe.
+    PROMPT_SYSTEME_RECHERCHE = (
+        "Tu es un bibliste francophone. Un régisseur d'église décrit un passage de la Bible "
+        "avec ses propres mots. Tu donnes la référence précise du verset qui correspond le mieux. "
+        "Réponds uniquement en JSON."
+    )
+
+    async def trouver_passage_decrit(self, description: str) -> Optional[Dict[str, Any]]:
+        """Référence décrite par le régisseur : {"reference", "confidence" 0–100} ou None."""
+        if not self.enabled or not description or len(description.strip()) < 6:
+            return None
+        cle = self._normalize_cache_key(description, "recherche")
+        if cle in self._reference_cache:
+            return self._reference_cache[cle]
+        prompt = (
+            f'Description donnée par le régisseur : "{description.strip()[:300]}"\n\n'
+            "Quel est le verset biblique décrit ? Donne le livre en français (noms de la Bible "
+            "Louis Segond), le chapitre et le verset le plus représentatif.\n"
+            'Réponds : {"reference": "Livre chapitre:verset", "confidence": entier de 0 à 100}. '
+            'Si la description ne correspond à aucun passage biblique, {"reference": null, "confidence": 0}.'
+        )
+        appels = []
+        # Local d'abord, pour la même raison que detect_bible_reference.
+        if self.ollama_active:
+            appels.append(self._call_ollama_local)
+        if self.openrouter_key:
+            appels.append(self._call_openrouter)
+        if self.api_key:
+            appels.append(self._call_gemini_direct)
+        for appel in appels:
+            resultat = await appel(
+                description, None, None,
+                prompt_override=prompt, system_override=self.PROMPT_SYSTEME_RECHERCHE,
+            )
+            reference = (resultat or {}).get("reference")
+            if isinstance(reference, str) and reference.strip() and reference.lower() != "null":
+                trouve = {"reference": reference.strip(), "confidence": int(resultat.get("confidence") or 0)}
+                self._cache_put(self._reference_cache, cle, trouve)
+                return trouve
+        # Pas de cache pour un échec : il peut venir d'Ollama encore en train
+        # de charger le modèle, et la même question mérite une seconde chance.
+        return None
+
     async def extract_biblical_intent(
         self,
         text: str,

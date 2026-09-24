@@ -20,6 +20,7 @@ from typing import Optional, List, Dict, Any
 from loguru import logger
 from contextlib import suppress
 import asyncio
+from collections import OrderedDict
 import re
 
 router = APIRouter()
@@ -533,20 +534,39 @@ async def parse_reference(request: ParseRequest):
         }
 
 
+# Dernières recherches locales, reprises par /bible/search/ia pour ne pas
+# refaire deux fois le même calcul quand la palette demande l'avis de l'IA.
+_RECHERCHES_RECENTES: "OrderedDict[tuple, list]" = OrderedDict()
+
+
+def _normaliser_requete(q: str) -> str:
+    return (re.sub(r"^[^\w\s]+", "", q.strip()).strip() or q.strip())[:5000]
+
+
 @router.get("/bible/search")
 async def bible_search(q: str, limit: int = 6):
     """
     Recherche unifiée pour la palette de commande :
     référence explicite (Jn 3:16, "rom 8 28"), début de texte, citation approximative.
     Renvoie plusieurs candidats avec texte et score, sans rien projeter.
+
+    JAMAIS D'IA ICI. Cette route sert aussi à relire le texte d'un verset avant
+    de le projeter ou de l'ajouter au déroulé (« Jean 3:16 », limit=1). Elle
+    attendait l'assistant jusqu'à 5 s à chaque appel — mesuré : 3,15 s pour
+    « Jean 3:16 » avec une IA qui répond en 3 s, et 4 à 5 s quand les crédits
+    OpenRouter sont épuisés. Pire : sa réponse était ajoutée APRÈS une liste
+    locale d'au moins douze résultats, puis coupée à `limit`. Même pour
+    « zzz qwx blorp », elle n'a jamais été affichée. On attendait pour rien.
+    L'avis de l'IA passe désormais par /bible/search/ia, demandé à part.
     """
     from ..main import verse_parser, semantic_service
+    from ..services.verse_parser import format_reference
 
     if not verse_parser or not q or not q.strip():
         return {"results": []}
 
     limit = min(max(int(limit), 1), 20)
-    query = (re.sub(r"^[^\w\s]+", "", q.strip()).strip() or q.strip())[:5000]
+    query = _normaliser_requete(q)
     results = []
     seen = set()
 
@@ -570,7 +590,7 @@ async def bible_search(q: str, limit: int = 6):
                 text = verse_parser.bible_loader.get_verse_text(explicit["book_abbr"], explicit["chapter"], v)
                 if text:
                     adjacent = {
-                        "reference": f"{explicit['book_abbr']} {explicit['chapter']}:{v}",
+                        "reference": format_reference(explicit["book_abbr"], explicit["chapter"], v),
                         "book_abbr": explicit["book_abbr"],
                         "chapter": explicit["chapter"],
                         "verse_start": v,
@@ -581,12 +601,8 @@ async def bible_search(q: str, limit: int = 6):
                     seen.add(adjacent["reference"])
                     results.append(adjacent)
 
-    # 2. Recherche concurrente en parallèle : Lexical local + Sémantique ONNX + IA Assistant
-    # Deux lettres suffisent pour lancer la recherche locale ;
-    # Dès 2 mots, l'IA et l'index sémantique s'exécutent en parallèle immédiat sans attendre.
+    # 2. Lexical local + sémantique ONNX, en parallèle. Deux lettres suffisent.
     if len(query) >= 2:
-        from ..main import ai_service
-
         manual_task = asyncio.to_thread(
             verse_parser.bible_loader.search_manual_candidates, query, max(limit * 2, 12)
         )
@@ -604,38 +620,14 @@ async def bible_search(q: str, limit: int = 6):
                     semantic_service.search_manual, query, max(limit * 2, 12)
                 )
 
-        ai_task = None
-        if ai_service and getattr(ai_service, "enabled", False) and len(query.split()) >= 2:
-            ai_task = ai_service.detect_bible_reference(
-                query,
-                candidates=None,
-                exiger_candidats=False,
-            )
-
-        async def run_ai():
-            if not ai_task:
-                return None
-            try:
-                # 5 s. Essayé à 12 s pour laisser respirer llama3.1:8b, qui
-                # dépasse ce budget sur le prompt réel : sept secondes de plus,
-                # aucun résultat de plus sur les phrases descriptives testées.
-                # Une recherche lente qui ne trouve rien est pire qu'une rapide
-                # qui ne trouve rien. Le budget ne bougera que le jour où l'IA
-                # rapportera quelque chose de mesurable.
-                return await asyncio.wait_for(ai_task, timeout=5.0)
-            except Exception:
-                return None
-
-        manual_res, semantic_res, ai_suggestion = await asyncio.gather(
+        manual_res, semantic_res = await asyncio.gather(
             manual_task,
             semantic_task if semantic_task else asyncio.sleep(0, result=[]),
-            run_ai(),
             return_exceptions=True,
         )
 
         manual_candidates = manual_res if isinstance(manual_res, list) else []
         semantic_candidates = semantic_res if isinstance(semantic_res, list) else []
-        ai_suggestion = ai_suggestion if isinstance(ai_suggestion, dict) else None
 
         # LE CLASSEMENT SE FAIT AU SCORE, PAS À LA PROVENANCE.
         fusion = sorted(
@@ -667,31 +659,79 @@ async def bible_search(q: str, limit: int = 6):
             seen.add(cand["reference"])
             results.append(cand)
 
-        # Intégration de la proposition IA (concurrente, vérifiée dans la Bible locale)
-        if ai_suggestion:
-            ref_ia = (ai_suggestion or {}).get("reference")
-            if ref_ia and ref_ia not in seen:
-                confirme = await verse_parser.parse(ref_ia, skip_text_search=True)
-                if confirme and confirme.get("verse_start") is not None:
-                    confirme = dict(confirme)
-                    confirme["detection_method"] = "ai_suggestion"
-                    confirme["source"] = "ai"
-                    confirme["requires_review"] = True
-                    confirme["confidence"] = min(
-                        float(ai_suggestion.get("confidence") or 0.7), 0.95
-                    )
-                    confirme["explanation"] = (
-                        "Proposition de l'assistant, vérifiée dans la Bible locale. "
-                        "À relire avant projection."
-                    )
-                    seen.add(confirme["reference"])
-                    # Si les résultats locaux étaient faibles (< 0.75), l'IA prend le devant
-                    if not results or float(results[0].get("score") or results[0].get("confidence") or 0) < 0.75:
-                        results.insert(0, confirme)
-                    else:
-                        results.append(confirme)
-
+    _RECHERCHES_RECENTES[(query, limit)] = results[:limit]
+    _RECHERCHES_RECENTES.move_to_end((query, limit))
+    while len(_RECHERCHES_RECENTES) > 32:
+        _RECHERCHES_RECENTES.popitem(last=False)
     return {"results": results[:limit]}
+
+
+def fusionner_suggestion_ia(resultats: list, suggestion: Optional[dict], limit: int) -> list:
+    """Place la proposition vérifiée de l'IA EN TÊTE, sans rien perdre du local.
+
+    En tête parce qu'elle a été mesurée plus juste que le premier résultat local
+    sur les descriptions (40/45 contre 36/45) ; déjà présente dans la liste,
+    elle y remonte et le local la confirme. Le reste garde son ordre.
+    """
+    if not suggestion:
+        return resultats[:limit]
+    reference = suggestion["reference"]
+    deja = next((r for r in resultats if r.get("reference") == reference), None)
+    tete = dict(deja) if deja else dict(suggestion)
+    tete["ia_confirme"] = bool(deja)
+    reste = [r for r in resultats if r.get("reference") != reference]
+    return [tete, *reste][:limit]
+
+
+@router.get("/bible/search/ia")
+async def bible_search_ia(q: str, limit: int = 6):
+    """L'avis de l'assistant sur une DESCRIPTION, demandé à part par la palette.
+
+    La palette affiche d'abord /bible/search (instantané), puis remplace la
+    liste par celle-ci quand elle arrive. Une référence explicite n'a pas
+    besoin d'IA ; la proposition est toujours relue dans la Bible locale, et
+    un verset inexistant est écarté.
+    """
+    from ..main import verse_parser, ai_service
+
+    limit = min(max(int(limit), 1), 20)
+    query = _normaliser_requete(q or "")
+    if not verse_parser or not query:
+        return {"results": [], "ia": "indisponible"}
+    locaux = _RECHERCHES_RECENTES.get((query, limit))
+    if locaux is None:
+        locaux = (await bible_search(query, limit))["results"]
+    if await verse_parser.parse(query, skip_text_search=True):
+        return {"results": locaux, "ia": "inutile"}
+    if not ai_service or not getattr(ai_service, "enabled", False) or len(query.split()) < 2:
+        return {"results": locaux, "ia": "indisponible"}
+
+    try:
+        # Rien n'attend cette réponse à l'écran : la palette montre déjà le
+        # local. 12 s laissent un modèle 8B se charger au premier appel.
+        proposition = await asyncio.wait_for(ai_service.trouver_passage_decrit(query), timeout=12.0)
+    except Exception as exc:
+        logger.warning(f"Recherche IA sans réponse pour {query!r} : {exc}")
+        return {"results": locaux, "ia": "sans_reponse"}
+
+    verifiee = None
+    if proposition and proposition.get("reference"):
+        lue = await verse_parser.parse(proposition["reference"], skip_text_search=True)
+        if lue and lue.get("verse_start") is not None and (lue.get("text") or "").strip():
+            verifiee = dict(lue)
+            verifiee.update({
+                "detection_method": "ai_suggestion",
+                "source": "ai",
+                "requires_review": True,
+                # L'IA répond de 0 à 100. `min(40, 0.95)` affichait 95 % pour
+                # une proposition donnée à 40 %.
+                "confidence": round(min(max(float(proposition.get("confidence") or 0), 0.0), 95.0) / 100, 2),
+                "explanation": "Proposition de l'assistant, vérifiée dans la Bible locale. À relire avant projection.",
+            })
+    return {
+        "results": fusionner_suggestion_ia(locaux, verifiee, limit),
+        "ia": "proposee" if verifiee else "aucune",
+    }
 
 
 class ExtractReferencesRequest(BaseModel):
