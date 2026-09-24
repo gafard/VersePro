@@ -142,6 +142,39 @@ class BibleReferenceEngine:
             for cle in self._plan
         )
 
+    # UN NOMBRE QUI PEUT ENCORE GRANDIR.
+    #
+    # Mesuré de bout en bout (benchmarks/latence_parole.py) : pour « Galates
+    # cinq, verset vingt-deux », le moteur envoyait Galates 5, puis
+    # Galates 5:20 dès que « vingt » était entendu, puis 5:22. Or un partiel
+    # explicite est projetable seul (confiance 0,98) : en autopilote, le
+    # mauvais verset passait à l'écran le temps que « deux » arrive. Tous les
+    # versets « vingt-… » à « quatre-vingt-dix-… » étaient concernés.
+    #
+    # Sur un partiel dont le DERNIER mot est ce nombre ouvert, on attend le
+    # partiel suivant ou la fin de l'énoncé, qui tranchent.
+    _NOMBRES_OUVERTS = {
+        "vingt": 20, "trente": 30, "quarante": 40, "cinquante": 50,
+        "soixante": 60, "soixante-dix": 70, "quatre-vingt": 80, "quatre-vingts": 80,
+        "quatre-vingt-dix": 90, "cent": 100,
+    }
+
+    @classmethod
+    def _nombre_peut_grandir(cls, texte: str, reference: Dict[str, Any]) -> bool:
+        mots = re.findall(r"[0-9A-Za-zÀ-ÿ-]+", (texte or "").lower())
+        if not mots:
+            return False
+        dernier = mots[-1]
+        if len(mots) >= 2 and f"{mots[-2]}-{dernier}" in cls._NOMBRES_OUVERTS:
+            dernier = f"{mots[-2]}-{dernier}"      # « quatre vingt » sans trait d'union
+        valeur = cls._NOMBRES_OUVERTS.get(dernier)
+        if valeur is None and dernier.isdigit() and int(dernier) in cls._NOMBRES_OUVERTS.values():
+            valeur = int(dernier)
+        if valeur is None:
+            return False
+        # Seulement si ce nombre EST la fin de la référence, pas un mot voisin.
+        return valeur in (reference.get("verse_end"), reference.get("verse_start"))
+
     def _recent_window(self, text: str, word_limit: int = 40) -> str:
         words = text.split()
         return " ".join(words[-word_limit:])
@@ -407,6 +440,9 @@ class BibleReferenceEngine:
             reference = await self.verse_parser.parse(
                 reference_scope, skip_text_search=True, active_context=active_ctx
             )
+            if (reference and reference.get("verse_start") is not None
+                    and self._nombre_peut_grandir(analysis_text, reference)):
+                return None
         chapter_anchor = reference if reference and reference.get("verse_start") is None else None
 
         # Une référence complète reste instantanée sur les partiels. Sur un

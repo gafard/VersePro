@@ -1714,6 +1714,19 @@ class VerseParserService:
             logger.debug(f"❌ Verset {verse_start} invalide (max: 176)")
             return False
 
+        # Un verset qu'aucune Bible installée ne contient n'est pas une
+        # référence : « Romains 8:80 » (le chapitre en compte 39) passait
+        # pour explicite, projetable seul, et l'écran restait vide.
+        # Toutes les Bibles installées : les numérotations diffèrent (Malachie
+        # 3:19-24 dans la TOB, 4:1-6 dans la Segond ; titres de psaumes).
+        cle = str(book_abbr).lower()
+        if self.bible_loader.versions and not any(
+            (version.get(cle) or {}).get(chapter, {}).get(verse_start)
+            for version in self.bible_loader.versions.values()
+        ):
+            logger.debug(f"❌ {book_abbr} {chapter}:{verse_start} n'existe dans aucune Bible installée")
+            return False
+
         if verse_end and verse_end < verse_start:
             logger.debug(f"❌ Verset fin {verse_end} < début {verse_start}")
             return False
