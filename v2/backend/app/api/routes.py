@@ -585,9 +585,17 @@ async def bible_search(q: str, limit: int = 6):
         )
         semantic_task = None
         if semantic_service and semantic_service.initialized and len(query.split()) >= 2:
-            semantic_task = asyncio.to_thread(
-                semantic_service.search_manual, query, max(limit * 2, 12)
-            )
+            index_manuel = getattr(verse_parser.bible_loader, "manual_index", None)
+            if index_manuel is not None:
+                # Cosinus + mots rares : voir services/recherche_description.py.
+                from ..services.recherche_description import classeur_pour
+                semantic_task = asyncio.to_thread(
+                    classeur_pour(semantic_service, index_manuel).classer, query, max(limit * 2, 12)
+                )
+            else:
+                semantic_task = asyncio.to_thread(
+                    semantic_service.search_manual, query, max(limit * 2, 12)
+                )
 
         ai_task = None
         if ai_service and getattr(ai_service, "enabled", False) and len(query.split()) >= 2:

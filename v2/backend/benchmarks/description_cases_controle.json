@@ -1,0 +1,17 @@
+[
+  {"q": "Joseph vendu par ses frères", "attendu": ["Genèse 37:25-28", "Genèse 45:4-5", "Actes 7:9", "Psaumes 105:17"]},
+  {"q": "Gédéon et la toison mouillée de rosée", "attendu": ["Juges 6:36-40"]},
+  {"q": "la vision des ossements desséchés qui reprennent vie", "attendu": ["Ézéchiel 37:1-14"]},
+  {"q": "les trois jeunes hommes dans la fournaise ardente", "attendu": ["Daniel 3:19-27"]},
+  {"q": "la manne tombée du ciel dans le désert", "attendu": ["Exode 16:13-35", "Jean 6:31", "Nombres 11:7-9", "Psaumes 78:24", "Deutéronome 8:3", "Deutéronome 8:16", "Néhémie 9:20"]},
+  {"q": "le serpent d'airain élevé par Moïse", "attendu": ["Nombres 21:8-9", "Jean 3:14", "2 Rois 18:4"]},
+  {"q": "Salomon demande la sagesse pour juger le peuple", "attendu": ["1 Rois 3:5-14", "2 Chroniques 1:7-12"]},
+  {"q": "l'ânesse de Balaam se met à parler", "attendu": ["Nombres 22:21-33", "2 Pierre 2:16"]},
+  {"q": "Jésus chasse les marchands du temple", "attendu": ["Matthieu 21:12-13", "Marc 11:15-17", "Luc 19:45-46", "Jean 2:13-17"]},
+  {"q": "la brebis perdue et les quatre-vingt-dix-neuf", "attendu": ["Luc 15:3-7", "Matthieu 18:12-14"]},
+  {"q": "Thomas veut toucher les plaies de Jésus", "attendu": ["Jean 20:24-29"]},
+  {"q": "la Pentecôte et les langues de feu", "attendu": ["Actes 2:1-4"]},
+  {"q": "Paul et Silas chantent en prison à minuit", "attendu": ["Actes 16:22-34"]},
+  {"q": "Naaman se plonge sept fois dans le Jourdain", "attendu": ["2 Rois 5:10-14", "Luc 4:27"]},
+  {"q": "Esther risque sa vie devant le roi", "attendu": ["Esther 4:11-16", "Esther 5:1-3"]}
+]
