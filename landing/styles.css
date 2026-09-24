@@ -396,7 +396,7 @@ h1, h2, h3, p { margin-top: 0; }
   background: linear-gradient(0deg, rgba(8, 8, 10, 0.86), transparent 50%);
   pointer-events: none;
 }
-.broadcast-stage > img { width: 100%; height: 100%; min-height: 680px; object-fit: cover; object-position: center 30%; }
+.broadcast-stage > picture > img { width: 100%; height: 100%; min-height: 680px; object-fit: cover; object-position: center 30%; }
 .broadcast-caption {
   position: absolute;
   z-index: 2;
@@ -619,7 +619,7 @@ h1, h2, h3, p { margin-top: 0; }
   .hero-lowerthird { width: min(620px, calc(100% - (var(--gutter) * 2))); bottom: 82px; }
   .hero-next { display: none; }
   .broadcast-layout { grid-template-columns: 1fr; }
-  .broadcast-stage, .broadcast-stage > img { min-height: 610px; }
+  .broadcast-stage, .broadcast-stage > picture > img { min-height: 610px; }
   .prompter { min-height: 620px; }
   .download, .support-inner { grid-template-columns: 1fr; }
   .site-footer { grid-template-columns: 1fr 1fr; }
@@ -657,7 +657,7 @@ h1, h2, h3, p { margin-top: 0; }
   .experience, .workflow, .download, .support { padding-block: 86px; }
   .section-heading { margin-bottom: 38px; }
   .section-heading h2, .download h2, .support h2 { font-size: clamp(37px, 12vw, 54px); }
-  .broadcast-stage, .broadcast-stage > img { min-height: 530px; }
+  .broadcast-stage, .broadcast-stage > picture > img { min-height: 530px; }
   .broadcast-caption { grid-template-columns: 1fr; gap: 12px; padding: 16px; }
   .broadcast-caption p { font-size: 16px; }
   .prompter { min-height: 570px; }
@@ -714,3 +714,6 @@ html,body{overflow-x:clip}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 @media(max-width:850px){.hero{min-height:0;padding-bottom:40px}.hero-copy{max-width:100%;padding-top:120px;padding-bottom:24px}.hero-product{position:static;width:auto;margin:24px var(--gutter)}.hero-photo{opacity:.2}.live-chip{display:none}.hero-next{display:none}.hero-meta{font-size:12px}.hero-wordmark{font-size:40px}.hero-statement{font-size:clamp(32px,7.5vw,52px)}.hero-lede{font-size:17px}.hero .actions .button{font-size:14px;padding-inline:16px;white-space:nowrap}.hero .actions{align-items:stretch}.hero .actions a{justify-content:center}.prompter-action{align-items:flex-start}.pilot{padding-block:48px}.button{white-space:nowrap}}
 @media(max-width:414px){.hero .actions{display:grid;grid-template-columns:minmax(0,1fr)}.hero-copy{padding-top:104px}.broadcast-caption p{font-size:20px}.hero-product{margin-top:12px}.confidence{white-space:normal}.detection{gap:12px;flex-wrap:wrap}}
+
+/* <picture> ne sert qu'à proposer le WebP : aucune boîte à lui, la mise en page reste celle de l'<img>. */
+picture{display:contents}
