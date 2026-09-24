@@ -85,7 +85,23 @@ def _trusted_origin(headers) -> bool:
 
 def http_request_allowed(request: Request) -> bool:
     """Autorise l'affichage public ou une commande authentifiée et locale."""
-    if request.url.path in PUBLIC_PATHS or request.url.path.startswith(PUBLIC_PREFIXES):
+    # PUBLIC VEUT DIRE LECTURE SEULE — et le code le fait respecter.
+    #
+    # Le commentaire de PUBLIC_PREFIXES promettait « un préfixe n'ouvre qu'un
+    # GET », mais la règle ne regardait que le chemin, jamais la méthode. Tout
+    # ce qui commençait par un préfixe public était ouvert, écriture comprise.
+    # Une route y écrivait : POST /api/v1/bibles/select, qui change la
+    # traduction projetée devant l'assemblée. Vérifié avec un jeton de session
+    # configuré, comme dans l'application empaquetée :
+    #
+    #     GET  /api/v1/settings        sans jeton -> 401   (la garde tient)
+    #     POST /api/v1/bibles/select   sans jeton -> 200   (elle ne tenait pas)
+    #
+    # Les écrans de diffusion n'ont besoin que de lire. Toute écriture passe
+    # donc par le jeton, qu'elle vise un chemin public ou non.
+    if request.method in ("GET", "HEAD") and (
+        request.url.path in PUBLIC_PATHS or request.url.path.startswith(PUBLIC_PREFIXES)
+    ):
         return True
     if request.method == "OPTIONS":
         return _trusted_origin(request.headers)
