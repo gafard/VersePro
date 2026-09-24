@@ -597,8 +597,37 @@ class BibleLoader:
             "confidence": 0.96,
         }
 
+    # LA TRADUCTION ACTIVE PEUT NE PAS CONTENIR LE VERSET.
+    #
+    # Les fichiers sources ont des trous : « "Chapters": [] » pour Nahum dans
+    # la NBS et la TOB, 2 et 3 Jean absents du Français courant, 557 versets
+    # isolés manquants dans ce dernier. Le verset était bien détecté, puis
+    # projeté… avec un texte vide : un écran blanc devant l'assemblée.
+    #
+    # Sans version demandée, on se replie donc sur la Segond, et
+    # `version_du_texte` dit laquelle a fourni le texte, pour que l'écran
+    # affiche « LSG » et non une traduction qui n'a rien fourni. Une version
+    # DEMANDÉE (liste des traductions) ne se replie jamais : ce serait
+    # attribuer à la NBS un texte de la Segond.
+    VERSION_DE_REPLI = "LSG"
+
+    def version_du_texte(
+        self, book_abbr: str, chapter: int, verse_start: Optional[int], verse_end: Optional[int] = None
+    ) -> Optional[str]:
+        """La version qui fournira réellement le texte : l'active, sinon la Segond."""
+        for version_id in dict.fromkeys((self.active_version, self.VERSION_DE_REPLI)):
+            if self._texte_version(book_abbr, chapter, verse_start, verse_end, version_id):
+                return version_id
+        return None
+
     def get_verse_text(self, book_abbr: str, chapter: int, verse_start: Optional[int], verse_end: Optional[int] = None, version_id: Optional[str] = None) -> str:
-        """Récupère le texte du ou des versets pour la version spécifiée ou active"""
+        """Texte du ou des versets : version demandée, sinon active puis Segond."""
+        texte = self._texte_version(book_abbr, chapter, verse_start, verse_end, version_id)
+        if not texte and version_id is None and self.active_version != self.VERSION_DE_REPLI:
+            texte = self._texte_version(book_abbr, chapter, verse_start, verse_end, self.VERSION_DE_REPLI)
+        return texte
+
+    def _texte_version(self, book_abbr: str, chapter: int, verse_start: Optional[int], verse_end: Optional[int] = None, version_id: Optional[str] = None) -> str:
         if verse_start is None:
             return ""
 

@@ -167,6 +167,14 @@ async def broadcast_projection(
             chapter = parsed.get("chapter")
             verse_start = parsed.get("verse_start")
             verse_end = parsed.get("verse_end")
+            # Nahum en NBS, 2 Jean en Français courant : le texte vient de la
+            # Segond (voir BibleLoader.VERSION_DE_REPLI), l'écran doit le dire.
+            if not (version or "").strip() and verse_start is not None:
+                fournie = verse_parser.bible_loader.version_du_texte(
+                    parsed.get("book_abbr"), chapter, verse_start, verse_end
+                )
+                if fournie:
+                    cur_version = fournie
 
     # Passage de plusieurs versets : on envoie les versets UN À UN plutôt qu'un
     # bloc collé. L'écran affiche le premier et attend — un lower-third n'a pas
