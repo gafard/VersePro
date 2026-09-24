@@ -165,7 +165,14 @@ def rendre_habillage(
                 px = max(0.0, min(100.0, float(position_arriere_plan[0]))) / 100
                 py = max(0.0, min(100.0, float(position_arriere_plan[1]))) / 100
                 if cadrage_arriere_plan == "contain":
-                    source.thumbnail((largeur, hauteur), Image.Resampling.LANCZOS)
+                    # thumbnail() ne fait que réduire ; object-fit: contain
+                    # agrandit aussi. Une image plus petite que la trame
+                    # aurait gardé un cadre noir en NDI seulement.
+                    ratio = min(largeur / source.width, hauteur / source.height)
+                    source = source.resize(
+                        (max(1, round(source.width * ratio)), max(1, round(source.height * ratio))),
+                        Image.Resampling.LANCZOS,
+                    )
                     fond = Image.new("RGBA", (largeur, hauteur), (0, 0, 0, 255))
                     x = round((largeur - source.width) * px)
                     y = round((hauteur - source.height) * py)
