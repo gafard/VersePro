@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useStore } from '../store.js'
 import { Icon } from './ui.jsx'
 import { BACKEND_BASE } from '../env.js'
+import { fusionnerAvisIA, meriteAvisIA, libelleIA } from '../runtime/avis-ia.js'
 
 const METHOD_LABELS = {
   explicit: 'Référence',
@@ -15,6 +16,7 @@ const METHOD_LABELS = {
   manual_cross_verse: 'Passage exact',
   manual_approx: 'Fragment approché',
   manual_semantic: 'Paraphrase',
+  ai_suggestion: 'Assistant',
 }
 
 /**
@@ -30,6 +32,13 @@ export default function CommandPalette({ open, onClose }) {
   const [results, setResults] = useState([])
   const [activeIndex, setActiveIndex] = useState(0)
   const [searching, setSearching] = useState(false)
+  const [iaEnCours, setIaEnCours] = useState(false)
+  // L'avis de l'IA arrive après coup : il doit voir la liste et la sélection
+  // telles qu'elles sont À CE MOMENT-LÀ, pas telles qu'elles étaient à l'envoi.
+  const resultsRef = useRef([])
+  const activeRef = useRef(0)
+  resultsRef.current = results
+  activeRef.current = activeIndex
   const inputRef = useRef(null)
   const debounceRef = useRef(null)
   const requestSeq = useRef(0)
@@ -92,6 +101,22 @@ export default function CommandPalette({ open, onClose }) {
       } finally {
         if (seq === requestSeq.current) setSearching(false)
       }
+      if (seq !== requestSeq.current || !meriteAvisIA(trimmed)) return
+      // Deuxième temps : l'avis de l'assistant, sans jamais bloquer la liste locale.
+      setIaEnCours(true)
+      try {
+        const response = await fetch(`${BACKEND_BASE}/api/v1/bible/search/ia?q=${encodeURIComponent(trimmed)}`)
+        const data = await response.json()
+        if (seq === requestSeq.current && data.ia === 'proposee') {
+          const fusion = fusionnerAvisIA(resultsRef.current, data.results, activeRef.current)
+          setResults(fusion.results)
+          setActiveIndex(fusion.activeIndex)
+        }
+      } catch {
+        // L'assistant est un complément : son silence ne touche pas la liste locale.
+      } finally {
+        if (seq === requestSeq.current) setIaEnCours(false)
+      }
     }, 180)
   }, [onAir])
 
@@ -147,6 +172,9 @@ export default function CommandPalette({ open, onClose }) {
             onKeyDown={handleKeyDown}
             aria-label="Rechercher un verset"
           />
+          {iaEnCours && (
+            <span className="text-[10.5px] font-mono text-text-faint animate-pulse" aria-live="polite">l’assistant cherche…</span>
+          )}
           <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-surface-elevated border border-border text-text-faint">Échap</span>
         </div>
 
@@ -187,6 +215,11 @@ export default function CommandPalette({ open, onClose }) {
                     {result.confidence ? ` · ${Math.round(result.confidence * 100)} %` : ''}
                   </span>
                 </div>
+                {libelleIA(result) && (
+                  <span className={`inline-block mt-1 text-[10.5px] font-semibold ${result.source === 'ai' ? 'text-status-warn' : 'text-accent'}`}>
+                    {libelleIA(result)}
+                  </span>
+                )}
                 <p className="mt-1 text-[12.5px] leading-snug text-text-secondary line-clamp-2">
                   {result.matched_text || result.text || ''}
                 </p>

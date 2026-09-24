@@ -16,7 +16,7 @@ class FakeNdi:
 
 def test_disabled_ndi_does_not_initialize_native_runtime(monkeypatch):
     fake = FakeNdi()
-    monkeypatch.setattr(ndi_module, "ndi", fake)
+    monkeypatch.setattr(ndi_module, "ndi", fake, raising=False)  # absent sans roue NDI (Mac Intel)
     monkeypatch.setattr(ndi_module, "NDI_AVAILABLE", True)
 
     output = ndi_module.NDIOutput(enabled=False)
@@ -28,7 +28,7 @@ def test_disabled_ndi_does_not_initialize_native_runtime(monkeypatch):
 
 def test_enabled_ndi_destroys_native_runtime_once(monkeypatch):
     fake = FakeNdi()
-    monkeypatch.setattr(ndi_module, "ndi", fake)
+    monkeypatch.setattr(ndi_module, "ndi", fake, raising=False)  # absent sans roue NDI (Mac Intel)
     monkeypatch.setattr(ndi_module, "NDI_AVAILABLE", True)
 
     output = ndi_module.NDIOutput(enabled=True)

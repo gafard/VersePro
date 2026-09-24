@@ -1530,6 +1530,49 @@
                 document.body.classList.remove('has-full-background');
             }
 
+            // Recadrer = retirer une bande de l'IMAGE, puis cadrer ce qui reste
+            // (cover, contain ou fill), exactement comme le rendu NDI
+            // (ndi_render.rendre_habillage). Un clip-path posé sur l'écran
+            // noircissait au contraire une bande de l'ÉCRAN : le vidéoprojecteur
+            // montrait un bord noir là où vMix/OBS recevait l'image.
+            let fondGeometrie = null;
+            function placerFond() {
+                const g = fondGeometrie;
+                const s = backgroundImage.style;
+                if (!g) return;
+                s.transform = g.totalScale !== 1 ? `scale(${g.totalScale})` : 'none';
+                const nw = backgroundImage.naturalWidth, nh = backgroundImage.naturalHeight;
+                if (!(g.cropT || g.cropR || g.cropB || g.cropL) || !nw || !nh) {
+                    s.left = s.top = '0'; s.width = s.height = '100%';
+                    s.objectFit = g.fit;
+                    s.objectPosition = `${g.x}% ${g.y}%`;
+                    s.clipPath = 'none';
+                    s.transformOrigin = 'center';
+                    return;
+                }
+                const W = backgroundLayer.clientWidth || window.innerWidth;
+                const H = backgroundLayer.clientHeight || window.innerHeight;
+                const sw = nw * (100 - g.cropL - g.cropR) / 100;
+                const sh = nh * (100 - g.cropT - g.cropB) / 100;
+                let kx, ky;
+                if (g.fit === 'fill') { kx = W / sw; ky = H / sh; }
+                else {
+                    kx = ky = g.fit === 'contain'
+                        ? Math.min(W / sw, H / sh) : Math.max(W / sw, H / sh);
+                }
+                // Coin de la partie conservée, puis de l'image entière.
+                const left = (W - sw * kx) * g.x / 100 - nw * kx * g.cropL / 100;
+                const top = (H - sh * ky) * g.y / 100 - nh * ky * g.cropT / 100;
+                s.objectFit = 'fill';
+                s.left = `${left}px`; s.top = `${top}px`;
+                s.width = `${nw * kx}px`; s.height = `${nh * ky}px`;
+                // Pourcentages de la boîte de l'image : ils retirent l'image, pas l'écran.
+                s.clipPath = `inset(${g.cropT}% ${g.cropR}% ${g.cropB}% ${g.cropL}%)`;
+                // Le zoom reste centré sur l'écran, comme en NDI.
+                s.transformOrigin = `${W / 2 - left}px ${H / 2 - top}px`;
+            }
+            window.addEventListener('resize', placerFond);
+
             function renderArrierePlan(data, theme, overlayActif) {
                 const info = data.backdrop || {};
                 // Une URL ?bg= est un ordre de sortie explicite (alpha/chroma).
@@ -1555,20 +1598,16 @@
                     ? info.overlay_color : '#000000';
                 const version = [info.image_url, fit, x, y, blur, scale, cropT, cropB, cropL, cropR, color, opacity].join('|');
 
-                backgroundImage.style.objectFit = fit;
-                backgroundImage.style.objectPosition = `${x}% ${y}%`;
                 // Combiner flou et échelle dans un seul transform pour éviter
                 // les conflits. Le léger suréchantillonnage de 1.035 compense
                 // les bords visibles du filtre blur.
                 const blurScale = blur ? 1.035 : 1;
-                const totalScale = (scale / 100) * blurScale;
                 backgroundImage.style.filter = blur ? `blur(${blur}px)` : 'none';
-                backgroundImage.style.transform = totalScale !== 1 ? `scale(${totalScale})` : 'none';
-                // Recadrage : masquer les bords avec clip-path inset.
-                const hasCrop = cropT || cropB || cropL || cropR;
-                backgroundImage.style.clipPath = hasCrop
-                    ? `inset(${cropT}% ${cropR}% ${cropB}% ${cropL}%)`
-                    : 'none';
+                fondGeometrie = {
+                    fit, x, y, cropT, cropR, cropB, cropL,
+                    totalScale: (scale / 100) * blurScale,
+                };
+                placerFond();
                 backgroundVeil.style.background = color;
                 backgroundVeil.style.opacity = opacity;
 
@@ -1577,6 +1616,8 @@
                     const request = ++backgroundRequest;
                     const afficher = () => {
                         if (request === backgroundRequest) {
+                            // Le recadrage a besoin des dimensions réelles.
+                            placerFond();
                             document.body.classList.add('has-full-background');
                         }
                     };

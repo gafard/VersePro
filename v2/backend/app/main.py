@@ -167,6 +167,14 @@ async def broadcast_projection(
             chapter = parsed.get("chapter")
             verse_start = parsed.get("verse_start")
             verse_end = parsed.get("verse_end")
+            # Nahum en NBS, 2 Jean en Français courant : le texte vient de la
+            # Segond (voir BibleLoader.VERSION_DE_REPLI), l'écran doit le dire.
+            if not (version or "").strip() and verse_start is not None:
+                fournie = verse_parser.bible_loader.version_du_texte(
+                    parsed.get("book_abbr"), chapter, verse_start, verse_end
+                )
+                if fournie:
+                    cur_version = fournie
 
     # Passage de plusieurs versets : on envoie les versets UN À UN plutôt qu'un
     # bloc collé. L'écran affiche le premier et attend — un lower-third n'a pas
@@ -834,6 +842,18 @@ async def select_bible_version(data: dict):
         raise HTTPException(status_code=500, detail="Service de parsing indisponible")
         
     loader = verse_parser.bible_loader
+    # Une version inconnue était acceptée telle quelle : {"version": "XYZ"}
+    # répondait « success » et devenait la version active. Chaque appel
+    # relançait en plus la réinitialisation de l'index sémantique — dix
+    # secondes de calcul pour une valeur qui ne désigne rien.
+    if version not in loader.versions:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Version biblique inconnue : {version or '(vide)'}",
+        )
+    if version == loader.active_version:
+        # Déjà active : ne pas réindexer pour rien.
+        return {"status": "success", "active": version}
     loader.active_version = version
     settings.BIBLE_VERSION = version
     if semantic_service:

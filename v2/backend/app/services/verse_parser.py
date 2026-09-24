@@ -597,8 +597,37 @@ class BibleLoader:
             "confidence": 0.96,
         }
 
+    # LA TRADUCTION ACTIVE PEUT NE PAS CONTENIR LE VERSET.
+    #
+    # Les fichiers sources ont des trous : « "Chapters": [] » pour Nahum dans
+    # la NBS et la TOB, 2 et 3 Jean absents du Français courant, 557 versets
+    # isolés manquants dans ce dernier. Le verset était bien détecté, puis
+    # projeté… avec un texte vide : un écran blanc devant l'assemblée.
+    #
+    # Sans version demandée, on se replie donc sur la Segond, et
+    # `version_du_texte` dit laquelle a fourni le texte, pour que l'écran
+    # affiche « LSG » et non une traduction qui n'a rien fourni. Une version
+    # DEMANDÉE (liste des traductions) ne se replie jamais : ce serait
+    # attribuer à la NBS un texte de la Segond.
+    VERSION_DE_REPLI = "LSG"
+
+    def version_du_texte(
+        self, book_abbr: str, chapter: int, verse_start: Optional[int], verse_end: Optional[int] = None
+    ) -> Optional[str]:
+        """La version qui fournira réellement le texte : l'active, sinon la Segond."""
+        for version_id in dict.fromkeys((self.active_version, self.VERSION_DE_REPLI)):
+            if self._texte_version(book_abbr, chapter, verse_start, verse_end, version_id):
+                return version_id
+        return None
+
     def get_verse_text(self, book_abbr: str, chapter: int, verse_start: Optional[int], verse_end: Optional[int] = None, version_id: Optional[str] = None) -> str:
-        """Récupère le texte du ou des versets pour la version spécifiée ou active"""
+        """Texte du ou des versets : version demandée, sinon active puis Segond."""
+        texte = self._texte_version(book_abbr, chapter, verse_start, verse_end, version_id)
+        if not texte and version_id is None and self.active_version != self.VERSION_DE_REPLI:
+            texte = self._texte_version(book_abbr, chapter, verse_start, verse_end, self.VERSION_DE_REPLI)
+        return texte
+
+    def _texte_version(self, book_abbr: str, chapter: int, verse_start: Optional[int], verse_end: Optional[int] = None, version_id: Optional[str] = None) -> str:
         if verse_start is None:
             return ""
 
@@ -1544,6 +1573,12 @@ class VerseParserService:
                     verse_end = None
 
                 book_abbr = self._normalize_book(book_name)
+            deduit = None
+            if not book_abbr:
+                deduit = self._livre_sans_numero(book_name, chapter, verse_start)
+                if not deduit:
+                    return None
+                book_abbr = deduit[0]
             if not book_abbr:
                 return None
 
@@ -1565,7 +1600,7 @@ class VerseParserService:
                     if text_v:
                         translations[v_name] = text_v
 
-            return {
+            resultat = {
                 "book": self._get_full_book_name(book_abbr),
                 "book_abbr": book_abbr,
                 "chapter": chapter,
@@ -1582,10 +1617,50 @@ class VerseParserService:
                 "detection_method": "chapter_candidate" if verse_start is None else "explicit",
                 "confidence": 0.72 if verse_start is None else (0.85 if loose else 0.98),
             }
+            if deduit:
+                # Livre deviné : jamais d'autopilotage (seuil 0,95), toujours
+                # une carte à valider — ambiguë, elle descend encore.
+                autres = deduit[1]
+                resultat["livre_deduit"] = True
+                resultat["confidence"] = min(resultat["confidence"], 0.70 if autres else 0.90)
+                resultat["alternatives"] = [
+                    format_reference(abbr, chapter, verse_start, verse_end) for abbr in autres
+                ]
+            return resultat
 
         except Exception as e:
             logger.error(f"❌ Erreur extraction référence: {e}")
             return None
+
+    # « Samuel 16 7 » : le prédicateur, ou le régisseur qui tape vite, omet
+    # souvent le numéro du livre. Le parseur rendait None — rien du tout.
+    LIVRES_NUMEROTES = {
+        "samuel": ("1 S", "2 S"), "rois": ("1 R", "2 R"),
+        "chroniques": ("1 Ch", "2 Ch"), "corinthiens": ("1 Co", "2 Co"),
+        "thessaloniciens": ("1 Th", "2 Th"), "timothee": ("1 Tm", "2 Tm"),
+        "pierre": ("1 P", "2 P"),
+    }
+
+    def _livre_sans_numero(
+        self, book_name: str, chapter: Optional[int], verse_start: Optional[int]
+    ) -> Optional[tuple]:
+        """(livre retenu, autres livres possibles) — ou None.
+
+        Seul le texte tranche : « Samuel 25 » ne peut être que 1 Samuel
+        (2 Samuel s'arrête au chapitre 24). Si les deux existent, on propose
+        le premier et on garde l'autre en alternative, sans rien affirmer.
+        """
+        livres = self.LIVRES_NUMEROTES.get(strip_accents(book_name))
+        if not livres or not chapter:
+            return None
+        possibles = [
+            abbr for abbr in livres
+            if chapter <= (self.chapter_counts.get(abbr) or 0)
+            and (verse_start is None or self.bible_loader.get_verse_text(abbr, chapter, verse_start))
+        ]
+        if not possibles:
+            return None
+        return possibles[0], possibles[1:]
 
     def _normalize_book(self, book_name: str) -> Optional[str]:
         """Normalise le nom du livre vers son abréviation en évitant les collisions"""
@@ -1637,6 +1712,19 @@ class VerseParserService:
 
         if verse_start > 176:
             logger.debug(f"❌ Verset {verse_start} invalide (max: 176)")
+            return False
+
+        # Un verset qu'aucune Bible installée ne contient n'est pas une
+        # référence : « Romains 8:80 » (le chapitre en compte 39) passait
+        # pour explicite, projetable seul, et l'écran restait vide.
+        # Toutes les Bibles installées : les numérotations diffèrent (Malachie
+        # 3:19-24 dans la TOB, 4:1-6 dans la Segond ; titres de psaumes).
+        cle = str(book_abbr).lower()
+        if self.bible_loader.versions and not any(
+            (version.get(cle) or {}).get(chapter, {}).get(verse_start)
+            for version in self.bible_loader.versions.values()
+        ):
+            logger.debug(f"❌ {book_abbr} {chapter}:{verse_start} n'existe dans aucune Bible installée")
             return False
 
         if verse_end and verse_end < verse_start:

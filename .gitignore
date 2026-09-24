@@ -129,3 +129,6 @@ v2/backend/scratch_test*.py
 
 # Generated PDFs and QA outputs
 output/
+
+# Voix enregistrées pour benchmarks/latence_parole.py : données personnelles, jamais versionnées.
+v2/backend/data/voix-latence/

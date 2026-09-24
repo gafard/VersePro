@@ -1,0 +1,148 @@
+name: Build de test macOS Intel
+
+# INSTALLEUR MAC INTEL — EXPÉRIMENTAL, DÉCLENCHEMENT MANUEL UNIQUEMENT.
+#
+# Beaucoup d'églises tournent sur d'anciens Mac Intel ; release.yml ne produit
+# qu'un DMG Apple Silicon. Ce workflow est séparé À DESSEIN : release.yml publie
+# les mises à jour automatiques installées dans les églises, et une modification
+# non éprouvée y casserait la prochaine version. Une fois ce build vert ET le
+# DMG essayé sur un vrai Mac Intel, il pourra rejoindre la matrice de release
+# (latest.json : entrée « darwin-x86_64 », noms d'archives distincts par
+# architecture — les deux .app.tar.gz s'appellent pareil aujourd'hui).
+#
+# Ce que PyPI permet sur Intel (vérifié le 24 septembre 2026) :
+#   onnxruntime            1.25.1 : arm64 seulement → 1.23.2, dernière roue x86_64 cp312
+#   transcribe-cpp-native  0.1.3  : roue x86_64 disponible (Nemotron OK)
+#   ndi-python             aucune roue x86_64 pour Python 3.12 → PAS de sortie NDI
+#
+# Le gel sait déjà se passer de NDIlib (voir versepro-backend.spec) : tout le
+# reste fonctionne, la sortie NDI est simplement indisponible sur ce build.
+#
+# Le DMG n'est ni signé ni notarisé, et aucun artefact de mise à jour n'est
+# produit : c'est un build de validation, publié en artefact d'Actions.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS (Intel)
+    runs-on: macos-15-intel
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/backend/requirements.txt
+
+      - name: Dépendances backend (variante Intel)
+        working-directory: v2/backend
+        run: |
+          python - <<'PY'
+          lignes = []
+          for ligne in open("requirements.txt"):
+              nom = ligne.strip().lower()
+              if nom.startswith(("pyaudio", "ndi-python")):
+                  continue
+              if nom.startswith("onnxruntime"):
+                  ligne = "onnxruntime==1.23.2\n"
+              lignes.append(ligne)
+          open("requirements-intel.txt", "w").writelines(lignes)
+          PY
+          pip install -r requirements-intel.txt pyinstaller
+          python -c "import platform; assert platform.machine() == 'x86_64', platform.machine(); print('architecture :', platform.machine())"
+          python -c "import transcribe_cpp; assert transcribe_cpp.backends(); print('transcribe.cpp natif OK:', transcribe_cpp.library_path())"
+          python -c "import onnxruntime; print('onnxruntime', onnxruntime.__version__)"
+
+      - name: Geler le backend
+        working-directory: v2/backend
+        run: pyinstaller --clean --noconfirm versepro-backend.spec
+
+      - name: Vérifier le gel (ressources et moteur ASR natif)
+        working-directory: v2/backend
+        run: |
+          set -u
+          ls dist/versepro-backend/_internal/data/bible.json
+          ls dist/versepro-backend/_internal/data/semantic/index-*.npz
+          TROUVE=$(find dist/versepro-backend -iname "libtranscribe*" | head -5)
+          if [ -z "$TROUVE" ]; then
+            echo "::error::bibliothèque native transcribe.cpp absente du gel — Nemotron serait indisponible"
+            exit 1
+          fi
+          echo "$TROUVE"
+          file "$(echo "$TROUVE" | head -1)"
+
+      # Même test que release.yml : un gel peut se construire puis mourir.
+      - name: Le backend figé démarre et répond
+        working-directory: v2/backend
+        run: |
+          set -u
+          DATA="$(mktemp -d)"
+          VERSEPRO_HOST=127.0.0.1 VERSEPRO_PORT=17999 VERSEPRO_DATA_DIR="$DATA" \
+            VERSEPRO_SESSION_TOKEN="intel-smoke-token" \
+            dist/versepro-backend/versepro-backend > smoke.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 180); do
+            if curl -fsS -m 2 -H "Authorization: Bearer intel-smoke-token" \
+              http://127.0.0.1:17999/api/v1/health > health.json 2>/dev/null; then
+              echo "✅ backend prêt après ${i}s :"; cat health.json; echo
+              kill $PID 2>/dev/null || true
+              exit 0
+            fi
+            kill -0 $PID 2>/dev/null || { echo "❌ le backend figé s'est arrêté seul"; cat smoke.log; exit 1; }
+            sleep 1
+          done
+          echo "❌ le backend figé n'a jamais répondu en 180 s"; cat smoke.log
+          kill $PID 2>/dev/null || true
+          exit 1
+
+      - name: Copier le backend dans src-tauri/backend
+        run: |
+          rm -rf v2/frontend/src-tauri/backend
+          cp -R v2/backend/dist/versepro-backend v2/frontend/src-tauri/backend
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v2/frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: v2/frontend/src-tauri
+
+      - name: Build Tauri (non signé, sans artefact de mise à jour)
+        working-directory: v2/frontend
+        run: |
+          npm ci
+          python3 -c "import json; p='src-tauri/tauri.conf.json'; d=json.load(open(p)); d['bundle']['createUpdaterArtifacts']=False; open(p,'w').write(json.dumps(d))"
+          npm run tauri build -- --bundles app
+
+      - name: Assembler le DMG (hdiutil)
+        working-directory: v2/frontend/src-tauri/target/release/bundle
+        run: |
+          version=$(python3 -c "import json;print(json.load(open('$GITHUB_WORKSPACE/v2/frontend/src-tauri/tauri.conf.json'))['version'])")
+          file macos/VersePro.app/Contents/MacOS/* | head -3
+          mkdir -p dmg staging
+          cp -R macos/VersePro.app staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname "VersePro" -srcfolder staging -ov \
+                         -format UDZO "dmg/VersePro_${version}_x86_64.dmg"
+          rm -rf staging
+          ls -lh dmg/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: versepro-macos-intel
+          if-no-files-found: error
+          path: v2/frontend/src-tauri/target/release/bundle/dmg/*.dmg

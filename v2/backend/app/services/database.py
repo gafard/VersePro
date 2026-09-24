@@ -44,6 +44,19 @@ class DatabaseService:
             await self.db.close()
         logger.info("🔒 Base de données fermée")
     
+    async def _ajouter_colonne(self, instruction: str) -> None:
+        """Migration rétrocompatible : seule « colonne déjà présente » est normale.
+
+        Un `except Exception: pass` avalait aussi une base verrouillée ou un
+        disque plein ; la colonne manquait ensuite, et l'erreur surgissait
+        bien plus loin, sans rapport apparent.
+        """
+        try:
+            await self.db.execute(instruction)
+        except Exception as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+
     async def _create_tables(self):
         """Crée les tables si elles n'existent pas"""
         await self.db.execute("""
@@ -96,25 +109,13 @@ class DatabaseService:
         """)
         
         # Ajout des colonnes si la table existait déjà (migration rétrocompatible)
-        try:
-            await self.db.execute("ALTER TABLE sessions ADD COLUMN transcript TEXT")
-        except Exception:
-            pass
+        await self._ajouter_colonne("ALTER TABLE sessions ADD COLUMN transcript TEXT")
             
-        try:
-            await self.db.execute("ALTER TABLE sessions ADD COLUMN summary TEXT")
-        except Exception:
-            pass
+        await self._ajouter_colonne("ALTER TABLE sessions ADD COLUMN summary TEXT")
 
-        try:
-            await self.db.execute("ALTER TABLE detected_verses ADD COLUMN confidence INTEGER DEFAULT 100")
-        except Exception:
-            pass
+        await self._ajouter_colonne("ALTER TABLE detected_verses ADD COLUMN confidence INTEGER DEFAULT 100")
 
-        try:
-            await self.db.execute("ALTER TABLE detected_verses ADD COLUMN source TEXT DEFAULT 'local'")
-        except Exception:
-            pass
+        await self._ajouter_colonne("ALTER TABLE detected_verses ADD COLUMN source TEXT DEFAULT 'local'")
 
         # Remise à zéro, une seule fois, des « projections » qui n'en étaient
         # pas. Toutes les lignes existantes portent TRUE parce que c'était le
