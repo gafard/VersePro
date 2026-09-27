@@ -28,7 +28,7 @@ screen_test_lock = asyncio.Lock()
 @router.post("/discovery/project")
 async def discovery_project():
     from ..main import output_manager
-    from .routes import ReferenceRequest, send_reference
+    from .recherche import ReferenceRequest, send_reference
     driver = output_manager.outputs.get("browser") if output_manager else None
     if not driver:
         raise HTTPException(503, "Le moteur d’écran n’est pas prêt.")
@@ -185,7 +185,7 @@ async def companion_status():
 @router.post("/companion/start")
 async def companion_start(data: SharingRequest):
     from ..services.companion import companion
-    from .routes import _get_all_local_ips
+    from .systeme import _get_all_local_ips
     try:
         result = await companion.start(data.role)
     except (OSError, RuntimeError) as exc:
@@ -415,7 +415,7 @@ async def practice_audio(ws: WebSocket):
 
 @router.get("/history/sessions/{session_id}/carnet.html")
 async def carnet(session_id: int):
-    from .routes import _session_et_versets
+    from .historique import _session_et_versets
     from ..services.session_export import vers_carnet
     session, verses = await _session_et_versets(session_id)
     return Response(vers_carnet(session, verses), media_type="text/html", headers={"Content-Disposition": 'attachment; filename="carnet-du-culte.html"'})

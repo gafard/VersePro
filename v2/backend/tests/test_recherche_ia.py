@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
-from app.api import routes
+from app.api import recherche as routes
 
 
 class _IA:
