@@ -201,12 +201,6 @@ def _get_all_local_ips() -> list[str]:
     return ips or ["127.0.0.1"]
 
 
-def _get_local_ip() -> str:
-    """Détecte l'adresse IP locale LAN principale de la machine."""
-    ips = _get_all_local_ips()
-    return ips[0] if ips else "127.0.0.1"
-
-
 @router.get("/network/info")
 async def get_network_info(request: Request):
     """Renvoie les coordonnées réseau locales pour la connexion des téléphones mobiles (/follow, /stage)."""

@@ -30,20 +30,6 @@ class SemanticSearchRequest(BaseModel):
     top_k: int = 5
 
 
-class ReferenceResponse(BaseModel):
-    """Réponse de référence"""
-    success: bool
-    reference: str
-    message: Optional[str] = None
-
-
-class TranscriptResponse(BaseModel):
-    """Réponse de transcription"""
-    text: str
-    language: str = "fr"
-    confidence: Optional[float] = None
-
-
 @router.post("/references/send")
 async def send_reference(request: ReferenceRequest):
     """
