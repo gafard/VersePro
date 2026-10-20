@@ -1,0 +1,8 @@
+[
+  {
+    "avis": "GHSA-vfj7-8cjw-p6xm",
+    "paquet": "braces (via tailwindcss 3 → chokidar, micromatch, fast-glob)",
+    "raison": "aucune version corrigée publiée ; outil de construction du CSS seulement, absent de l'application livrée, et les motifs analysés sont ceux de notre propre configuration Tailwind. Sortie prévue : migration vers Tailwind 4, qui n'utilise plus braces.",
+    "revoir_avant": "2027-01-31"
+  }
+]
