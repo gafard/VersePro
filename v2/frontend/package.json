@@ -8,7 +8,8 @@
     "build": "vite build",
     "test": "node --test tests/*.test.js",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "audit:ci": "node ci/audit-npm.mjs"
   },
   "dependencies": {
     "@fontsource/geist-sans": "^5.2.5",
