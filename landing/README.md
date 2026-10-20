@@ -20,7 +20,7 @@ Le dossier `landing/` est la racine du projet Vercel. Aucun framework et aucune
 commande de build ne sont nécessaires. La landing reste entièrement statique,
 à l'exception de la fonction Node dans `api/donations.js`.
 
-Production : `https://versepro-green.vercel.app`
+Production : `https://versepro.live` (l'ancienne adresse `https://versepro-green.vercel.app` reste servie)
 
 Le bouton de soutien conserve automatiquement son lien e-mail lorsque
 MoneyFusion n'est pas configuré. Pour l'activer, suivre

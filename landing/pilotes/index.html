@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0a0c">
+  <title>Églises pilotes · VersePro</title>
+  <meta name="description" content="Tester VersePro pendant deux cultes : préparer le poste, vivre le culte, puis dire en cinq minutes ce qui a aidé ou bloqué.">
+  <link rel="canonical" href="https://versepro.live/pilotes/">
+  <link rel="icon" href="/assets/versepro-icon.png">
+  <style>
+    @font-face { font-family: "Space Grotesk"; src: url("/fonts/space-grotesk-600.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+    @font-face { font-family: "Geist Sans"; src: url("/fonts/geist-sans-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+    @font-face { font-family: "Geist Sans"; src: url("/fonts/geist-sans-600.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+    @font-face { font-family: "JetBrains Mono"; src: url("/fonts/jetbrains-mono-500.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+
+    /* Mêmes repères que la page d'accueil : nuit de régie, orange de l'antenne. */
+    :root {
+      --paper: #0a0a0c; --paper-2: #101116; --paper-3: #15161c;
+      --ink: #f5f4f2; --ink-2: #c4c1be; --muted: #85838a;
+      --rule: rgba(245, 244, 242, 0.09); --rule-2: rgba(245, 244, 242, 0.17);
+      --accent: #f0821e; --accent-ink: #1f1005; --ok: #68c893; --focus: #f6a54f;
+      --display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+      --body: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--paper); }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--body); }
+    a { color: var(--accent); }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+    .page { max-width: 760px; margin: 0 auto; padding-block: 40px 80px;
+      padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+    .retour { font: 500 12px/1 var(--mono); color: var(--muted); text-decoration: none; letter-spacing: .04em; }
+    .retour:hover { color: var(--ink); }
+    .etiquette { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+    h1, h2 { font-family: var(--display); font-weight: 600; text-wrap: balance; letter-spacing: -.01em; }
+    h1 { font-size: clamp(32px, 6vw, 48px); line-height: 1.08; margin: 18px 0 16px; }
+    h2 { font-size: clamp(22px, 3.6vw, 28px); line-height: 1.2; margin: 0 0 14px; }
+    h3 { font: 600 16px/1.4 var(--body); margin: 0 0 6px; }
+    p { margin: 0 0 14px; color: var(--ink-2); max-width: 65ch; }
+    .chapeau { font-size: 18px; color: var(--ink-2); }
+    section { padding-top: 48px; margin-top: 48px; border-top: 1px solid var(--rule); }
+
+    .engagement { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+    .engagement div { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; }
+    .engagement strong { display: block; font: 600 26px/1.1 var(--display); color: var(--ink); }
+    .engagement span { font-size: 14px; color: var(--muted); }
+
+    .etapes { list-style: none; padding: 0; margin: 0; display: grid; gap: 18px; counter-reset: etape; }
+    .etapes li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; counter-increment: etape; }
+    .etapes li::before { content: counter(etape); width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--rule-2);
+      display: grid; place-items: center; font: 500 13px/1 var(--mono); color: var(--accent); }
+    .etapes p { margin: 0; font-size: 15px; }
+    .bouton-app { font: 500 13px/1 var(--mono); background: var(--paper-3); border: 1px solid var(--rule-2); border-radius: 5px; padding: 2px 6px; color: var(--ink); white-space: nowrap; }
+    .note { background: var(--paper-2); border-left: 2px solid var(--accent); border-radius: 0 8px 8px 0; padding: 14px 16px; font-size: 15px; color: var(--ink-2); }
+    .note p { margin: 0; }
+    code { font: 500 13px/1.5 var(--mono); background: var(--paper-3); border-radius: 5px; padding: 2px 6px; color: var(--ink); overflow-wrap: anywhere; }
+
+    form { display: grid; gap: 22px; margin-top: 8px; }
+    fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; min-width: 0; }
+    legend, label.titre { font: 600 15px/1.4 var(--body); color: var(--ink); padding: 0; margin-bottom: 2px; }
+    .aide { font-size: 13px; color: var(--muted); margin: -4px 0 2px; }
+    .choix { display: flex; flex-wrap: wrap; gap: 8px; }
+    .choix label { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border: 1px solid var(--rule-2); border-radius: 999px;
+      font-size: 14px; color: var(--ink-2); cursor: pointer; background: var(--paper-2); }
+    .choix input { accent-color: var(--accent); margin: 0; }
+    .choix label:has(input:checked) { border-color: var(--accent); color: var(--ink); background: rgba(240, 130, 30, .1); }
+    input[type="text"], input[type="date"], textarea { width: 100%; background: var(--paper-2); color: var(--ink); border: 1px solid var(--rule-2);
+      border-radius: 8px; padding: 11px 12px; font: 400 15px/1.5 var(--body); }
+    textarea { min-height: 88px; resize: vertical; }
+    .deux { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+    .btn { font: 600 15px/1 var(--body); padding: 14px 18px; border-radius: 8px; border: 1px solid var(--rule-2); background: var(--paper-3); color: var(--ink); cursor: pointer; text-decoration: none; }
+    .btn-primaire { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    .apercu { white-space: pre-wrap; font: 500 13px/1.6 var(--mono); background: var(--paper-2); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; color: var(--ink-2); max-height: 280px; overflow: auto; }
+    .statut { font-size: 14px; color: var(--ok); min-height: 1.4em; margin: 0; }
+    .adresse { font: 500 14px/1.5 var(--mono); color: var(--ink); user-select: all; }
+    footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--muted); }
+
+    @media (max-width: 560px) {
+      .engagement, .deux { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <a class="retour" href="/">← versepro.live</a>
+    <p class="etiquette" style="margin-top:28px">Église pilote</p>
+    <h1>Deux cultes avec VersePro, puis votre avis</h1>
+    <p class="chapeau">Nous cherchons quelques équipes média francophones pour essayer VersePro dans de vraies conditions : votre salle, votre micro, votre prédicateur. Ce que vous remarquez décide de la suite du logiciel.</p>
+
+    <div class="engagement" aria-label="Ce que nous vous demandons">
+      <div><strong>2 cultes</strong><span>avec VersePro en régie</span></div>
+      <div><strong>5 minutes</strong><span>de retour après chaque culte</span></div>
+      <div><strong>0 franc</strong><span>gratuit, sans compte ni abonnement</span></div>
+    </div>
+
+    <section aria-labelledby="avant">
+      <p class="etiquette">Avant le dimanche</p>
+      <h2 id="avant">Préparer le poste, une fois</h2>
+      <ol class="etapes">
+        <li><div><h3>Installer VersePro</h3>
+          <p>Téléchargez la version de votre ordinateur sur <a href="/#telecharger">versepro.live</a> : Windows 10/11 64 bits, ou Mac avec puce Apple (les Mac Intel ne sont pas encore pris en charge). Prévoyez 4 Go de mémoire libre.</p></div></li>
+        <li><div><h3>Passer l'avertissement du premier lancement</h3>
+          <p>Sur Windows, si « Windows a protégé votre ordinateur » s'affiche : <em>Informations complémentaires</em>, puis <em>Exécuter quand même</em>. Sur Mac : clic droit sur VersePro dans Applications, <em>Ouvrir</em>, puis <em>Ouvrir quand même</em>. L'installateur n'est pas encore signé ; c'est ce que financent les dons.</p></div></li>
+        <li><div><h3>Faire une première projection</h3>
+          <p>Dans <span class="bouton-app">Préparation du culte</span>, cliquez <span class="bouton-app">Ouvrir l’écran</span> puis <span class="bouton-app">Projeter Jean 3:16</span>. Chronométrez : nous voulons savoir combien de temps il vous a fallu depuis l'ouverture du logiciel.</p></div></li>
+        <li><div><h3>Préparer l'écoute et répéter</h3>
+          <p>Configurez le micro, puis utilisez <span class="bouton-app">Répéter sans diffuser</span> : VersePro propose des versets comme pendant un culte, sans rien envoyer à l'écran de la salle.</p></div></li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="pendant">
+      <p class="etiquette">Pendant le culte</p>
+      <h2 id="pendant">Vous gardez la main</h2>
+      <p>VersePro écoute la prédication et propose les versets cités. En <span class="bouton-app">Mode sûr</span>, réglage par défaut, rien ne part à l'écran sans votre validation. Gardez un papier à côté de vous et notez simplement :</p>
+      <ol class="etapes">
+        <li><div><p>les versets que le prédicateur a cités et que VersePro n'a <strong>pas</strong> proposés ;</p></div></li>
+        <li><div><p>les propositions qui ne correspondaient à <strong>rien</strong> de ce qui avait été dit ;</p></div></li>
+        <li><div><p>tout moment où vous avez dû demander de l'aide ou chercher comment faire.</p></div></li>
+      </ol>
+      <div class="note" style="margin-top:20px"><p>Le son de la prédication n'est enregistré nulle part et n'est envoyé à personne. Le moteur vocal local fonctionne sans Internet ; le formulaire ci-dessous n'envoie que ce que vous y écrivez.</p></div>
+    </section>
+
+    <section aria-labelledby="retour">
+      <p class="etiquette">Après chaque culte</p>
+      <h2 id="retour">Votre retour en cinq minutes</h2>
+      <p>Remplissez ce formulaire après le premier culte, puis après le second. Vos réponses forment un message que vous envoyez vous-même, par e-mail ou par WhatsApp.</p>
+
+      <form id="formulaire" novalidate>
+        <div class="deux">
+          <div><label class="titre" for="eglise">Église et ville</label>
+            <input type="text" id="eglise" name="Église" placeholder="Ex. : Assemblée de Lomé-Tokoin"></div>
+          <div><label class="titre" for="contact">Comment vous recontacter</label>
+            <input type="text" id="contact" name="Contact" placeholder="E-mail ou numéro WhatsApp"></div>
+        </div>
+        <div class="deux">
+          <fieldset><legend>Ce retour concerne</legend>
+            <div class="choix">
+              <label><input type="radio" name="Culte" value="1er culte" id="culte-1"> <span>1<sup>er</sup> culte</span></label>
+              <label><input type="radio" name="Culte" value="2e culte" id="culte-2"> <span>2<sup>e</sup> culte</span></label>
+            </div></fieldset>
+          <div><label class="titre" for="date">Date du culte</label>
+            <input type="date" id="date" name="Date"></div>
+        </div>
+        <fieldset><legend>Ordinateur de la régie</legend>
+          <div class="choix">
+            <label><input type="radio" name="Ordinateur" value="Windows" id="pc-win"> Windows</label>
+            <label><input type="radio" name="Ordinateur" value="Mac (puce Apple)" id="pc-mac"> Mac (puce Apple)</label>
+            <label><input type="radio" name="Ordinateur" value="Autre" id="pc-autre"> Autre</label>
+          </div></fieldset>
+        <fieldset><legend>Installation</legend>
+          <div class="choix">
+            <label><input type="radio" name="Installation" value="Seul, sans difficulté" id="inst-1"> Seul, sans difficulté</label>
+            <label><input type="radio" name="Installation" value="Seul, avec des difficultés" id="inst-2"> Seul, avec des difficultés</label>
+            <label><input type="radio" name="Installation" value="Avec de l'aide" id="inst-3"> Avec de l'aide</label>
+            <label><input type="radio" name="Installation" value="Pas réussie" id="inst-4"> Pas réussie</label>
+          </div></fieldset>
+        <fieldset><legend>Première projection, depuis l'ouverture du logiciel</legend>
+          <div class="choix">
+            <label><input type="radio" name="Première projection" value="Moins de 3 minutes" id="proj-1"> Moins de 3 minutes</label>
+            <label><input type="radio" name="Première projection" value="3 à 10 minutes" id="proj-2"> 3 à 10 minutes</label>
+            <label><input type="radio" name="Première projection" value="Plus de 10 minutes" id="proj-3"> Plus de 10 minutes</label>
+            <label><input type="radio" name="Première projection" value="Pas réussie" id="proj-4"> Pas réussie</label>
+          </div></fieldset>
+        <fieldset><legend>Versets cités par le prédicateur et proposés par VersePro</legend>
+          <div class="choix">
+            <label><input type="radio" name="Versets trouvés" value="Presque tous" id="tr-1"> Presque tous</label>
+            <label><input type="radio" name="Versets trouvés" value="La plupart" id="tr-2"> La plupart</label>
+            <label><input type="radio" name="Versets trouvés" value="Quelques-uns" id="tr-3"> Quelques-uns</label>
+            <label><input type="radio" name="Versets trouvés" value="Aucun" id="tr-4"> Aucun</label>
+            <label><input type="radio" name="Versets trouvés" value="Écoute non utilisée" id="tr-5"> Écoute non utilisée</label>
+          </div></fieldset>
+        <fieldset><legend>Propositions sans rapport avec ce qui avait été dit</legend>
+          <div class="choix">
+            <label><input type="radio" name="Fausses propositions" value="Aucune" id="fx-1"> Aucune</label>
+            <label><input type="radio" name="Fausses propositions" value="Quelques-unes" id="fx-2"> Quelques-unes</label>
+            <label><input type="radio" name="Fausses propositions" value="Beaucoup" id="fx-3"> Beaucoup</label>
+          </div></fieldset>
+        <fieldset><legend>Délai entre la citation et la proposition</legend>
+          <div class="choix">
+            <label><input type="radio" name="Délai" value="Immédiat" id="dl-1"> Immédiat</label>
+            <label><input type="radio" name="Délai" value="Acceptable" id="dl-2"> Acceptable</label>
+            <label><input type="radio" name="Délai" value="Trop lent" id="dl-3"> Trop lent</label>
+          </div></fieldset>
+        <fieldset><legend>Utiliserez-vous VersePro au prochain culte ?</legend>
+          <div class="choix">
+            <label><input type="radio" name="Prochain culte" value="Oui" id="pr-1"> Oui</label>
+            <label><input type="radio" name="Prochain culte" value="Peut-être" id="pr-2"> Peut-être</label>
+            <label><input type="radio" name="Prochain culte" value="Non" id="pr-3"> Non</label>
+          </div></fieldset>
+        <div><label class="titre" for="manques">Versets cités mais non proposés</label>
+          <p class="aide">Recopiez votre papier, même approximativement : « Jean 14:6 vers 10 h 20 ».</p>
+          <textarea id="manques" name="Versets non proposés"></textarea></div>
+        <div><label class="titre" for="aide">Ce qui a aidé</label>
+          <textarea id="aide" name="Ce qui a aidé"></textarea></div>
+        <div><label class="titre" for="blocage">Ce qui a bloqué, ou ce qui vous a fait douter</label>
+          <textarea id="blocage" name="Ce qui a bloqué"></textarea></div>
+
+        <div>
+          <p class="titre" style="font-weight:600;color:var(--ink);margin-bottom:8px">Votre message</p>
+          <div class="apercu" id="apercu" aria-live="polite"></div>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primaire" id="envoyer" href="#">Envoyer par e-mail</a>
+          <button class="btn" type="button" id="copier">Copier pour WhatsApp</button>
+        </div>
+        <p class="statut" id="statut" role="status"></p>
+        <p class="aide">Si votre messagerie ne s'ouvre pas, copiez le message et envoyez-le à <span class="adresse">gnane.gafard@gmail.com</span>.</p>
+      </form>
+    </section>
+
+    <footer>VersePro · gratuit pour les églises · <a href="/">versepro.live</a></footer>
+  </main>
+
+  <script>
+    (function () {
+      var ADRESSE = 'gnane.gafard@gmail.com';
+      var form = document.getElementById('formulaire');
+      var apercu = document.getElementById('apercu');
+      var envoyer = document.getElementById('envoyer');
+      var statut = document.getElementById('statut');
+
+      function message() {
+        var lignes = ['Retour église pilote VersePro', ''];
+        var vus = {};
+        Array.prototype.forEach.call(form.elements, function (el) {
+          if (!el.name || vus[el.name]) return;
+          var valeur = '';
+          if (el.type === 'radio') {
+            vus[el.name] = true;
+            var coche = form.querySelector('input[name="' + el.name + '"]:checked');
+            valeur = coche ? coche.value : '';
+          } else {
+            valeur = (el.value || '').trim();
+          }
+          if (!valeur) return;
+          if (el.tagName === 'TEXTAREA') lignes.push('', el.name + ' :', valeur);
+          else lignes.push(el.name + ' : ' + valeur);
+        });
+        return lignes.join('\n');
+      }
+
+      function sujet() {
+        var eglise = document.getElementById('eglise').value.trim();
+        var culte = form.querySelector('input[name="Culte"]:checked');
+        return 'VersePro · retour pilote' + (eglise ? ' · ' + eglise : '') + (culte ? ' · ' + culte.value : '');
+      }
+
+      function rafraichir() {
+        var texte = message();
+        var vide = texte.split('\n').length <= 2;
+        apercu.textContent = vide ? 'Vos réponses apparaîtront ici.' : texte;
+        envoyer.href = 'mailto:' + ADRESSE + '?subject=' + encodeURIComponent(sujet()) + '&body=' + encodeURIComponent(texte);
+      }
+
+      form.addEventListener('input', rafraichir);
+      form.addEventListener('change', rafraichir);
+      form.addEventListener('submit', function (e) { e.preventDefault(); });
+
+      document.getElementById('copier').addEventListener('click', function () {
+        var texte = message();
+        function repli() {
+          var plage = document.createRange();
+          plage.selectNodeContents(apercu);
+          var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(plage);
+          statut.textContent = 'Message sélectionné : copiez-le avec Ctrl+C (ou Cmd+C).';
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(texte).then(function () {
+            statut.textContent = 'Message copié. Collez-le dans WhatsApp.';
+          }, repli);
+        } else { repli(); }
+      });
+
+      rafraichir();
+    })();
+  </script>
+</body>
+</html>
